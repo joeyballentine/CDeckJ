@@ -125,20 +125,32 @@ pub fn rungameid(appid: u32) -> u64 {
     ((appid as u64) << 32) | 0x0200_0000
 }
 
-fn find_shortcut(exe: &Path) -> Option<u32> {
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    let roots = [home.join(".local/share/Steam/userdata"), home.join(".steam/steam/userdata")];
-    for root in roots {
+/// Every Steam user that has CDeckJ as a non-Steam game: (their `config` folder, app id).
+pub fn shortcuts(exe: &Path) -> Vec<(PathBuf, u32)> {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return Vec::new() };
+    // ~/.steam/steam is usually a link to ~/.local/share/Steam: count each folder once.
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for root in [home.join(".local/share/Steam/userdata"), home.join(".steam/steam/userdata")] {
         let Ok(rd) = std::fs::read_dir(root) else { continue };
         for user in rd.flatten() {
-            if let Ok(d) = std::fs::read(user.path().join("config/shortcuts.vdf")) {
+            let config = user.path().join("config");
+            let key = config.canonicalize().unwrap_or_else(|_| config.clone());
+            if !seen.insert(key) {
+                continue;
+            }
+            if let Ok(d) = std::fs::read(config.join("shortcuts.vdf")) {
                 if let Some(id) = shortcut_appid(&d, exe) {
-                    return Some(id);
+                    out.push((config, id));
                 }
             }
         }
     }
-    None
+    out
+}
+
+fn find_shortcut(exe: &Path) -> Option<u32> {
+    shortcuts(exe).first().map(|s| s.1)
 }
 
 fn launch(exe: &Path) {
@@ -238,12 +250,13 @@ pub fn install() -> Result<String, String> {
     std::fs::write(&path, unit_text(&exe)).map_err(|e| format!("writing {}: {e}", path.display()))?;
     systemctl(&["daemon-reload"])?;
     systemctl(&["enable", "--now", SERVICE])?;
+    let desktop = crate::desktop::install(&exe).map(|m| format!("{m}\n")).unwrap_or_else(|e| format!("(Couldn't add the menu entry: {e})\n"));
     let steam = if find_shortcut(&exe).is_some() {
         "CDeckJ is in Steam, so it will open in Game Mode and Desktop Mode.".to_string()
     } else {
         "CDeckJ isn't in Steam yet: it will open in Desktop Mode only. Add it with \"Add a Non-Steam Game\" for Game Mode too (no need to reinstall this).".to_string()
     };
-    Ok(format!("Auto-launch is on: CDeckJ starts when your controller is plugged in.\n{steam}\nIf you move the cdeckj file, run --install-autolaunch again. Turn it off with --uninstall-autolaunch."))
+    Ok(format!("Auto-launch is on: CDeckJ starts when your controller is plugged in.\n{desktop}{steam}\nIf you move the cdeckj file, run --install-autolaunch again. Turn it off with --uninstall-autolaunch."))
 }
 
 /// `cdeckj --uninstall-autolaunch`

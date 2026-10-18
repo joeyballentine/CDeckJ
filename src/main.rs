@@ -6,6 +6,7 @@ mod art;
 mod audio;
 mod cardprofile;
 mod config;
+mod desktop;
 mod engine;
 mod history;
 mod icons;
@@ -50,7 +51,10 @@ OPTIONS:
     --windowed           Don't start fullscreen
     --list               List audio devices and MIDI ports, then exit
     --midi-monitor       Print incoming MIDI messages and their mapping, then exit with Ctrl+C
-    --install-autolaunch Start CDeckJ whenever the controller is plugged in (no root needed)
+    --install-autolaunch Start CDeckJ whenever the controller is plugged in (no root needed;
+                         also does --install-desktop)
+    --install-desktop    Add CDeckJ to the applications menu with its icon, and give its Steam
+                         shortcut library artwork
     --uninstall-autolaunch
                          Turn that off again
     --watch              The watcher that --install-autolaunch runs in the background
@@ -74,6 +78,7 @@ struct Args {
     monitor: bool,
     watch: bool,
     install_autolaunch: bool,
+    install_desktop: bool,
     uninstall_autolaunch: bool,
     tracks: Vec<PathBuf>,
 }
@@ -96,6 +101,7 @@ fn parse_args() -> Result<Args, String> {
             "--midi-monitor" => a.monitor = true,
             "--watch" => a.watch = true,
             "--install-autolaunch" => a.install_autolaunch = true,
+            "--install-desktop" => a.install_desktop = true,
             "--uninstall-autolaunch" => a.uninstall_autolaunch = true,
             "-h" | "--help" => {
                 print!("{HELP}");
@@ -128,8 +134,14 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     let midi_port = args.midi.clone().or(cfg.midi_port.clone());
-    if args.install_autolaunch || args.uninstall_autolaunch {
-        let r = if args.install_autolaunch { autolaunch::install() } else { autolaunch::uninstall() };
+    if args.install_autolaunch || args.uninstall_autolaunch || args.install_desktop {
+        let r = if args.install_autolaunch {
+            autolaunch::install()
+        } else if args.uninstall_autolaunch {
+            autolaunch::uninstall()
+        } else {
+            std::env::current_exe().map_err(|e| e.to_string()).and_then(|exe| desktop::install(&exe))
+        };
         match r {
             Ok(msg) => println!("{msg}"),
             Err(e) => {
@@ -179,12 +191,20 @@ fn main() -> eframe::Result {
         Err(e) => eprintln!("audio: {e}"),
     }
     let store = Arc::new(Mutex::new(Store::open_default()));
+    // Once CDeckJ is a Steam shortcut, give it library artwork (never replacing art you set).
+    std::thread::spawn(|| {
+        if let Ok(exe) = std::env::current_exe() {
+            if desktop::steam_art(&exe) > 0 {
+                eprintln!("steam: added library artwork for CDeckJ (shows after Steam restarts)");
+            }
+        }
+    });
 
     let native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("CDeckJ")
             .with_app_id("cdeckj")
-            .with_icon(theme::icon())
+            .with_icon(desktop::window_icon())
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([1100.0, 700.0])
             .with_fullscreen(fullscreen),

@@ -56,8 +56,9 @@ This project was called Platter until 0.6. On first start CDeckJ moves `~/.confi
 
 1. Switch to Desktop Mode and copy `cdeckj` to e.g. `~/Applications/cdeckj`, then `chmod +x` it.
 2. Put music in `~/Music` (subfolders are fine). Name files `Artist - Title.ext` for nicer display.
-3. Plug in the DDJ-GRV6 (a powered USB-C hub helps) and run `./cdeckj`.
-4. To use it from Game Mode, add it in Steam with *Add a Non-Steam Game*. Use launch options for any flags.
+3. Run `./cdeckj --install-desktop` once. CDeckJ shows up in the applications menu with its icon.
+4. Plug in the DDJ-GRV6 (a powered USB-C hub helps) and start CDeckJ from the menu, or run `./cdeckj`.
+5. To use it from Game Mode, add it in Steam with *Add a Non-Steam Game* (it's in the list, icon included). Use launch options for any flags. The next time CDeckJ starts, it gives the shortcut its library artwork (portrait and wide capsules, hero banner, logo); Steam shows it after a restart. Art you've set yourself is never replaced.
 
 The prebuilt binary needs only glibc 2.35+, `libasound` and `libudev`, all present on SteamOS.
 
@@ -223,6 +224,7 @@ cdeckj [OPTIONS] [TRACK1] [TRACK2]
   --midi-monitor     print incoming MIDI and how it is mapped
   --install-autolaunch / --uninstall-autolaunch
                      start CDeckJ whenever the controller is plugged in
+  --install-desktop  applications-menu entry, icon, and Steam library artwork
 ```
 
 Command-line options override the settings file for that run.
@@ -321,4 +323,4 @@ Not yet tested on hardware: the DDJ-GRV6 mapping (including the BEAT FX section)
 
 ## Licences
 
-Code: MIT. Test fixtures in `tests/fixtures/rekordbox` come from the rekordcrate project (MPL-2.0). Fonts in `assets/fonts` (Barlow Condensed, JetBrains Mono): SIL Open Font License 1.1, see the `OFL-*.txt` files. Icons: [Phosphor](https://phosphoricons.com) (MIT, `LICENSE-Phosphor.txt`), embedded as font subsets; after adding an icon to `src/icons.rs`, run `tools/subset-icons.sh`.
+Code: MIT. Test fixtures in `tests/fixtures/rekordbox` come from the rekordcrate project (MPL-2.0). Fonts in `assets/fonts` (Barlow Condensed, JetBrains Mono): SIL Open Font License 1.1, see the `OFL-*.txt` files. The app icon and Steam artwork in `assets/icon` are drawn by `tools/make-icons.py`. Icons: [Phosphor](https://phosphoricons.com) (MIT, `LICENSE-Phosphor.txt`), embedded as font subsets; after adding an icon to `src/icons.rs`, run `tools/subset-icons.sh`.

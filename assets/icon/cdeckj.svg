@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<defs>
+  <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#1A1F27"/><stop offset="1" stop-color="#101318"/>
+  </linearGradient>
+  <radialGradient id="platter" cx="0.42" cy="0.36" r="0.75">
+    <stop offset="0" stop-color="#232A34"/><stop offset="1" stop-color="#0A0C10"/>
+  </radialGradient>
+  <radialGradient id="label" cx="0.38" cy="0.32" r="0.8">
+    <stop offset="0" stop-color="#7DB8FF"/><stop offset="1" stop-color="#2F6FD0"/>
+  </radialGradient>
+  <radialGradient id="disc" cx="0.38" cy="0.3" r="0.85">
+    <stop offset="0" stop-color="#8CC4FF"/><stop offset="0.55" stop-color="#4D9CFF"/><stop offset="1" stop-color="#2D68C4"/>
+  </radialGradient>
+  <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+    <stop offset="0" stop-color="#4D9CFF" stop-opacity="0.22"/><stop offset="1" stop-color="#4D9CFF" stop-opacity="0"/>
+  </radialGradient>
+</defs>
+<rect x="0" y="0" width="256" height="256" rx="56" fill="url(#tile)"/>
+<rect x="1" y="1" width="254" height="254" rx="55" fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="2"/>
+<linearGradient id="wave" gradientUnits="userSpaceOnUse" x1="0" y1="5.9" x2="0" y2="250.1"><stop offset="0.1" stop-color="#5FC4F5"/><stop offset="0.5" stop-color="#4D9CFF"/><stop offset="0.9" stop-color="#B497FF"/></linearGradient>
+<polygon points="94.07,25.43 99.01,25.46 98.17,42.45 94.73,42.44" fill="url(#wave)"/>
+<polygon points="102.20,27.13 107.05,27.55 105.24,41.39 101.64,41.08" fill="url(#wave)"/>
+<polygon points="110.68,25.08 115.62,25.91 111.51,45.24 108.27,44.70" fill="url(#wave)"/>
+<polygon points="118.25,29.43 122.97,30.62 118.97,43.97 115.46,43.09" fill="url(#wave)"/>
+<polygon points="128.55,23.62 133.54,25.31 122.57,53.79 119.97,52.91" fill="url(#wave)"/>
+<polygon points="135.17,30.65 139.81,32.65 130.37,52.20 127.45,50.94" fill="url(#wave)"/>
+<polygon points="144.27,31.27 148.87,33.71 134.72,57.93 132.19,56.59" fill="url(#wave)"/>
+<polygon points="149.46,39.45 153.66,42.12 142.92,57.46 140.10,55.66" fill="url(#wave)"/>
+<polygon points="162.27,35.84 166.64,39.13 141.96,69.19 140.08,67.76" fill="url(#wave)"/>
+<polygon points="165.55,46.05 169.42,49.49 150.74,68.75 148.57,66.81" fill="url(#wave)"/>
+<polygon points="174.30,49.48 177.99,53.34 152.75,75.56 150.96,73.68" fill="url(#wave)"/>
+<polygon points="175.94,59.77 179.13,63.70 161.45,76.85 159.45,74.40" fill="url(#wave)"/>
+<polygon points="190.25,59.83 193.42,64.44 155.81,88.19 154.60,86.43" fill="url(#wave)"/>
+<polygon points="189.33,71.30 191.96,75.86 165.12,89.84 163.75,87.46" fill="url(#wave)"/>
+<polygon points="196.70,77.40 199.02,82.30 164.73,96.86 163.69,94.66" fill="url(#wave)"/>
+<polygon points="194.39,88.09 196.20,92.87 173.21,100.45 172.14,97.60" fill="url(#wave)"/>
+<polygon points="208.53,92.56 210.11,98.02 163.70,109.51 163.14,107.57" fill="url(#wave)"/>
+<polygon points="203.43,103.44 204.49,108.64 172.65,113.76 172.12,111.16" fill="url(#wave)"/>
+<polygon points="208.46,111.63 209.12,117.07 170.11,120.22 169.83,117.88" fill="url(#wave)"/>
+<polygon points="202.50,121.15 202.70,126.29 177.42,126.23 177.30,123.24" fill="url(#wave)"/>
+<polygon points="214.56,129.90 214.33,135.61 165.48,131.77 165.56,129.81" fill="url(#wave)"/>
+<polygon points="205.97,138.63 205.34,143.91 172.94,138.64 173.26,136.02" fill="url(#wave)"/>
+<polygon points="207.96,147.98 206.87,153.35 168.69,143.99 169.16,141.69" fill="url(#wave)"/>
+<polygon points="199.20,155.11 197.78,160.05 173.83,152.02 174.66,149.15" fill="url(#wave)"/>
+<polygon points="207.45,167.07 205.44,172.39 161.18,153.70 161.89,151.83" fill="url(#wave)"/>
+<polygon points="192.67,170.88 190.49,175.48 169.83,164.61 171.15,161.81" fill="url(#wave)"/>
+<polygon points="195.23,181.92 192.52,186.64 160.60,166.54 161.81,164.45" fill="url(#wave)"/>
+<polygon points="184.86,185.97 181.97,190.18 162.75,175.73 164.48,173.21" fill="url(#wave)"/>
+<polygon points="188.14,199.26 184.60,203.62 150.95,174.02 152.29,172.38" fill="url(#wave)"/>
+<polygon points="173.56,198.62 170.07,202.27 155.09,186.67 157.29,184.37" fill="url(#wave)"/>
+<polygon points="171.93,209.20 167.93,212.76 146.25,186.33 148.17,184.62" fill="url(#wave)"/>
+<polygon points="161.23,210.07 157.21,213.11 144.98,195.41 147.53,193.48" fill="url(#wave)"/>
+<polygon points="159.31,222.29 154.70,225.23 135.07,191.53 137.06,190.26" fill="url(#wave)"/>
+<polygon points="146.54,218.14 142.14,220.47 134.20,203.73 137.16,202.16" fill="url(#wave)"/>
+<polygon points="141.19,226.33 136.40,228.39 126.31,201.97 128.92,200.85" fill="url(#wave)"/>
+<polygon points="131.27,224.47 126.58,226.06 121.77,209.47 125.01,208.37" fill="url(#wave)"/>
+<polygon points="125.08,232.99 119.99,234.27 113.95,205.15 116.64,204.48" fill="url(#wave)"/>
+<polygon points="115.02,226.97 110.23,227.77 108.62,214.47 112.22,213.86" fill="url(#wave)"/>
+<polygon points="107.31,230.76 102.35,231.18 101.57,212.60 104.91,212.31" fill="url(#wave)"/>
+<polygon points="98.90,226.97 94.13,226.99 94.53,217.14 98.40,217.12" fill="url(#wave)"/>
+<circle cx="96" cy="128" r="56.00" fill="url(#disc)"/>
+<circle cx="96" cy="128" r="50.40" fill="none" stroke="#0A1A33" stroke-opacity="0.220" stroke-width="1.50"/>
+<circle cx="96" cy="128" r="44.80" fill="none" stroke="#0A1A33" stroke-opacity="0.190" stroke-width="1.50"/>
+<circle cx="96" cy="128" r="39.20" fill="none" stroke="#0A1A33" stroke-opacity="0.160" stroke-width="1.50"/>
+<circle cx="96" cy="128" r="33.60" fill="none" stroke="#0A1A33" stroke-opacity="0.130" stroke-width="1.50"/>
+<circle cx="96" cy="128" r="20.16" fill="#101318"/>
+<circle cx="96" cy="128" r="5.60" fill="#E4E9F0"/>
+<rect x="92.75" y="77.00" width="6.50" height="14.00" rx="3.25" fill="#F2A13B"/>
+</svg>
