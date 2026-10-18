@@ -45,7 +45,7 @@ impl WaveBuilder {
         let n = r[4].max(1.0);
         let (lo, mid, hi) = ((r[1] / n).sqrt(), (r[2] / n).sqrt(), (r[3] / n).sqrt());
         // Highs and mids carry less energy than the kick: weight them so they still show.
-        let (lo, mid, hi) = (lo, mid * 1.6, hi * 3.0);
+        let (lo, mid, hi) = (lo, mid * 0.8, hi * 2.2);
         let m = lo.max(mid).max(hi).max(1e-9);
         let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0) as u8;
         let b = WaveBin { peak: q(r[0]), low: q(lo / m), mid: q(mid / m), high: q(hi / m) };

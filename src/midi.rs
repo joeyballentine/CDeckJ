@@ -478,6 +478,7 @@ fn try_connect(
                 match mapper.decode_with(msg, snapshot.as_ref()) {
                     Some(Action::Engine(c)) => {
                         let _ = etx.try_send(c);
+                        rp();
                     }
                     Some(Action::Ui(a)) => {
                         let _ = utx.try_send(a);
@@ -560,7 +561,9 @@ pub fn spawn(
                         *st.lock() = None;
                         repaint();
                     }
-                    if link.is_none() {
+                    // No ALSA sequencer (no MIDI at all): don't spam retries.
+                    let seq = cfg!(not(target_os = "linux")) || std::path::Path::new("/dev/snd/seq").exists();
+                    if link.is_none() && seq {
                         link = try_connect(wanted.as_deref(), &map, &locks, &engine_tx, &ui_tx, &repaint, &view);
                         if let Some(l) = &link {
                             eprintln!("midi: {}", l.name);

@@ -26,6 +26,9 @@ use crate::touch::Touches;
 use crate::track::{self, GridSource, SavedCue, Track, WAVE_BINS_PER_SEC};
 
 const JOG_TICKS_PER_REV: f64 = 720.0;
+/// Idle redraw interval: everything that changes state (MIDI, gamepad, loaders) also
+/// requests a repaint, so this only keeps clocks honest.
+const IDLE_REPAINT: Duration = Duration::from_secs(1);
 const HOT_LETTERS: [&str; 8] = ["A", "B", "C", "D", "E", "F", "G", "H"];
 const WAVE_ZOOMS: [f64; 5] = [4.0, 6.0, 8.0, 12.0, 16.0];
 
@@ -99,9 +102,13 @@ pub struct App {
     decks: [DeckUi; DECKS],
     next_gen: u64,
     audio: Option<AudioOut>,
+    /// Keeps the engine running (silently) while there's no audio device.
+    silent: Option<audio::SilentClock>,
     audio_opts: AudioOptions,
     audio_error: Option<String>,
     last_reconnect: Instant,
+    /// A reconnect attempt running off the UI thread (device probing can block).
+    reconnecting: Option<crossbeam_channel::Receiver<Result<AudioOut, String>>>,
     midi: MidiStatus,
     gamepad: Option<GamepadStatus>,
     locks: PickupLocks,
@@ -139,6 +146,7 @@ impl App {
             Ok(a) => (Some(a), None),
             Err(e) => (None, Some(e)),
         };
+        let silent = audio.is_none().then(|| audio::SilentClock::start(&init.engine));
         let mut app = Self {
             cmd: init.cmd,
             view: init.view,
@@ -154,10 +162,12 @@ impl App {
             focus_search: false,
             decks: Default::default(),
             next_gen: 1,
+            silent,
             audio,
             audio_opts: init.audio_opts,
             audio_error,
             last_reconnect: Instant::now(),
+            reconnecting: None,
             midi: init.midi,
             gamepad: init.gamepad,
             locks: init.locks,
@@ -311,17 +321,38 @@ impl App {
         if lost && self.audio.is_some() {
             self.audio = None;
             self.audio_error = Some("audio device disconnected".into());
+            self.silent = Some(audio::SilentClock::start(&self.engine));
         }
-        if self.audio.is_none() && self.last_reconnect.elapsed() > Duration::from_secs(2) {
-            self.last_reconnect = Instant::now();
-            match audio::start(&self.audio_opts, &self.engine) {
-                Ok(a) => {
-                    eprintln!("audio: reconnected to {}", a.description);
+        if let Some(rx) = &self.reconnecting {
+            match rx.try_recv() {
+                Ok(Ok(a)) => {
+                    eprintln!("audio: connected to {}", a.description);
+                    self.silent = None;
                     self.audio = Some(a);
                     self.audio_error = None;
+                    self.reconnecting = None;
                 }
-                Err(e) => self.audio_error = Some(e),
+                Ok(Err(e)) => {
+                    self.audio_error = Some(e);
+                    // A failed attempt may have left the engine set up for that device.
+                    if self.silent.is_some() {
+                        self.engine.lock().set_output(48000, 2, crate::engine::CueRouting::MasterOnly);
+                    }
+                    self.reconnecting = None;
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => {}
+                Err(crossbeam_channel::TryRecvError::Disconnected) => self.reconnecting = None,
             }
+        } else if self.audio.is_none() && self.last_reconnect.elapsed() > Duration::from_secs(2) {
+            self.last_reconnect = Instant::now();
+            // Probing devices can take a while: do it on a thread while the silent clock
+            // keeps time, and hand over only once a stream exists.
+            let (tx, rx) = crossbeam_channel::bounded(1);
+            let (opts, engine) = (self.audio_opts.clone(), self.engine.clone());
+            std::thread::spawn(move || {
+                let _ = tx.send(audio::start(&opts, &engine));
+            });
+            self.reconnecting = Some(rx);
         }
     }
 
@@ -342,9 +373,7 @@ impl App {
         if self.config != self.config_saved {
             let since = *self.config_dirty_since.get_or_insert_with(Instant::now);
             if since.elapsed() > Duration::from_secs(2) {
-                if let Err(e) = self.config.save() {
-                    self.banner = Some(format!("Couldn't save settings: {e}"));
-                }
+                self.config.save_in_background();
                 self.config_saved = self.config.clone();
                 self.config_dirty_since = None;
             }
@@ -379,16 +408,22 @@ impl App {
                         .collect();
                     cues.extend(dv.memory.iter().flatten().map(|m| SavedCue { hot: None, at: m / sr, loop_end: None, color: None, comment: String::new() }));
                     let cue = dv.cue / sr;
-                    self.store.lock().update(&track.path, |r| {
+                    let mut st = self.store.lock();
+                    st.update(&track.path, |r| {
                         r.cues = Some(cues);
                         r.cue_point = Some(cue);
                     });
+                    // Cue edits are precious: write now (off the UI thread) rather than on the debounce.
+                    let job = st.snapshot(true);
+                    drop(st);
+                    crate::config::write_in_background(job);
                     self.decks[d].saved = Some(snap);
                 }
                 _ => {}
             }
         }
-        self.store.lock().flush(false);
+        let job = self.store.lock().snapshot(false);
+        crate::config::write_in_background(job);
     }
 
     fn set_zoom(&mut self, dir: i32) {
@@ -419,6 +454,8 @@ impl App {
         if ui.ctx().text_edit_focused() {
             return;
         }
+        // A focused control owns the arrows, Enter and Space.
+        let widget_focus = ui.ctx().memory(|m| m.focused().is_some());
         let events: Vec<(Key, bool, bool)> = ui.input(|i| {
             i.events
                 .iter()
@@ -429,6 +466,9 @@ impl App {
                 .collect()
         });
         for (key, pressed, repeat) in events {
+            if widget_focus && matches!(key, Key::ArrowUp | Key::ArrowDown | Key::ArrowLeft | Key::ArrowRight | Key::Enter | Key::Space) {
+                continue;
+            }
             if pressed && repeat {
                 match key {
                     Key::ArrowUp => self.browse(-1),
@@ -474,8 +514,9 @@ impl App {
                 (Key::Q, true) => self.load_selected(0),
                 (Key::P, true) => self.load_selected(1),
                 (Key::G, true) => self.send(Cmd::QuantizeToggle),
-                (Key::Minus, true) => self.set_zoom(-1),
-                (Key::Equals | Key::Plus, true) => self.set_zoom(1),
+                // Same as the on-screen −/+: minus shows more time (zoom out).
+                (Key::Minus, true) => self.set_zoom(1),
+                (Key::Equals | Key::Plus, true) => self.set_zoom(-1),
                 (Key::ArrowUp, true) => self.browse(-1),
                 (Key::ArrowDown, true) => self.browse(1),
                 (Key::PageUp, true) => self.browse(-10),
@@ -508,11 +549,12 @@ impl eframe::App for App {
 
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0, t::CHROME);
+        fit_to_window(ui.ctx(), full);
 
         let top_h = 34.0;
         let banner_h = if self.banner.is_some() { 30.0 } else { 0.0 };
         let wave_h = (full.height() * 0.175).clamp(100.0, 180.0);
-        let main_h = 386.0f32.min((full.height() - top_h - banner_h - wave_h - 150.0).max(330.0));
+        let main_h = 396.0f32.min((full.height() - top_h - banner_h - wave_h - 150.0).max(330.0));
         let mixer_w = 340.0;
 
         let top = Rect::from_min_size(full.min, vec2(full.width(), top_h));
@@ -549,8 +591,13 @@ impl eframe::App for App {
             || self.touches.touch_mode();
         if busy {
             ui.ctx().request_repaint();
+        } else if v.decks.iter().any(|d| d.loaded) {
+            // Paused decks blink CUE/PLAY at 1 Hz (2 edges/s): wake exactly on the next edge.
+            let now = ui.input(|i| i.time);
+            let next_edge = ((now * 2.0).floor() + 1.0) / 2.0;
+            ui.ctx().request_repaint_after(Duration::from_secs_f64((next_edge - now).max(0.01)));
         } else {
-            ui.ctx().request_repaint_after(Duration::from_millis(60));
+            ui.ctx().request_repaint_after(IDLE_REPAINT);
         }
     }
 
@@ -564,6 +611,19 @@ impl eframe::App for App {
 // Drawing helpers
 // ---------------------------------------------------------------------------------------------
 
+/// The layout needs about 1100 × 700 points. On a screen that's smaller in points (e.g. a
+/// 1280 × 800 panel at 150 % scaling) shrink everything to fit instead of clipping.
+const DESIGN_MIN: Vec2 = vec2(1100.0, 700.0);
+
+fn fit_to_window(ctx: &egui::Context, full: Rect) {
+    let native = ctx.native_pixels_per_point().unwrap_or(1.0);
+    let phys = full.size() * ctx.pixels_per_point();
+    let fit = (phys.x / native / DESIGN_MIN.x).min(phys.y / native / DESIGN_MIN.y).min(1.0).max(0.5);
+    if (ctx.zoom_factor() - fit).abs() > 0.01 {
+        ctx.set_zoom_factor(fit);
+    }
+}
+
 fn text_fit(p: &Painter, pos: Pos2, anchor: Align2, s: &str, font: FontId, color: Color32, max_w: f32) {
     let mut job = LayoutJob::simple_singleline(s.to_owned(), font, color);
     job.wrap = TextWrapping::truncate_at_width(max_w.max(1.0));
@@ -572,17 +632,50 @@ fn text_fit(p: &Painter, pos: Pos2, anchor: Align2, s: &str, font: FontId, color
     p.galley(r.min, g, color);
 }
 
+fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
+    let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
+}
+
 fn card(p: &Painter, r: Rect) {
     p.rect_filled(r, CornerRadius::same(t::R_CARD), t::SURFACE);
     p.rect_stroke(r, CornerRadius::same(t::R_CARD), Stroke::new(1.0, t::BORDER), StrokeKind::Inside);
 }
 
 /// Shared input for every custom control: touch (per finger) or mouse/keyboard.
+/// A focused control activated with Enter/Space reports `key = true`.
 fn control(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, info: impl Fn() -> WidgetInfo) -> (crate::touch::Ctl, egui::Response) {
     let resp = ui.interact(r, id, Sense::click_and_drag());
     resp.widget_info(info);
-    let c = tc.ctl(r, id, &resp);
+    let mut c = tc.ctl(r, id, &resp);
+    c.key = resp.has_focus() && ui.input(|i| i.key_pressed(Key::Enter) || i.key_pressed(Key::Space));
+    // A press and release inside one frame (a quick tap, or a synthetic click) never shows
+    // as `down`: report it as a momentary press so hold-style controls still respond.
+    if c.clicked && !c.released && !c.down {
+        c.key = true;
+        c.pressed = true;
+    }
+    // Keyboard activation counts as a click in touch mode too.
+    c.clicked |= c.key;
     (c, resp)
+}
+
+/// −1 / +1 when ← / → is pressed while `resp` has keyboard focus.
+fn focused_arrow(ui: &Ui, resp: &egui::Response) -> f64 {
+    if !resp.has_focus() {
+        return 0.0;
+    }
+    ui.input(|i| i.key_pressed(Key::ArrowRight) as i32 - i.key_pressed(Key::ArrowLeft) as i32) as f64
+}
+
+/// Like [`button`], with a tooltip (for terse labels and to show the keyboard shortcut).
+#[allow(clippy::too_many_arguments)]
+fn button_tip(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str, lit: Option<Color32>, font: FontId, tip: &str) -> crate::touch::Ctl {
+    let (c, resp) = button_resp(ui, tc, r, id, label, lit, font);
+    if !tc.touch_mode() {
+        resp.on_hover_text(tip);
+    }
+    c
 }
 
 fn focus_ring(p: &Painter, r: Rect, resp: &egui::Response, radius: u8) {
@@ -593,22 +686,27 @@ fn focus_ring(p: &Painter, r: Rect, resp: &egui::Response, radius: u8) {
 
 /// A flat hardware-style button. `lit` lights it in the given colour.
 fn button(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str, lit: Option<Color32>, font: FontId) -> crate::touch::Ctl {
+    button_resp(ui, tc, r, id, label, lit, font).0
+}
+
+fn button_resp(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str, lit: Option<Color32>, font: FontId) -> (crate::touch::Ctl, egui::Response) {
     let l = label.to_string();
     let selected = lit.is_some();
     let (c, resp) = control(ui, tc, r, id, || WidgetInfo::selected(egui::Role::Button, true, selected, &l));
     let p = ui.painter();
     let (fill, stroke, ink) = match lit {
-        Some(col) => (col.gamma_multiply(0.22), col, col),
+        // Label mixed toward INK so it keeps ≥ 4.5:1 on its own tinted fill (REV, DELETE).
+        Some(col) => (col.gamma_multiply(0.18), col, mix(col, t::INK, 0.4)),
         None if c.down => (t::HOVER, t::INK_FAINT, t::INK),
         None if c.hovered => (t::HOVER, t::BORDER, t::INK),
         None => (t::RAISED, t::BORDER, t::INK_MUTED),
     };
-    let fill = if c.down && lit.is_some() { fill.gamma_multiply(1.6) } else { fill };
+    let fill = if c.down && lit.is_some() { fill.gamma_multiply(1.4) } else { fill };
     p.rect_filled(r, CornerRadius::same(t::R_CONTROL), fill);
     p.rect_stroke(r, CornerRadius::same(t::R_CONTROL), Stroke::new(1.0, stroke), StrokeKind::Inside);
     p.text(r.center(), Align2::CENTER_CENTER, label, font, ink);
     focus_ring(p, r, &resp, t::R_CONTROL);
-    c
+    (c, resp)
 }
 
 fn round_button(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str, col: Color32, lit: bool) -> crate::touch::Ctl {
@@ -731,9 +829,42 @@ fn hot_color(i: usize, rgb: Option<[u8; 3]>) -> Color32 {
 }
 
 fn fmt_time(secs: f64) -> String {
-    let s = secs.max(0.0);
-    let m = (s / 60.0).floor();
-    format!("{:02}:{:04.1}", m as i64, s - m * 60.0)
+    // Round to tenths first so 119.97 s shows as 02:00.0, not 01:60.0.
+    let tenths = (secs.max(0.0) * 10.0).round() as i64;
+    format!("{:02}:{:02}.{}", tenths / 600, (tenths / 10) % 60, tenths % 10)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn custom_controls_reach_the_accessibility_tree() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        ctx.enable_accesskit();
+        let mut tc = Touches::default();
+        let mut out = None;
+        for _ in 0..2 {
+            let mut o = ctx.run_ui(Default::default(), |ui| {
+                let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(60.0, 32.0));
+                button_tip(ui, &mut tc, r, Id::NULL.with("t"), "PLAY", None, semi(13.0), "Play/pause ( Space )");
+            });
+            o.textures_delta.clear(); // no renderer in tests
+            out = Some(o);
+        }
+        let o = out.unwrap();
+        let update = o.platform_output.accesskit_update.expect("accesskit update");
+        let labels: Vec<String> = update.nodes.iter().filter_map(|(_, n)| n.label().map(str::to_string)).collect();
+        assert!(labels.iter().any(|l| l == "PLAY"), "{labels:?}");
+    }
+
+    #[test]
+    fn time_format_rounds_cleanly() {
+        assert_eq!(super::fmt_time(119.97), "02:00.0");
+        assert_eq!(super::fmt_time(61.24), "01:01.2");
+        assert_eq!(super::fmt_time(-3.0), "00:00.0");
+    }
 }
 
 /// Small painted glyphs for browser rows (folder, drive, playlist, collection).
@@ -830,7 +961,8 @@ impl App {
         };
         p.text(pos2(m.min.x - 64.0, r.center().y), Align2::RIGHT_CENTER, dsp, mono(12.0), dcol);
         let qr = Rect::from_min_size(pos2(r.max.x - right_w + 6.0, r.min.y + 5.0), vec2(84.0, 24.0));
-        if button(ui, &mut self.touches, qr, Id::NULL.with("quantize"), "QUANTIZE", v.quantize.then_some(t::LOOP), semi(13.0)).clicked {
+        let qtip = if v.quantize { "Quantize on: cues, loops and jumps snap to the beat  ( G )" } else { "Quantize off  ( G )" };
+        if button_tip(ui, &mut self.touches, qr, Id::NULL.with("quantize"), "QUANTIZE", v.quantize.then_some(t::LOOP), semi(13.0), qtip).clicked {
             self.send(Cmd::QuantizeToggle);
         }
     }
@@ -850,8 +982,9 @@ impl App {
     fn zoom_buttons(&mut self, ui: &Ui, waves: Rect) {
         let w = 30.0;
         for (i, (label, dir)) in [("−", 1), ("+", -1)].into_iter().enumerate() {
-            let r = Rect::from_min_size(pos2(waves.max.x - 2.0 * (w + 4.0) - 6.0 + i as f32 * (w + 4.0), waves.min.y + 4.0), vec2(w, 22.0));
-            if button(ui, &mut self.touches, r, Id::NULL.with(("zoom", i)), label, None, semi(16.0)).clicked {
+            let r = Rect::from_min_size(pos2(waves.max.x - 2.0 * (w + 4.0) - 6.0 + i as f32 * (w + 4.0), waves.min.y + 4.0), vec2(w, 26.0));
+            let tip = if dir > 0 { "Zoom waveforms out  ( − )" } else { "Zoom waveforms in  ( = )" };
+            if button_tip(ui, &mut self.touches, r, Id::NULL.with(("zoom", i)), label, None, semi(16.0), tip).clicked {
                 self.set_zoom(dir);
             }
         }
@@ -942,7 +1075,13 @@ impl App {
 
         // Drag the waveform to scratch, like pushing the record.
         let id = Id::NULL.with(("wave", d));
-        let (c, _) = control(ui, &mut self.touches, r, id, || WidgetInfo::labeled(egui::Role::Slider, true, format!("Deck {} waveform", d + 1)));
+        let (c, resp) = control(ui, &mut self.touches, r, id, || WidgetInfo::labeled(egui::Role::Slider, true, format!("Deck {} waveform", d + 1)));
+        focus_ring(&p, r.shrink(2.0), &resp, 2);
+        // Focused: ← / → jump one beat.
+        let k = focused_arrow(ui, &resp);
+        if k != 0.0 {
+            self.send(Cmd::BeatJump(d, k));
+        }
         if c.down != self.decks[d].wave_held {
             self.decks[d].wave_held = c.down;
             self.send(Cmd::JogTouch(d, c.down));
@@ -959,6 +1098,17 @@ impl App {
         let inner = r.shrink(t::SP_M);
         let tint = t::DECK_TINT[d];
         let mut y = inner.min.y;
+
+        // Screen readers: the painted header and readouts as one label (registered first, so
+        // the controls on top of it keep their hover and clicks).
+        {
+            let title = self.decks[d].track.as_ref().map(|t| format!("{} by {}", t.title, t.artist)).unwrap_or_else(|| "empty".into());
+            let bpm = dv.bpm.map(|b| format!(", {b:.2} BPM")).unwrap_or_default();
+            let state = if dv.playing { "playing" } else if dv.loaded { "paused" } else { "" };
+            let desc = format!("Deck {}: {title}, {state}, {} remaining, tempo {:+.2}%{bpm}", d + 1, fmt_time(((dv.length as f64 - dv.pos) / dv.sample_rate.max(1) as f64).max(0.0)), (dv.rate - 1.0) * 100.0);
+            let hr = Rect::from_min_size(inner.min, vec2(inner.width(), 46.0 + 6.0 + 52.0));
+            ui.interact(hr, Id::NULL.with(("deck_info", d)), Sense::hover()).widget_info(|| WidgetInfo::labeled(egui::Role::Label, true, &desc));
+        }
 
         // Header: deck badge, title/artist, status chips.
         let badge_c = pos2(inner.min.x + 14.0, y + 20.0);
@@ -979,7 +1129,10 @@ impl App {
         .into_iter()
         .flatten()
         .collect();
-        let chips_w = chips.len() as f32 * 56.0 + 4.0;
+        let shift = self.decks[d].shift;
+        let grid_src = track.as_ref().and_then(|t| t.grid_source());
+        let fix_bpm = shift && grid_src.is_some();
+        let chips_w = if fix_bpm { 2.0 * 74.0 + 4.0 } else { chips.len() as f32 * 56.0 + 4.0 };
         let title_w = inner.max.x - tx - chips_w;
         let du = &self.decks[d];
         let sub_y = y + 26.0;
@@ -1002,11 +1155,20 @@ impl App {
             text_fit(&p, pos2(tx, sub_y), Align2::LEFT_TOP, &format!("Pick a track below and press LOAD {}", d + 1), cond(15.0), t::INK_FAINT, title_w);
         }
         let mut chip_x = inner.max.x;
-        for (label, col) in &chips {
+        if fix_bpm {
+            // SHIFT: fix a half/double tempo detection.
+            for (i, (label, f)) in [("BPM ÷2", 0.5), ("BPM ×2", 2.0)].into_iter().enumerate() {
+                let br = Rect::from_min_size(pos2(inner.max.x - 148.0 + i as f32 * 76.0, y + 6.0), vec2(72.0, 26.0));
+                if button(ui, &mut self.touches, br, Id::NULL.with(("bpmfix", d, i)), label, None, semi(13.5)).clicked {
+                    self.scale_grid(d, f);
+                }
+            }
+        }
+        for (label, col) in chips.iter().filter(|_| !fix_bpm) {
             let w = 52.0;
             let cr = Rect::from_min_size(pos2(chip_x - w, y + 8.0), vec2(w, 22.0));
             p.rect_filled(cr, CornerRadius::same(t::R_CONTROL), col.gamma_multiply(0.18));
-            text_fit(&p, cr.center(), Align2::CENTER_CENTER, label, caption(), *col, w - 4.0);
+            text_fit(&p, cr.center(), Align2::CENTER_CENTER, label, caption(), mix(*col, t::INK, 0.4), w - 4.0);
             chip_x -= w + 4.0;
         }
         y += 46.0 + 6.0;
@@ -1024,27 +1186,18 @@ impl App {
         let time_col = if low_time && (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0 { t::DANGER } else { t::INK };
         p.text(pos2(inner.min.x, val_y), Align2::LEFT_TOP, format!("-{}", fmt_time(remain)), t::readout(), if dv.loaded { time_col } else { t::INK_FAINT });
 
-        let tc = inner.min.x + col_w * 1.22 + 6.0;
+        let tc = inner.min.x + col_w * 1.15 + 4.0;
         p.text(pos2(tc, cap_y), Align2::LEFT_TOP, if dv.tempo_held { "TEMPO · HELD" } else { "TEMPO" }, caption(), t::INK_FAINT);
         let pct = (dv.rate - 1.0) * 100.0;
         let range = if dv.range >= 1.0 { "WIDE".to_string() } else { format!("±{:.0}", dv.range * 100.0) };
-        p.text(pos2(tc, val_y + 3.0), Align2::LEFT_TOP, format!("{pct:+.2}%"), mono(19.0), if pct.abs() < 0.005 { t::INK_MUTED } else { t::INK });
-        let rr = Rect::from_min_size(pos2(tc + 88.0, val_y + 3.0), vec2(44.0, 22.0));
-        if button(ui, &mut self.touches, rr, Id::NULL.with(("range", d)), &range, None, caption()).clicked {
+        // Measured, so "-100.00%" (WIDE range) never runs into the chip.
+        let tr = p.text(pos2(tc, val_y + 3.0), Align2::LEFT_TOP, format!("{pct:+.2}%"), mono(19.0), if pct.abs() < 0.005 { t::INK_MUTED } else { t::INK });
+        let rr = Rect::from_min_size(pos2(tr.max.x + 6.0, val_y + 1.0), vec2(46.0, 26.0));
+        if button_tip(ui, &mut self.touches, rr, Id::NULL.with(("range", d)), &range, None, caption(), "Tempo range: ±6 / ±10 / ±16 % / WIDE").clicked {
             self.send(Cmd::TempoRangeCycle(d));
         }
 
-        let shift = self.decks[d].shift;
-        let grid_src = track.as_ref().and_then(|t| t.grid_source());
-        if shift && grid_src.is_some() {
-            // SHIFT: fix a half/double tempo detection.
-            for (i, (label, f)) in [("÷2", 0.5), ("×2", 2.0)].into_iter().enumerate() {
-                let br = Rect::from_min_size(pos2(inner.max.x - 96.0 + i as f32 * 50.0, cap_y - 2.0), vec2(46.0, 16.0));
-                if button(ui, &mut self.touches, br, Id::NULL.with(("bpmfix", d, i)), label, None, caption()).clicked {
-                    self.scale_grid(d, f);
-                }
-            }
-        } else {
+        {
             let bpm_cap = match grid_src {
                 Some(GridSource::Rekordbox) => "BPM · REKORDBOX GRID",
                 Some(GridSource::Saved) => "BPM · SAVED GRID",
@@ -1053,7 +1206,10 @@ impl App {
             p.text(pos2(inner.max.x, cap_y), Align2::RIGHT_TOP, bpm_cap, caption(), t::INK_FAINT);
         }
         let bpm = dv.bpm.map(|b| format!("{b:.2}")).unwrap_or_else(|| if dv.loaded && !dv.complete { "…".into() } else { "--.--".into() });
-        p.text(pos2(inner.max.x, val_y - 3.0), Align2::RIGHT_TOP, bpm, mono(28.0), if dv.synced { t::SYNC } else { t::INK });
+        // Shrink the BPM readout rather than overlap the range chip on a narrow window.
+        let room = inner.max.x - rr.max.x - 8.0;
+        let bpm_size = (28.0f32).min(room / (bpm.chars().count().max(1) as f32 * 0.62)).max(16.0);
+        p.text(pos2(inner.max.x, val_y - 3.0 + (28.0 - bpm_size) * 0.5), Align2::RIGHT_TOP, bpm, mono(bpm_size), if dv.synced { t::SYNC } else { t::INK });
         y += 52.0 + 6.0;
 
         // Overview (tap to seek) with decode progress.
@@ -1087,7 +1243,7 @@ impl App {
         let bw = (inner.width() - 7.0 * 5.0) / 8.0;
         for row in rows {
             for (i, (label, lit, code)) in row.into_iter().enumerate() {
-                let br = Rect::from_min_size(pos2(inner.min.x + i as f32 * (bw + 5.0), y), vec2(bw, 28.0));
+                let br = Rect::from_min_size(pos2(inner.min.x + i as f32 * (bw + 5.0), y), vec2(bw, 32.0));
                 let c = button(ui, &mut self.touches, br, Id::NULL.with(("btn", d, code)), label, lit, semi(13.5));
                 if !c.clicked {
                     continue;
@@ -1118,17 +1274,23 @@ impl App {
                     self.send(c);
                 }
             }
-            y += 28.0 + 6.0;
+            y += 32.0 + 5.0;
         }
-        y += 2.0;
+        y += 1.0;
 
         // Controls: jog | CUE/PLAY | pads | tempo fader.
         let ctl = Rect::from_min_max(pos2(inner.min.x, y), inner.max);
-        let jog_d = ctl.height().min(132.0);
+        // Pads keep a usable width (≥ 44 pt) on narrow windows: the jog gives way first.
+        let fader_w = 26.0;
+        let bsize = ((ctl.height() - 8.0) / 2.0).min(if ctl.width() < 400.0 { 54.0 } else { 60.0 });
+        let fixed = 12.0 + bsize + 12.0 + 10.0 + fader_w;
+        let pads_min = 4.0 * 44.0 + 3.0 * 6.0;
+        let jog_max = ctl.height().min(132.0).max(1.0);
+        // (not clamp: on a tiny first frame the max can fall below the min)
+        let jog_d = (ctl.width() - fixed - pads_min).max(84.0).min(jog_max);
         let jog = Rect::from_min_size(pos2(ctl.min.x, ctl.center().y - jog_d / 2.0), vec2(jog_d, jog_d));
         self.jog(ui, &p, jog, d, dv);
 
-        let fader_w = 26.0;
         let fader = Rect::from_min_max(pos2(ctl.max.x - fader_w, ctl.min.y), ctl.max);
         let fv = (1.0 - (dv.tempo_fader as f32 + 1.0) / 2.0).clamp(0.0, 1.0); // top = −
         let fcol = if dv.synced { t::SYNC } else if dv.tempo_held { t::CUE } else { t::INK_MUTED };
@@ -1142,7 +1304,6 @@ impl App {
 
         // CUE / PLAY (act on press, like the hardware; two fingers can hold CUE and hit PLAY).
         let bx = jog.max.x + 12.0;
-        let bsize = ((ctl.height() - 8.0) / 2.0).min(60.0);
         let cue_r = Rect::from_min_size(pos2(bx, ctl.center().y - bsize - 4.0), vec2(bsize, bsize));
         let play_r = Rect::from_min_size(pos2(bx, ctl.center().y + 4.0), vec2(bsize, bsize));
         let blink = (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0;
@@ -1152,9 +1313,12 @@ impl App {
         if cc.down != self.decks[d].cue_held {
             self.decks[d].cue_held = cc.down;
             self.send(Cmd::Cue(d, cc.down));
+        } else if cc.key {
+            self.send(Cmd::Cue(d, true));
+            self.send(Cmd::Cue(d, false));
         }
         let pc = round_button(ui, &mut self.touches, play_r, Id::NULL.with(("play", d)), "PLAY", t::PLAY, play_lit);
-        if pc.down && !self.decks[d].play_held {
+        if (pc.down && !self.decks[d].play_held) || pc.key {
             self.send(Cmd::Play(d));
         }
         self.decks[d].play_held = pc.down;
@@ -1164,12 +1328,14 @@ impl App {
         let px1 = fader.min.x - 10.0;
         let gap = 6.0;
         let pw = ((px1 - px0 - 3.0 * gap) / 4.0).min((ctl.height() - gap) / 2.0);
-        let grid_h = pw * 2.0 + gap;
+        // Narrow pads grow taller instead, up to square-ish 52 pt.
+        let ph = pw.max(52.0f32.min((ctl.height() - gap) / 2.0));
+        let grid_h = ph * 2.0 + gap;
         let gy = ctl.center().y - grid_h / 2.0;
         let gx = px0 + ((px1 - px0) - (pw * 4.0 + gap * 3.0)) / 2.0;
         for i in 0..HOT_CUES {
             let (row, col) = (i / 4, i % 4);
-            let pr = Rect::from_min_size(pos2(gx + col as f32 * (pw + gap), gy + row as f32 * (pw + gap)), vec2(pw, pw));
+            let pr = Rect::from_min_size(pos2(gx + col as f32 * (pw + gap), gy + row as f32 * (ph + gap)), vec2(pw, ph));
             let set = dv.hot[i].is_some();
             let colr = hot_color(i, dv.hot[i].and_then(|h| h.color));
             let (c, resp) = control(ui, &mut self.touches, pr, Id::NULL.with(("pad", d, i)), || {
@@ -1199,6 +1365,9 @@ impl App {
             } else if c.down != self.decks[d].hot_held[i] {
                 self.decks[d].hot_held[i] = c.down;
                 self.send(Cmd::HotCue(d, i, c.down));
+            } else if c.key {
+                self.send(Cmd::HotCue(d, i, true));
+                self.send(Cmd::HotCue(d, i, false));
             }
         }
         if shift {
@@ -1263,7 +1432,13 @@ impl App {
             p.vline(x_of(s), r.y_range(), Stroke::new(2.0, t::SYNC));
         }
         p.vline(play_x, r.y_range(), Stroke::new(2.0, t::INK));
-        let (c, _) = control(ui, &mut self.touches, r, Id::NULL.with(("overview", d)), || WidgetInfo::slider(true, dv.pos / length, format!("Deck {} position", d + 1)));
+        let (c, resp) = control(ui, &mut self.touches, r, Id::NULL.with(("overview", d)), || WidgetInfo::slider(true, dv.pos / length, format!("Deck {} position", d + 1)));
+        focus_ring(p, r, &resp, t::R_CONTROL);
+        // Focused: ← / → jump 16 beats.
+        let k = focused_arrow(ui, &resp);
+        if k != 0.0 {
+            self.send(Cmd::BeatJump(d, 16.0 * k));
+        }
         if c.down || c.clicked {
             if let Some(pos) = c.pos {
                 let f = ((pos.x - r.min.x) / r.width()).clamp(0.0, 1.0);
@@ -1290,7 +1465,15 @@ impl App {
         let mode = if dv.vinyl { "VINYL" } else { "CDJ" };
         p.text(c, Align2::CENTER_CENTER, mode, caption(), if dv.vinyl { t::INK_MUTED } else { t::INK_FAINT });
 
-        let (ctl, _) = control(ui, &mut self.touches, r, Id::NULL.with(("jog", d)), || WidgetInfo::labeled(egui::Role::Slider, true, format!("Deck {} jog wheel", d + 1)));
+        let (ctl, resp) = control(ui, &mut self.touches, r, Id::NULL.with(("jog", d)), || WidgetInfo::labeled(egui::Role::Slider, true, format!("Deck {} jog wheel", d + 1)));
+        if resp.has_focus() {
+            p.circle_stroke(r.center(), r.width() / 2.0 + 3.0, Stroke::new(2.0, t::ACCENT));
+        }
+        // Focused: ← / → search about a third of a second.
+        let k = focused_arrow(ui, &resp);
+        if k != 0.0 {
+            self.send(Cmd::JogSearch(d, 3.0 * k));
+        }
         let du = &mut self.decks[d];
         if ctl.down != du.jog_held {
             du.jog_held = ctl.down;
@@ -1439,7 +1622,7 @@ impl App {
         let mut x = head.min.x;
         if self.lib.depth() > 0 || !self.lib.filter.is_empty() {
             let br = Rect::from_min_size(pos2(x, head.min.y + 1.0), vec2(74.0, 30.0));
-            if button(ui, &mut self.touches, br, Id::NULL.with("back"), "‹ BACK", None, semi(14.0)).clicked {
+            if button_tip(ui, &mut self.touches, br, Id::NULL.with("back"), "‹ BACK", None, semi(14.0), "Up one level, or clear the search  ( Backspace )").clicked {
                 self.browse_back();
             }
             x += 84.0;
@@ -1480,7 +1663,8 @@ impl App {
         let can_load = matches!(self.lib.selected_row(), Some(Row::Track(_)));
         for d in 0..DECKS {
             let br = Rect::from_min_size(pos2(head.max.x - (DECKS - d) as f32 * 104.0 + 8.0, head.min.y + 1.0), vec2(96.0, 30.0));
-            if button(ui, &mut self.touches, br, Id::NULL.with(("load", d)), &format!("LOAD {}", d + 1), can_load.then_some(t::DECK_TINT[d]), semi(15.0)).clicked {
+            let tip = if d == 0 { "Load the selected track on deck 1  ( Q )" } else { "Load the selected track on deck 2  ( P )" };
+            if button_tip(ui, &mut self.touches, br, Id::NULL.with(("load", d)), &format!("LOAD {}", d + 1), can_load.then_some(t::DECK_TINT[d]), semi(15.0), tip).clicked {
                 self.load_selected(d);
             }
         }
@@ -1517,8 +1701,9 @@ impl App {
             let heads = [(1, "TITLE", SortKey::Title), (2, "ARTIST", SortKey::Artist), (3, "BPM", SortKey::Bpm), (4, "KEY", SortKey::Key), (5, "TIME", SortKey::Time)];
             for (i, name, key) in heads {
                 let x = list.min.x + cx[i] + 8.0;
-                let hr = Rect::from_min_size(pos2(x - 4.0, top), vec2(58.0, 18.0));
-                let (c, _) = control(ui, &mut self.touches, hr, Id::NULL.with(("sort", i)), || WidgetInfo::labeled(egui::Role::Button, true, format!("Sort by {name}")));
+                let hr = Rect::from_min_size(pos2(x - 6.0, top - 3.0), vec2(62.0, 24.0));
+                let (c, resp) = control(ui, &mut self.touches, hr, Id::NULL.with(("sort", i)), || WidgetInfo::labeled(egui::Role::Button, true, format!("Sort by {name}")));
+                focus_ring(&p, hr, &resp, t::R_CONTROL);
                 let active = self.lib.sort.filter(|(k, _)| *k == key);
                 p.text(pos2(x, top + 8.0), Align2::LEFT_CENTER, name, caption(), if active.is_some() || c.hovered { t::INK_MUTED } else { t::INK_FAINT });
                 if let Some((_, asc)) = active {

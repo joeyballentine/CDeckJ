@@ -22,6 +22,8 @@ pub struct Stretcher {
     prev_start: f64,
     have_prev: bool,
     reference: Vec<f32>,
+    ref_d: Vec<f32>,
+    win_d: Vec<f32>,
 }
 
 #[inline]
@@ -57,6 +59,8 @@ impl Stretcher {
             prev_start: 0.0,
             have_prev: false,
             reference: vec![0.0; HOP],
+            ref_d: vec![0.0; HOP / DECIM],
+            win_d: vec![0.0; 2 * SEARCH as usize + HOP + 8],
         }
     }
 
@@ -108,39 +112,56 @@ impl Stretcher {
     }
 
     fn best_offset(&mut self, t: &Track, natural: f64, ideal: f64, ratio: f64) -> f64 {
+        // Coarse pass on a decimated grid: candidates every `q` source frames, correlating
+        // every DECIM-th sample. Plain f32 array maths, so it vectorises.
+        let q = DECIM as f64 * ratio;
+        let nref = HOP / DECIM;
+        for j in 0..nref {
+            self.ref_d[j] = mono(t, natural + j as f64 * q);
+        }
+        let ncand = ((2 * SEARCH) as f64 / q) as usize + 1;
+        let nwin = ncand + nref;
+        if nwin > self.win_d.len() {
+            return ideal;
+        }
+        let w0 = ideal - SEARCH as f64;
+        for k in 0..nwin {
+            self.win_d[k] = mono(t, w0 + k as f64 * q);
+        }
+        let (r, w) = (&self.ref_d[..nref], &self.win_d[..nwin]);
+        let mut energy: f32 = w[..nref].iter().map(|v| v * v).sum();
+        let mut best = (f32::MIN, 0usize);
+        for c in 0..ncand {
+            let xy: f32 = r.iter().zip(&w[c..c + nref]).map(|(a, b)| a * b).sum();
+            let s = xy / (energy + 1e-9).sqrt();
+            if s > best.0 {
+                best = (s, c);
+            }
+            if c + nref < nwin {
+                energy += w[c + nref] * w[c + nref] - w[c] * w[c];
+            }
+        }
+        let coarse = w0 + best.1 as f64 * q;
+        // Fine pass: full resolution around the coarse pick.
         for j in 0..HOP {
             self.reference[j] = mono(t, natural + j as f64 * ratio);
         }
-        let score = |off: i64, step: usize, refr: &[f32]| -> f32 {
-            let base = ideal + off as f64;
+        let reach = q.ceil() as i64;
+        let mut fine = (f32::MIN, coarse);
+        for off in -reach..=reach {
+            let base = coarse + off as f64;
             let (mut xy, mut yy) = (0f32, 1e-9f32);
-            let mut j = 0;
-            while j < HOP {
+            for (j, rv) in self.reference.iter().enumerate().step_by(2) {
                 let y = mono(t, base + j as f64 * ratio);
-                xy += refr[j] * y;
+                xy += rv * y;
                 yy += y * y;
-                j += step;
             }
-            xy / yy.sqrt()
-        };
-        let mut best = (f32::MIN, 0i64);
-        let mut off = -SEARCH;
-        while off <= SEARCH {
-            let s = score(off, DECIM, &self.reference);
-            if s > best.0 {
-                best = (s, off);
-            }
-            off += 2;
-        }
-        let coarse = best.1;
-        best = (f32::MIN, coarse);
-        for off in coarse - 2..=coarse + 2 {
-            let s = score(off, 1, &self.reference);
-            if s > best.0 {
-                best = (s, off);
+            let s = xy / yy.sqrt();
+            if s > fine.0 {
+                fine = (s, base);
             }
         }
-        ideal + best.1 as f64
+        fine.1
     }
 }
 

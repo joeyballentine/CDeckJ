@@ -147,6 +147,7 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_title("Platter")
             .with_app_id("platter")
+            .with_icon(theme::icon())
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([1100.0, 700.0])
             .with_fullscreen(fullscreen),

@@ -1,6 +1,5 @@
 //! Steam Deck integration: the built-in controls as a DJ controller, and keeping the screen on.
 
-use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -49,6 +48,7 @@ pub fn spawn_gamepad(cmd: Sender<Cmd>, ui: Sender<UiAction>, repaint: Arc<dyn Fn
             let mut last_repeat = Instant::now();
             let send = |c: Cmd| {
                 let _ = cmd.try_send(c);
+                repaint();
             };
             let ui_send = |a: UiAction| {
                 let _ = ui.try_send(a);
@@ -124,23 +124,18 @@ pub fn spawn_gamepad(cmd: Sender<Cmd>, ui: Sender<UiAction>, repaint: Arc<dyn Fn
 
 /// Keeps the screen on and the machine awake while alive.
 pub struct KeepAwake {
-    _dbus: Option<zbus::blocking::Connection>,
-    child: Option<Child>,
-}
-
-impl Drop for KeepAwake {
-    fn drop(&mut self) {
-        if let Some(c) = self.child.as_mut() {
-            let _ = c.kill();
-            let _ = c.wait();
-        }
-    }
+    /// The ScreenSaver inhibit lasts as long as this connection.
+    _session: Option<zbus::blocking::Connection>,
+    /// logind releases the sleep/idle block when this descriptor closes.
+    _logind: Option<zbus::zvariant::OwnedFd>,
 }
 
 /// Ask the desktop not to dim/lock (freedesktop ScreenSaver inhibit, held for as long as
-/// the D-Bus connection lives) and logind not to idle-sleep. Both are best effort.
+/// the D-Bus connection lives) and logind not to idle-sleep (held by a file descriptor).
+/// Both are best effort. (Talking to logind directly rather than running `systemd-inhibit`
+/// also keeps the binary free of newer-glibc process-spawning symbols.)
 pub fn keep_awake() -> KeepAwake {
-    let dbus = zbus::blocking::Connection::session().ok().and_then(|c| {
+    let session = zbus::blocking::Connection::session().ok().and_then(|c| {
         c.call_method(
             Some("org.freedesktop.ScreenSaver"),
             "/org/freedesktop/ScreenSaver",
@@ -151,12 +146,20 @@ pub fn keep_awake() -> KeepAwake {
         .ok()
         .map(|_| c)
     });
-    let child = Command::new("systemd-inhibit")
-        .args(["--what=idle:sleep", "--who=Platter", "--why=DJ set in progress", "--mode=block", "sleep", "infinity"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok();
-    KeepAwake { _dbus: dbus, child }
+    let logind = zbus::blocking::Connection::system().ok().and_then(|c| {
+        let reply = c
+            .call_method(
+                Some("org.freedesktop.login1"),
+                "/org/freedesktop/login1",
+                Some("org.freedesktop.login1.Manager"),
+                "Inhibit",
+                &("idle:sleep", "Platter", "DJ set in progress", "block"),
+            )
+            .ok()?;
+        reply.body().deserialize::<zbus::zvariant::OwnedFd>().ok()
+    });
+    if session.is_none() && logind.is_none() {
+        eprintln!("keep-awake: no screensaver or logind service; the screen may dim");
+    }
+    KeepAwake { _session: session, _logind: logind }
 }

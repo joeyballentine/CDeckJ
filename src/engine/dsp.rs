@@ -2,6 +2,20 @@
 
 use std::f32::consts::PI;
 
+/// Flush denormal floats to zero on this thread. Decaying filter states otherwise fall into
+/// denormal range during quiet passages and x86 CPUs slow down by 10–100× on them.
+#[inline]
+pub fn no_denormals() {
+    #[cfg(target_arch = "x86_64")]
+    // SAFETY: setting the FTZ and DAZ bits of MXCSR only changes how this thread rounds
+    // tiny floats; it cannot violate memory safety.
+    #[allow(deprecated)]
+    unsafe {
+        use std::arch::x86_64::{_mm_getcsr, _mm_setcsr};
+        _mm_setcsr(_mm_getcsr() | 0x8040);
+    }
+}
+
 /// Topology-preserving-transform state variable filter (Cytomic / Simper).
 /// Stable under fast cutoff modulation, which makes it a good fit for filter knobs.
 #[derive(Clone, Copy, Default)]

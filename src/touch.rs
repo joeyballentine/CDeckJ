@@ -28,6 +28,9 @@ pub struct Ctl {
     pub delta: Vec2,
     pub pos: Option<Pos2>,
     pub hovered: bool,
+    /// A momentary press: Enter/Space on the focused control, or a tap that went down and
+    /// up within one frame (filled in by the caller).
+    pub key: bool,
 }
 
 #[derive(Default)]
@@ -140,9 +143,11 @@ mod tests {
 
     fn resp(ctx: &egui::Context) -> Response {
         let mut out = None;
-        let _ = ctx.run_ui(Default::default(), |ui| {
+        let mut o = ctx.run_ui(Default::default(), |ui| {
             out = Some(ui.interact(Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(1.0, 1.0)), Id::NULL.with("dummy"), egui::Sense::hover()));
         });
+        // No renderer here: the font atlas upload is discarded on purpose.
+        o.textures_delta.clear();
         out.unwrap()
     }
 

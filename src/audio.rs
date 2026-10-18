@@ -29,6 +29,54 @@ pub struct AudioOut {
     pub routing: CueRouting,
 }
 
+/// Runs the engine against a silent clock while no audio device is available, so decks
+/// still load, play and show time (and MIDI LEDs keep working). Stops when dropped.
+pub struct SilentClock {
+    run: std::sync::Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl SilentClock {
+    pub fn start(engine: &SharedEngine) -> SilentClock {
+        const RATE: u32 = 48000;
+        const BLOCK: usize = 480;
+        engine.lock().set_output(RATE, 2, CueRouting::MasterOnly);
+        let run = std::sync::Arc::new(AtomicBool::new(true));
+        let r = run.clone();
+        let engine = engine.clone();
+        let thread = std::thread::Builder::new()
+            .name("silent-clock".into())
+            .spawn(move || {
+                let mut buf = vec![0f32; BLOCK * 2];
+                let start = std::time::Instant::now();
+                let mut done: u64 = 0;
+                while r.load(Ordering::Relaxed) {
+                    let due = (start.elapsed().as_secs_f64() * RATE as f64) as u64;
+                    // Never try to catch up more than 100 ms after a stall.
+                    if due > done + RATE as u64 / 10 {
+                        done = due - RATE as u64 / 10;
+                    }
+                    while done + BLOCK as u64 <= due {
+                        engine.lock().process(&mut buf);
+                        done += BLOCK as u64;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            })
+            .ok();
+        SilentClock { run, thread }
+    }
+}
+
+impl Drop for SilentClock {
+    fn drop(&mut self) {
+        self.run.store(false, Ordering::Relaxed);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
 /// Names that identify the controller's built-in sound card.
 const CONTROLLER_HINTS: &[&str] = &["grv6", "ddj", "alphatheta", "pioneer"];
 

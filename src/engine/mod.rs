@@ -142,7 +142,7 @@ pub struct EngineView {
 impl EngineView {
     pub fn new(sample_rate: u32, channels: u16, routing: CueRouting) -> Self {
         Self {
-            decks: [DeckView::default(); DECKS],
+            decks: [DeckView { rate: 1.0, range: 0.10, range_idx: deck::DEFAULT_RANGE, vinyl: true, ..DeckView::default() }; DECKS],
             mixer: MixerParams::default(),
             peak_master: 0.0,
             sample_rate,
@@ -388,6 +388,7 @@ impl Engine {
 
     /// Fill an interleaved f32 output buffer with `self.channels` channels.
     pub fn process(&mut self, out: &mut [f32]) {
+        dsp::no_denormals();
         let t0 = Instant::now();
         while let Ok(cmd) = self.cmd_rx.try_recv() {
             self.handle(cmd);
@@ -607,5 +608,74 @@ mod tests {
         // Started from the auto-cue at 0.1 s.
         assert!((v.decks[0].pos / 44100.0 - 2.1).abs() < 0.02, "{}", v.decks[0].pos / 44100.0);
         assert_eq!(v.sample_rate, 44100);
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+    use crate::analysis::click_track;
+    use crossbeam_channel::{bounded, unbounded};
+    use std::path::PathBuf;
+
+    /// `cargo test --release bench -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn dsp_cost() {
+        for keylock in [false, true] {
+            let (tx, rx) = unbounded();
+            let (gtx, _g) = bounded(4);
+            let view = Arc::new(Mutex::new(EngineView::new(48000, 4, CueRouting::Channels34)));
+            let mut e = Engine::new(48000, 4, CueRouting::Channels34, rx, gtx, view);
+            for d in 0..2 {
+                let t = Arc::new(Track::from_samples(PathBuf::from("t.wav"), 44100, click_track(124.0, 0.1, 60.0, 44100)));
+                tx.send(Cmd::Load { deck: d, track: t, generation: d as u64 + 1 }).unwrap();
+                tx.send(Cmd::TempoFader(d, 0.3)).unwrap();
+                tx.send(Cmd::MasterTempo(d, keylock)).unwrap();
+                tx.send(Cmd::Play(d)).unwrap();
+            }
+            tx.send(Cmd::Mix(MixParam::Filter(0, 0.3))).unwrap();
+            let mut out = vec![0f32; 256 * 4];
+            let secs = 20.0;
+            let t0 = Instant::now();
+            for _ in 0..(secs * 48000.0 / 256.0) as usize {
+                e.process(&mut out);
+            }
+            let el = t0.elapsed().as_secs_f64();
+            println!("keylock={keylock}: {:.1} ms per second of audio ({:.2}% of one core)", el / secs * 1000.0, el / secs * 100.0);
+        }
+    }
+}
+
+#[cfg(test)]
+mod bench2 {
+    use super::*;
+    use crate::analysis::click_track;
+    use std::path::PathBuf;
+
+    #[test]
+    #[ignore]
+    fn parts_cost() {
+        let t = Arc::new(Track::from_samples(PathBuf::from("t.wav"), 44100, click_track(124.0, 0.1, 60.0, 44100)));
+        let mut d = Deck::new(48000.0);
+        d.load(t, 1);
+        d.play_pressed();
+        let mut buf = vec![0f32; 512];
+        let n = (20.0 * 48000.0 / 256.0) as usize;
+        let t0 = Instant::now();
+        for _ in 0..n {
+            d.render(&mut buf, 1.03);
+        }
+        println!("deck render: {:.1} ms/s", t0.elapsed().as_secs_f64() / 20.0 * 1000.0);
+        dsp::no_denormals();
+        let mut m = Mixer::new(48000.0);
+        let p = MixerParams::default();
+        let a = vec![0.1f32; 512];
+        let (mut o1, mut o2) = (vec![0f32; 512], vec![0f32; 512]);
+        let t0 = Instant::now();
+        for _ in 0..n {
+            m.process(&p, [&a, &a], &mut o1, &mut o2);
+        }
+        println!("mixer: {:.1} ms/s", t0.elapsed().as_secs_f64() / 20.0 * 1000.0);
     }
 }

@@ -125,6 +125,14 @@ impl Config {
         }
     }
 
+    /// Save on a short-lived thread (errors are logged).
+    pub fn save_in_background(&self) {
+        match toml::to_string_pretty(self) {
+            Ok(s) => write_in_background(Some((Self::path(), s.into_bytes()))),
+            Err(e) => eprintln!("settings: {e}"),
+        }
+    }
+
     pub fn save(&self) -> Result<(), String> {
         let s = toml::to_string_pretty(self).map_err(|e| e.to_string())?;
         write_atomic(&Self::path(), s.as_bytes()).map_err(|e| e.to_string())
@@ -204,6 +212,18 @@ impl Store {
         }
     }
 
+    /// Serialise for saving if something changed (and it's been a while, unless `force`).
+    /// Writing happens elsewhere, so the caller never blocks on the disk.
+    pub fn snapshot(&mut self, force: bool) -> Option<(PathBuf, Vec<u8>)> {
+        if !self.dirty || (!force && self.last_save.elapsed() < Duration::from_secs(2)) {
+            return None;
+        }
+        let d = serde_json::to_vec(&self.map).ok()?;
+        self.dirty = false;
+        self.last_save = Instant::now();
+        Some((self.path.clone(), d))
+    }
+
     /// Save if something changed and the last save was a while ago (or `force`).
     pub fn flush(&mut self, force: bool) {
         if !self.dirty || (!force && self.last_save.elapsed() < Duration::from_secs(2)) {
@@ -215,6 +235,17 @@ impl Store {
                 self.last_save = Instant::now();
             }
         }
+    }
+}
+
+/// Write a [`Store::snapshot`] on a short-lived thread.
+pub fn write_in_background(job: Option<(PathBuf, Vec<u8>)>) {
+    if let Some((path, data)) = job {
+        std::thread::spawn(move || {
+            if let Err(e) = write_atomic(&path, &data) {
+                eprintln!("store: couldn't save {}: {e}", path.display());
+            }
+        });
     }
 }
 
