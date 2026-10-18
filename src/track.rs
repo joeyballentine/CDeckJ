@@ -227,7 +227,7 @@ impl Grid {
 // Track
 // ---------------------------------------------------------------------------------------------
 
-/// A cue that came with the track (rekordbox export or Platter's own saved cues).
+/// A cue that came with the track (rekordbox export or CDeckJ's own saved cues).
 #[derive(Clone, Debug, PartialEq)]
 pub struct PresetCue {
     /// Hot cue slot (0 = A), or `None` for a memory cue.
@@ -239,7 +239,7 @@ pub struct PresetCue {
     pub comment: String,
 }
 
-/// A cue in seconds, as saved by Platter.
+/// A cue in seconds, as saved by CDeckJ.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SavedCue {
     pub hot: Option<usize>,

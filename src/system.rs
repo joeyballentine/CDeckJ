@@ -146,7 +146,7 @@ pub fn keep_awake() -> KeepAwake {
             "/org/freedesktop/ScreenSaver",
             Some("org.freedesktop.ScreenSaver"),
             "Inhibit",
-            &("Platter", "DJ set in progress"),
+            &("CDeckJ", "DJ set in progress"),
         )
         .ok()
         .map(|_| c)
@@ -158,7 +158,7 @@ pub fn keep_awake() -> KeepAwake {
                 "/org/freedesktop/login1",
                 Some("org.freedesktop.login1.Manager"),
                 "Inhibit",
-                &("idle:sleep", "Platter", "DJ set in progress", "block"),
+                &("idle:sleep", "CDeckJ", "DJ set in progress", "block"),
             )
             .ok()?;
         reply.body().deserialize::<zbus::zvariant::OwnedFd>().ok()

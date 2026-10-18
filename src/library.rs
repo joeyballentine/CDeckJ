@@ -37,7 +37,7 @@ pub enum Node {
     UsbPlaylist(usize, u32),
     UsbHistory(usize),
     UsbHistoryList(usize, u32),
-    /// Platter's own play history: sessions, this one, and a past one.
+    /// CDeckJ's own play history: sessions, this one, and a past one.
     History,
     HistoryCurrent,
     HistoryPast(usize),
@@ -678,7 +678,7 @@ fn walk(dir: &Path, depth: usize, out: &mut Vec<LibTrack>) {
         let p = e.path();
         let name = e.file_name();
         // Hidden files, and our own recordings (a WAV still being written isn't a track).
-        if name.to_string_lossy().starts_with('.') || name == crate::recorder::DIR_NAME {
+        if name.to_string_lossy().starts_with('.') || name == crate::recorder::DIR_NAME || name == "Platter Recordings" {
             continue;
         }
         let Ok(ft) = e.file_type() else { continue };

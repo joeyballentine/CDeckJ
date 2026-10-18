@@ -1,16 +1,18 @@
-//! Start Platter when the DJ controller is plugged in.
+//! Start CDeckJ when the DJ controller is plugged in.
 //!
-//! `platter --install-autolaunch` installs a systemd *user* service (no root needed) that runs
-//! `platter --watch`. The watcher looks for the controller every two seconds in
-//! `/proc/asound/cards` and the USB device list, and when one appears (and Platter isn't
-//! already running) it starts Platter: through Steam when Platter has been added as a
+//! `cdeckj --install-autolaunch` installs a systemd *user* service (no root needed) that runs
+//! `cdeckj --watch`. The watcher looks for the controller every two seconds in
+//! `/proc/asound/cards` and the USB device list, and when one appears (and CDeckJ isn't
+//! already running) it starts CDeckJ: through Steam when CDeckJ has been added as a
 //! non-Steam game, which works in both Game Mode and Desktop Mode, otherwise directly.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-const SERVICE: &str = "platter-watch.service";
+const SERVICE: &str = "cdeckj-watch.service";
+/// The service name before the rename (removed when installing).
+const OLD_SERVICE: &str = "platter-watch.service";
 
 /// Names of attached sound cards and USB devices, lowercased.
 fn device_names(proc_cards: &Path, usb_devices: &Path) -> Vec<String> {
@@ -42,7 +44,7 @@ fn controller_present(hints: &[String]) -> bool {
     controller_present_in(hints, Path::new("/proc/asound/cards"), Path::new("/sys/bus/usb/devices"))
 }
 
-/// Another Platter (not a watcher) is running.
+/// Another CDeckJ (not a watcher) is running.
 fn platter_running() -> bool {
     let me = std::process::id();
     let Ok(rd) = std::fs::read_dir("/proc") else { return false };
@@ -54,7 +56,7 @@ fn platter_running() -> bool {
         let cmd = std::fs::read(e.path().join("cmdline")).unwrap_or_default();
         let mut args = cmd.split(|&b| b == 0).filter(|a| !a.is_empty());
         let exe = args.next().map(|a| String::from_utf8_lossy(a).into_owned()).unwrap_or_default();
-        let is_platter = Path::new(&exe).file_name().is_some_and(|n| n == "platter");
+        let is_platter = Path::new(&exe).file_name().is_some_and(|n| n == "cdeckj" || n == "platter");
         is_platter && !args.any(|a| a == b"--watch")
     })
 }
@@ -63,7 +65,7 @@ fn platter_running() -> bool {
 // Steam shortcut lookup (binary VDF in userdata/*/config/shortcuts.vdf)
 // ---------------------------------------------------------------------------------------------
 
-/// The app id of a non-Steam shortcut whose target is `exe` (or any `platter`).
+/// The app id of a non-Steam shortcut whose target is `exe` (or any `cdeckj`).
 pub fn shortcut_appid(vdf: &[u8], exe: &Path) -> Option<u32> {
     let exe_s = exe.to_string_lossy().to_lowercase();
     let mut i = 0;
@@ -79,7 +81,7 @@ pub fn shortcut_appid(vdf: &[u8], exe: &Path) -> Option<u32> {
     let mut consider = |appid: Option<u32>, target: &Option<String>| {
         if let (Some(id), Some(t)) = (appid, target) {
             let t = t.trim_matches('"').to_lowercase();
-            let score = if t == exe_s { 2 } else if Path::new(&t).file_name().is_some_and(|n| n == "platter") { 1 } else { 0 };
+            let score = if t == exe_s { 2 } else if Path::new(&t).file_name().is_some_and(|n| n == "cdeckj" || n == "platter") { 1 } else { 0 };
             if score > 0 && best.is_none_or(|(s, _)| score > s) {
                 best = Some((score, id));
             }
@@ -142,7 +144,7 @@ fn find_shortcut(exe: &Path) -> Option<u32> {
 fn launch(exe: &Path) {
     if let Some(id) = find_shortcut(exe) {
         let url = format!("steam://rungameid/{}", rungameid(id));
-        eprintln!("watch: controller found, starting Platter through Steam ({url})");
+        eprintln!("watch: controller found, starting CDeckJ through Steam ({url})");
         if Command::new("steam").arg(&url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().is_ok() {
             return;
         }
@@ -160,13 +162,13 @@ fn launch(exe: &Path) {
         }
     }
     if let Err(e) = c.spawn() {
-        eprintln!("watch: couldn't start Platter: {e}");
+        eprintln!("watch: couldn't start CDeckJ: {e}");
     }
 }
 
-/// `platter --watch`: start Platter each time the controller is plugged in.
+/// `cdeckj --watch`: start CDeckJ each time the controller is plugged in.
 pub fn watch(hints: &[String]) -> ! {
-    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("platter"));
+    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("cdeckj"));
     eprintln!("watch: waiting for a controller matching {hints:?}");
     // Already plugged in when the watcher starts (e.g. at login): launch too.
     let mut was_present = false;
@@ -188,7 +190,7 @@ fn unit_path() -> Option<PathBuf> {
 fn unit_text(exe: &Path) -> String {
     format!(
         "[Unit]\n\
-         Description=Start Platter when a DJ controller is plugged in\n\
+         Description=Start CDeckJ when a DJ controller is plugged in\n\
          \n\
          [Service]\n\
          ExecStart=\"{}\" --watch\n\
@@ -219,8 +221,17 @@ pub fn is_installed() -> bool {
     unit_path().is_some_and(|p| p.exists())
 }
 
-/// `platter --install-autolaunch`
+/// `cdeckj --install-autolaunch`
+/// Remove the auto-launch service from before the rename to CDeckJ, if it's there.
+fn remove_old_service() {
+    let _ = systemctl(&["disable", "--now", OLD_SERVICE]);
+    if let Some(p) = unit_path().and_then(|p| p.parent().map(|d| d.join(OLD_SERVICE))) {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
 pub fn install() -> Result<String, String> {
+    remove_old_service();
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let path = unit_path().ok_or("no home directory")?;
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
@@ -228,15 +239,16 @@ pub fn install() -> Result<String, String> {
     systemctl(&["daemon-reload"])?;
     systemctl(&["enable", "--now", SERVICE])?;
     let steam = if find_shortcut(&exe).is_some() {
-        "Platter is in Steam, so it will open in Game Mode and Desktop Mode.".to_string()
+        "CDeckJ is in Steam, so it will open in Game Mode and Desktop Mode.".to_string()
     } else {
-        "Platter isn't in Steam yet: it will open in Desktop Mode only. Add it with \"Add a Non-Steam Game\" for Game Mode too (no need to reinstall this).".to_string()
+        "CDeckJ isn't in Steam yet: it will open in Desktop Mode only. Add it with \"Add a Non-Steam Game\" for Game Mode too (no need to reinstall this).".to_string()
     };
-    Ok(format!("Auto-launch is on: Platter starts when your controller is plugged in.\n{steam}\nIf you move the platter file, run --install-autolaunch again. Turn it off with --uninstall-autolaunch."))
+    Ok(format!("Auto-launch is on: CDeckJ starts when your controller is plugged in.\n{steam}\nIf you move the cdeckj file, run --install-autolaunch again. Turn it off with --uninstall-autolaunch."))
 }
 
-/// `platter --uninstall-autolaunch`
+/// `cdeckj --uninstall-autolaunch`
 pub fn uninstall() -> Result<String, String> {
+    remove_old_service();
     let _ = systemctl(&["disable", "--now", SERVICE]);
     if let Some(p) = unit_path() {
         let _ = std::fs::remove_file(p);
@@ -273,12 +285,12 @@ mod tests {
 
     #[test]
     fn finds_the_platter_shortcut() {
-        let d = vdf(&[(111, "/usr/bin/firefox"), (3_000_000_123, "/home/deck/Applications/platter")]);
-        assert_eq!(shortcut_appid(&d, Path::new("/home/deck/Applications/platter")), Some(3_000_000_123));
+        let d = vdf(&[(111, "/usr/bin/firefox"), (3_000_000_123, "/home/deck/Applications/cdeckj")]);
+        assert_eq!(shortcut_appid(&d, Path::new("/home/deck/Applications/cdeckj")), Some(3_000_000_123));
         // A copy elsewhere still matches by name.
-        assert_eq!(shortcut_appid(&d, Path::new("/tmp/x/platter")), Some(3_000_000_123));
-        assert_eq!(shortcut_appid(&vdf(&[(1, "/usr/bin/vlc")]), Path::new("/a/platter")), None);
-        assert_eq!(shortcut_appid(&[0x00, 0x01], Path::new("/a/platter")), None);
+        assert_eq!(shortcut_appid(&d, Path::new("/tmp/x/cdeckj")), Some(3_000_000_123));
+        assert_eq!(shortcut_appid(&vdf(&[(1, "/usr/bin/vlc")]), Path::new("/a/cdeckj")), None);
+        assert_eq!(shortcut_appid(&[0x00, 0x01], Path::new("/a/cdeckj")), None);
         assert_eq!(rungameid(3_000_000_123), (3_000_000_123u64 << 32) | 0x0200_0000);
     }
 
@@ -301,8 +313,8 @@ mod tests {
 
     #[test]
     fn unit_runs_this_binary_in_watch_mode() {
-        let u = unit_text(Path::new("/home/deck/Applications/platter"));
-        assert!(u.contains("ExecStart=\"/home/deck/Applications/platter\" --watch"));
+        let u = unit_text(Path::new("/home/deck/Applications/cdeckj"));
+        assert!(u.contains("ExecStart=\"/home/deck/Applications/cdeckj\" --watch"));
         assert!(u.contains("WantedBy=default.target"));
     }
 }

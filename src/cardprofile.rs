@@ -2,7 +2,7 @@
 //!
 //! The DDJ family sends master on outputs 1/2 and headphones on 3/4. PipeWire usually
 //! starts such a card in its stereo profile, which only exposes 1/2, so the headphones get
-//! nothing. Over the PulseAudio protocol (which PipeWire speaks) Platter switches the card to
+//! nothing. Over the PulseAudio protocol (which PipeWire speaks) CDeckJ switches the card to
 //! its "Analog Surround 4.0" profile before opening it, and puts the old profile back on exit.
 
 use std::ffi::CString;
@@ -37,7 +37,7 @@ impl Conn {
         let (_, info) = protocol::read_reply_message::<protocol::AuthReply>(&mut sock, protocol::MAX_VERSION).map_err(|e| e.to_string())?;
         let version = protocol::MAX_VERSION.min(info.version);
         let mut props = protocol::Props::new();
-        props.set(protocol::Prop::ApplicationName, CString::new("platter").unwrap());
+        props.set(protocol::Prop::ApplicationName, CString::new("cdeckj").unwrap());
         protocol::write_command_message(sock.get_mut(), 1, &Command::SetClientName(props), version).map_err(|e| e.to_string())?;
         protocol::read_reply_message::<protocol::SetClientNameReply>(&mut sock, version).map_err(|e| e.to_string())?;
         Ok(Conn { sock, version, seq: 2 })
@@ -116,7 +116,7 @@ pub fn ensure_four_channel(hints: &[String]) -> Result<Option<Restore>, String> 
     Ok(None)
 }
 
-/// The profile to restore on exit (the first one Platter changed).
+/// The profile to restore on exit (the first one CDeckJ changed).
 static SAVED: parking_lot::Mutex<Option<Restore>> = parking_lot::const_mutex(None);
 
 /// Switch if needed (see [`ensure_four_channel`]), remembering what to put back. Errors are

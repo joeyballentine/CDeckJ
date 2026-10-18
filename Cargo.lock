@@ -548,6 +548,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "cdeckj"
+version = "0.6.0"
+dependencies = [
+ "arc-swap",
+ "cpal",
+ "crossbeam-channel",
+ "eframe",
+ "egui",
+ "gilrs",
+ "image",
+ "libc",
+ "midir",
+ "parking_lot",
+ "pulseaudio",
+ "serde",
+ "serde_json",
+ "symphonia",
+ "toml",
+ "zbus",
+]
+
+[[package]]
 name = "cesu8"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2627,28 +2649,6 @@ name = "plain"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
-
-[[package]]
-name = "platter"
-version = "0.5.4"
-dependencies = [
- "arc-swap",
- "cpal",
- "crossbeam-channel",
- "eframe",
- "egui",
- "gilrs",
- "image",
- "libc",
- "midir",
- "parking_lot",
- "pulseaudio",
- "serde",
- "serde_json",
- "symphonia",
- "toml",
- "zbus",
-]
 
 [[package]]
 name = "png"

@@ -1,4 +1,4 @@
-# Platter
+# CDeckJ
 
 A minimal two-deck DJ player in Rust, built to feel like a pair of CDJs and a two-channel mixer. Designed for the Steam Deck's 1280×800 touchscreen and an AlphaTheta (Pioneer DJ) DDJ-GRV6 controller. Works with touch and keyboard alone.
 
@@ -15,10 +15,10 @@ A minimal two-deck DJ player in Rust, built to feel like a pair of CDJs and a tw
 - Loops: IN / OUT / RELOOP-EXIT, 4-beat auto loop, halve/double, beat-loop and beat-jump pads.
 - Mixer: trim, 3-band isolator EQ with full kill, colour filter (LPF ↔ HPF), channel faders, crossfader, headphone CUE with cue/master mix.
 - Headphone cueing on the controller's 4-channel sound card (master 1/2, phones 3/4), or split-cue on a stereo output.
-- Master Tempo (key lock) per deck. Both decks with key lock use about 2 % of one CPU core.
+- Master Tempo (key lock) per deck: with it off (the CDJ default), moving the tempo fader changes the pitch like a record; with it on, only the tempo changes. Both decks with key lock use about 2 % of one CPU core.
 - Soft takeover: after you move something on screen, the controller's knob or fader takes over only once it reaches the on-screen value.
 - Multi-touch: hold CUE with one finger and hit PLAY with another, or ride two faders at once.
-- Steam Deck controls work as a mini controller (see below), and the screen won't dim or sleep while Platter runs.
+- Steam Deck controls work as a mini controller (see below), and the screen won't dim or sleep while CDeckJ runs.
 - Keeps running without an audio device (silent), and reconnects when one appears.
 - Reads rekordbox USB sticks: browse playlists, history and the full collection, and load tracks with their rekordbox beat grid, hot cues (with colours, comments and saved loops), memory cues, cover art and waveforms. Plugging the stick in applies its **My Settings**, like a CDJ.
 - Waveforms in Blue, RGB or 3-Band, whole-track from the moment a track loads (rekordbox's own for stick tracks; plain files are analysed in the background and cached).
@@ -28,15 +28,35 @@ A minimal two-deck DJ player in Rust, built to feel like a pair of CDJs and a tw
 - Library search (`/`), sortable columns (title, artist, BPM, key, time), tags read from the files, and BPM analysis of your music folder in the background.
 - Decodes MP3, FLAC, WAV, AIFF, OGG/Vorbis and AAC/ALAC in M4A. MP3 timing matches rekordbox, so rekordbox grids and cues line up.
 
+## Screens
+
+Like a CDJ's screen buttons, the tabs at the top switch between full-screen views (also F1–F5, or click the left/right stick on the Steam Deck):
+
+| View | What it's for |
+|---|---|
+| **PERFORM** | Everything at once: waveforms, both decks, mixer, beat FX and the library |
+| **WAVE** | Both waveforms large, with the overviews, a phase meter (where each deck is in the bar and how far apart the beats are), the countdown to the next cue, key, tempo, time and BPM. Transport, beat jump, loops, SYNC and hot cues stay on screen. The browse knob zooms the waveforms here, like a CDJ's rotary. |
+| **BROWSE** | The whole library: a side bar with each stick's collection, playlists and history, the music folder, CDeckJ's history and the tag list; about 18 rows; COLUMNS (artist, whole-track preview, BPM, key, time, file type); text size; an INFO panel with artwork, preview, key, album, genre, bitrate, comment; an on-screen keyboard (ABC) for search without a keyboard; and FILTER to show only tracks within a BPM range of the leading deck (half and double tempo count) and/or in compatible keys. Loading a track goes back to the view you play from. |
+| **TAG** | The tag list: tracks you tagged while browsing (TAG button or T), kept between sessions, for lining up the set |
+| **SETTINGS** | My Settings options, Master Tempo, mixer curves, waveform options, the audio output and buffer, a live controller test that shows each MIDI message and what it does, auto-launch, and paths |
+
+BROWSE, TAG and SETTINGS keep both decks visible in a strip at the top; tap it to go back to playing.
+
+Keys show green when they mix with the other deck (same key, a step around the Camelot wheel, or the relative major/minor). While a deck plays, a chip counts down to its next cue in bars.beats.
+
 ## Accessibility
 
 Every control has a screen-reader name (AccessKit), can be reached with Tab, and works from the keyboard. Text meets WCAG 4.5:1 contrast on its background. On a screen that's too small for the layout at your scaling (for example 1280 × 800 at 150 %), everything shrinks to fit instead of being cut off.
 
+## Renamed from Platter
+
+This project was called Platter until 0.6. On first start CDeckJ moves `~/.config/platter` and `~/.local/share/platter` to `…/cdeckj`, so settings, cues, history and waveform caches carry over. Recordings made before stay in `~/Music/Platter Recordings`. If you used auto-launch, run `./cdeckj --install-autolaunch` once; it removes the old service. Update the Steam shortcut to point at `cdeckj`.
+
 ## Run on the Steam Deck
 
-1. Switch to Desktop Mode and copy `platter` to e.g. `~/Applications/platter`, then `chmod +x` it.
+1. Switch to Desktop Mode and copy `cdeckj` to e.g. `~/Applications/cdeckj`, then `chmod +x` it.
 2. Put music in `~/Music` (subfolders are fine). Name files `Artist - Title.ext` for nicer display.
-3. Plug in the DDJ-GRV6 (a powered USB-C hub helps) and run `./platter`.
+3. Plug in the DDJ-GRV6 (a powered USB-C hub helps) and run `./cdeckj`.
 4. To use it from Game Mode, add it in Steam with *Add a Non-Steam Game*. Use launch options for any flags.
 
 The prebuilt binary needs only glibc 2.35+, `libasound` and `libudev`, all present on SteamOS.
@@ -48,19 +68,19 @@ Press **EXIT** at the top right twice (or Ctrl+Q twice); the second press has to
 ### Start automatically when the controller is plugged in
 
 ```sh
-./platter --install-autolaunch
+./cdeckj --install-autolaunch
 ```
 
-From then on, plugging in the DDJ-GRV6 opens Platter. Nothing else changes, and no root or password is needed: this installs a small background service for your user (`~/.config/systemd/user/platter-watch.service`) that checks for the controller every two seconds and uses next to no CPU.
+From then on, plugging in the DDJ-GRV6 opens CDeckJ. Nothing else changes, and no root or password is needed: this installs a small background service for your user (`~/.config/systemd/user/cdeckj-watch.service`) that checks for the controller every two seconds and uses next to no CPU.
 
-- If Platter has been added to Steam (*Add a Non-Steam Game*), it opens through Steam, so it works in **Game Mode** as well as Desktop Mode. Without that, it only opens in Desktop Mode.
-- It opens when the controller *arrives*. If you quit Platter with the controller still plugged in, it won't reopen until you unplug and replug it (or log in again).
+- If CDeckJ has been added to Steam (*Add a Non-Steam Game*), it opens through Steam, so it works in **Game Mode** as well as Desktop Mode. Without that, it only opens in Desktop Mode.
+- It opens when the controller *arrives*. If you quit CDeckJ with the controller still plugged in, it won't reopen until you unplug and replug it (or log in again).
 - It looks for the same names as the MIDI connection (`port_hints` in the `[midi]` settings: GRV6, DDJ, AlphaTheta, Pioneer), so other Pioneer DJ gear triggers it too. Narrow the list to `["GRV6"]` if that's not what you want.
-- If you move the `platter` file, run `--install-autolaunch` again. `./platter --uninstall-autolaunch` turns it off.
+- If you move the `cdeckj` file, run `--install-autolaunch` again. `./cdeckj --uninstall-autolaunch` turns it off.
 
 ### rekordbox USB sticks
 
-Plug in a stick exported from rekordbox. Platter watches `/run/media/$USER` (where SteamOS mounts drives in Desktop Mode) and `/media`, so it shows up under **Sources** within a couple of seconds. Use `--usb <folder>` for a drive mounted elsewhere, or for a copy of an export on disk.
+Plug in a stick exported from rekordbox. CDeckJ watches `/run/media/$USER` (where SteamOS mounts drives in Desktop Mode) and `/media`, so it shows up under **Sources** within a couple of seconds. Use `--usb <folder>` for a drive mounted elsewhere, or for a copy of an export on disk.
 
 What's read from the export:
 
@@ -73,13 +93,13 @@ What's read from the export:
 | `PIONEER/Artwork/…` | Cover art (the larger `_m` version when present) |
 | `PIONEER/DEVSETTING.DAT`, `MYSETTING.DAT`, `MYSETTING2.DAT`, `DJMMYSETTING.DAT` | My Settings (below) |
 
-On load, hot cues go on the pads, the first memory cue becomes the CUE point, and the rekordbox grid replaces Platter's own BPM detection. Plain-folder tracks still get detected grids.
+On load, hot cues go on the pads, the first memory cue becomes the CUE point, and the rekordbox grid replaces CDeckJ's own BPM detection. Plain-folder tracks still get detected grids.
 
 #### My Settings
 
-When a stick is plugged in, Platter takes on the settings you made in rekordbox's *My Settings* (a banner lists them). They stay until another stick changes them, and you can still change any of them on screen:
+When a stick is plugged in, CDeckJ takes on the settings you made in rekordbox's *My Settings* (a banner lists them). They stay until another stick changes them, and you can still change any of them on screen:
 
-| Setting | Effect in Platter |
+| Setting | Effect in CDeckJ |
 |---|---|
 | Waveform colour (Blue / RGB / 3Band) | Colour of the scrolling and overview waveforms |
 | Overview waveform type (half / full) | Overview drawn from the bottom or mirrored |
@@ -94,15 +114,17 @@ When a stick is plugged in, Platter takes on the settings you made in rekordbox'
 | Channel fader curve, crossfader curve | Mixer curves (DJM settings) |
 | Beat FX quantize | Roll starts and Trans gates on the beat grid |
 
-Settings Platter has no equivalent for (LCD brightness, language, eject lock and so on) are ignored. Turn the whole thing off with `apply_usb_settings = false`.
+Settings CDeckJ has no equivalent for (LCD brightness, language, eject lock and so on) are ignored. Turn the whole thing off with `apply_usb_settings = false`.
 
-The stick must contain the classic **Device Library** (`export.pdb`). Most exports include it; a stick exported only in the newer Device Library Plus / OneLibrary format (`exportLibrary.db`, an encrypted SQLite database) isn't readable yet. Platter never writes to the stick.
+The stick must contain the classic **Device Library** (`export.pdb`). Most exports include it; a stick exported only in the newer Device Library Plus / OneLibrary format (`exportLibrary.db`, an encrypted SQLite database) isn't readable yet. CDeckJ never writes to the stick.
 
 ### Audio routing
 
-Platter talks to PipeWire through its PulseAudio interface and picks the controller's sound card automatically. For headphone cueing, the card must expose 4 channels: in *System Settings → Audio* (or `pavucontrol`), set the DDJ-GRV6 profile to **Analog Surround 4.0 Output**. The top bar shows `phones on 3/4` when this works.
+CDeckJ talks to PipeWire through its PulseAudio interface and picks the controller's sound card automatically. The GRV6 plays master on outputs 1/2 and the headphones on 3/4, but PipeWire usually starts it in a stereo profile, so CDeckJ switches the card to its **Analog Surround 4.0** profile while it runs and puts the old profile back when it quits. Tap the status in the top bar to check: it should say `phones on 3/4`. Turn the switching off in SETTINGS → AUDIO (or `cue_profile = false`) to manage the profile yourself.
 
-**No sound from the GRV6?** The top bar shows which output Platter picked. If it names the GRV6 but you hear nothing: check the GRV6's MASTER LEVEL knob, then in Desktop Mode open *System Settings → Audio* and make sure the GRV6's output isn't muted or at 0 % (PipeWire keeps a volume per device). The channel level lights on the controller only move when the software drives them, which Platter does from 0.5.3 on.
+To hear the cue, press a channel's CUE button on the GRV6 and turn HEADPHONES MIX towards CUE. With no CUE pressed, the headphones play the master.
+
+**No sound from the GRV6?** The top bar shows which output CDeckJ picked. If it names the GRV6 but you hear nothing: check the GRV6's MASTER LEVEL knob, then in Desktop Mode open *System Settings → Audio* and make sure the GRV6's output isn't muted or at 0 % (PipeWire keeps a volume per device). The channel level lights on the controller only move when the software drives them, which CDeckJ does from 0.5.3 on.
 
 No controller sound card? Use `--split-cue` with a stereo output and a splitter cable: master plays in the left ear, cue in the right.
 
@@ -110,12 +132,12 @@ No controller sound card? Use `--split-cue` with a stereo output and a splitter 
 
 Press **REC** in the top bar (or R, or ≡ on the Steam Deck) to start. The button shows the elapsed time. To stop, press it twice within 3 seconds, so a stray tap can't end a set.
 
-- Files go to `~/Music/Platter Recordings/` (change with `recording_dir` in the settings file), named like `2026-10-18 21-30 Platter mix.wav`.
+- Files go to `~/Music/CDeckJ Recordings/` (change with `recording_dir` in the settings file), named like `2026-10-18 21-30 CDeckJ mix.wav`.
 - The recording is the master mix **before the MASTER knob**, like a DJM's REC OUT: turning the room down doesn't make the recording quieter. It keeps going if the audio device drops out.
 - 24-bit stereo WAV, about 1 GB per hour at 48 kHz. Past about 3¾ hours (or if the sample rate changes mid-set) it carries on in `… part 2.wav`.
 - The file is kept playable while recording, so a crash or power cut loses at most the last second.
 - Next to it: `… tracklist.txt` (`00:00 Artist - Title`, ready to paste into a mix description) and a `.cue` sheet with track markers. A track goes on the list once it has been audible (playing, fader and crossfader open) for 5 seconds, timed from when it came in.
-- Platter warns when less than 1 GB is free and stops cleanly before the disk fills.
+- CDeckJ warns when less than 1 GB is free and stops cleanly before the disk fills.
 - The library skips the recordings folder.
 
 ## Controls
@@ -142,13 +164,13 @@ Press **REC** in the top bar (or R, or ≡ on the Steam Deck) to start. The butt
 | BEAT FX SELECT / BEAT ◀ ▶ | Next effect / beat value |
 | FX CH SELECT lever | Effect on channel 1, 2 or master |
 | LEVEL/DEPTH, BEAT FX ON | As labelled (ON blinks while active) |
-| Channel level indicators | Driven by Platter (each channel's level before the fader, like a DJM) |
+| Channel level indicators | Driven by CDeckJ (each channel's level before the fader, like a DJM) |
 
 Deck 3/4 layers control decks 1/2. Mixer channels 3/4 are ignored.
 
 ### Steam Deck controls
 
-Use Steam's *Gamepad* controller layout for Platter.
+Use Steam's *Gamepad* controller layout for CDeckJ.
 
 | Control | Action |
 |---|---|
@@ -162,6 +184,7 @@ Use Steam's *Gamepad* controller layout for Platter.
 | Left / right stick ← → | Nudge deck 1 / 2 |
 | View + left stick ← → | Crossfader |
 | ≡ (Menu) | Record; press twice to stop |
+| Left / right stick click | Previous / next screen view |
 
 Set `gamepad = false` in the settings file to turn this off.
 
@@ -176,7 +199,7 @@ Set `gamepad = false` in the settings file to turn this off.
 | S | J | Master Tempo |
 | Q | P | Load selected track |
 
-Ctrl+Q (twice) quits; G toggles quantize; F turns beat FX on/off; W changes the waveform colour; R records (press twice to stop); − / = zoom the waveforms out / in; `/` or Ctrl+F searches; ↑ ↓ / Page Up / Page Down move; Enter or → opens; Backspace, Esc or ← goes back; F11 toggles fullscreen.
+F1–F5 switch views (PERFORM, WAVE, BROWSE, TAG, SETTINGS); T tags the highlighted track; Ctrl+Q (twice) quits; G toggles quantize; F turns beat FX on/off; W changes the waveform colour; R records (press twice to stop); − / = zoom the waveforms out / in; `/` or Ctrl+F searches; ↑ ↓ / Page Up / Page Down move; Enter or → opens; Backspace, Esc or ← goes back; F11 toggles fullscreen.
 
 Tab moves keyboard focus through every on-screen control (shown with an orange ring). Enter or Space presses the focused button. ← → turn a focused knob, jump a beat on a focused waveform, 16 beats on the overview, and search on the jog. Hover a button for its shortcut.
 
@@ -187,7 +210,7 @@ Everything on screen is touchable. Drag knobs up/down (double-tap to centre); dr
 ## Options
 
 ```
-platter [OPTIONS] [TRACK1] [TRACK2]
+cdeckj [OPTIONS] [TRACK1] [TRACK2]
   --music <DIR>      music folder (default ~/Music)
   --usb <DIR>        extra place to look for a rekordbox export (repeatable)
   --audio <NAME>     output device by name/id substring
@@ -199,14 +222,14 @@ platter [OPTIONS] [TRACK1] [TRACK2]
   --list             list audio devices and MIDI ports
   --midi-monitor     print incoming MIDI and how it is mapped
   --install-autolaunch / --uninstall-autolaunch
-                     start Platter whenever the controller is plugged in
+                     start CDeckJ whenever the controller is plugged in
 ```
 
 Command-line options override the settings file for that run.
 
 ## Settings and saved data
 
-`~/.config/platter/config.toml` is created when you change something. It remembers quantize, Master Tempo, vinyl mode, tempo ranges, levels and waveform zoom, and also holds options you can only set by editing it:
+`~/.config/cdeckj/config.toml` is created when you change something. It remembers quantize, Master Tempo, vinyl mode, tempo ranges, levels and waveform zoom, and also holds options you can only set by editing it:
 
 ```toml
 music_dir = "/home/deck/Music"
@@ -214,11 +237,12 @@ usb_paths = []                # extra places to look for rekordbox exports
 audio_device = "GRV6"         # name substring, like --audio
 buffer_frames = 256
 split_cue = false
+cue_profile = true            # switch the controller's card to 4.0 for the headphone cue
 bpm_range = [70.0, 180.0]     # detected tempos are folded into this range, e.g. [88.0, 176.0] for drum & bass
 background_analysis = true    # detect BPM of music-folder tracks while idle
 gamepad = true                # use the Steam Deck's own buttons
 keep_awake = true             # stop the screen dimming and the Deck sleeping
-recording_dir = "/home/deck/Music/Platter Recordings"
+recording_dir = "/home/deck/Music/CDeckJ Recordings"
 apply_usb_settings = true     # take on a stick's My Settings when it's plugged in
 
 # My Settings (a stick's settings overwrite these):
@@ -238,17 +262,17 @@ beat_fx_quantize = true
 [grid_offset_ms]              # shift rekordbox grids and cues per file type, if they're off
 # mp3 = 0.0
 
-[midi]                        # override any note/CC number; see `platter --midi-monitor`
+[midi]                        # override any note/CC number; see `cdeckj --midi-monitor`
 invert_tempo = false
 jog_ticks_per_rev = 720.0
 port_hints = ["GRV6", "DDJ", "AlphaTheta", "Pioneer"]
 ```
 
-If the file can't be read, Platter starts with defaults and keeps the broken copy as `config.toml.broken`.
+If the file can't be read, CDeckJ starts with defaults and keeps the broken copy as `config.toml.broken`.
 
-`~/.local/share/platter/tracks.json` stores, per file: cues and the CUE point you set, BPM fixes, tags and analysis. An entry is ignored if the file's size or date changes. Cues are saved straight away.
+`~/.local/share/cdeckj/tracks.json` stores, per file: cues and the CUE point you set, BPM fixes, tags and analysis. An entry is ignored if the file's size or date changes. Cues are saved straight away.
 
-`~/.local/share/platter/waves/` caches waveforms of plain files (about 1 MB per hour of audio). `~/.local/share/platter/history/` holds one JSON file per session.
+`~/.local/share/cdeckj/waves/` caches waveforms of plain files (about 1 MB per hour of audio). `~/.local/share/cdeckj/history/` holds one JSON file per session.
 
 ## Beat FX
 
@@ -268,7 +292,7 @@ Beat values run from 1/8 to 16 beats. Effects are part of the recording.
 
 ## About the MIDI mapping
 
-The mapping follows the DDJ-400/FLX layout that the DDJ-GRV6 shares, cross-checked against a community Mixxx mapping for the GRV6. It has not been verified on a physical unit. If a control does nothing or behaves oddly, run `platter --midi-monitor`, move the control, and note the bytes. Then set the matching number in the `[midi]` section of the settings file (the names are listed in `MidiMap` in `src/midi.rs`). If the tempo fader runs backwards, set `invert_tempo = true`.
+The mapping follows the DDJ-400/FLX layout that the DDJ-GRV6 shares, cross-checked against a community Mixxx mapping for the GRV6. It has not been verified on a physical unit. If a control does nothing or behaves oddly, run `cdeckj --midi-monitor`, move the control, and note the bytes. Then set the matching number in the `[midi]` section of the settings file (the names are listed in `MidiMap` in `src/midi.rs`). If the tempo fader runs backwards, set `invert_tempo = true`.
 
 ## Build from source
 
@@ -291,7 +315,7 @@ On SteamOS itself, build inside a `distrobox` container (Arch or Ubuntu) rather 
 
 ## Not included
 
-More than two decks, sampler, mic input, building playlists in Platter, key detection for plain files, saving cues back to the stick, and rekordbox's OneLibrary format. Detected grids (non-rekordbox tracks) assume a constant tempo.
+More than two decks, sampler, mic input, building playlists in CDeckJ, key detection for plain files, saving cues back to the stick, and rekordbox's OneLibrary format. Detected grids (non-rekordbox tracks) assume a constant tempo.
 
 Not yet tested on hardware: the DDJ-GRV6 mapping (including the BEAT FX section), the Steam Deck's own audio, touchscreen and controls, and the screen-sleep inhibit. Each was built against documentation and tested in software only.
 

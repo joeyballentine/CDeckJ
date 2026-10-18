@@ -3,7 +3,7 @@
 //! controls on channel 7, performance pads on channels 8-15.
 //!
 //! Every number can be overridden in the `[midi]` table of `config.toml`; run
-//! `platter --midi-monitor` to see what your unit sends.
+//! `cdeckj --midi-monitor` to see what your unit sends.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -75,7 +75,7 @@ pub struct MidiMap {
     pub fx_master: u8,
     pub fx_on: u8,
     pub cc_fx_level: u8,
-    /// Channel level indicators: Platter sends each channel's level (0–127) as this CC on
+    /// Channel level indicators: CDeckJ sends each channel's level (0–127) as this CC on
     /// the deck's MIDI channel. The controller's meters show nothing unless the software
     /// drives them.
     pub cc_level_meter: u8,
@@ -487,7 +487,7 @@ fn port_matches(name: &str, wanted: Option<&str>, hints: &[String]) -> bool {
 }
 
 pub fn list_ports() {
-    match MidiInput::new("platter-list") {
+    match MidiInput::new("cdeckj-list") {
         Ok(mi) => {
             println!("MIDI inputs:");
             for p in mi.ports() {
@@ -540,7 +540,7 @@ fn try_connect(
     repaint: &Arc<dyn Fn() + Send + Sync>,
     view: &SharedView,
 ) -> Option<Link> {
-    let mut input = MidiInput::new("platter").ok()?;
+    let mut input = MidiInput::new("cdeckj").ok()?;
     input.ignore(Ignore::All);
     let port = input
         .ports()
@@ -552,7 +552,7 @@ fn try_connect(
     let conn = input
         .connect(
             &port,
-            "platter-in",
+            "cdeckj-in",
             move |_, msg, _| {
                 let snapshot = vw.try_lock().map(|g| *g);
                 let action = mapper.decode_with(msg, snapshot.as_ref());
@@ -572,18 +572,18 @@ fn try_connect(
             (),
         )
         .ok()?;
-    let output = MidiOutput::new("platter-out").ok().and_then(|out| {
+    let output = MidiOutput::new("cdeckj-out").ok().and_then(|out| {
         let p = out
             .ports()
             .into_iter()
             .find(|p| out.port_name(p).map(|n| port_matches(&n, wanted, &map.port_hints)).unwrap_or(false))?;
-        out.connect(&p, "platter-leds").ok()
+        out.connect(&p, "cdeckj-leds").ok()
     });
     Some(Link { name, _input: conn, output, leds: HashMap::new() })
 }
 
 fn port_present(name: &str) -> bool {
-    MidiInput::new("platter-probe")
+    MidiInput::new("cdeckj-probe")
         .map(|mi| mi.ports().iter().any(|p| mi.port_name(p).is_ok_and(|n| n == name)))
         .unwrap_or(false)
 }
@@ -689,7 +689,7 @@ pub fn spawn(
 
 /// `--midi-monitor`: print raw messages and what they map to, until Ctrl+C.
 pub fn monitor(wanted: Option<&str>, map: MidiMap) {
-    let mut input = match MidiInput::new("platter-monitor") {
+    let mut input = match MidiInput::new("cdeckj-monitor") {
         Ok(m) => m,
         Err(e) => {
             eprintln!("midi: {e}");
@@ -710,7 +710,7 @@ pub fn monitor(wanted: Option<&str>, map: MidiMap) {
     let mut mapper = Mapper::new(map, PickupLocks::default());
     let _conn = input.connect(
         &port,
-        "platter-monitor",
+        "cdeckj-monitor",
         move |_, msg, _| {
             let hex: Vec<String> = msg.iter().map(|b| format!("{b:02X}")).collect();
             match mapper.decode(msg) {

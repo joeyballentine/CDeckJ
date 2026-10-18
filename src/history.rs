@@ -1,5 +1,5 @@
 //! Play history: every track that went on air (playing with its fader open for a few
-//! seconds) is saved per session in `~/.local/share/platter/history/`, like a CDJ's HISTORY.
+//! seconds) is saved per session in `~/.local/share/cdeckj/history/`, like a CDJ's HISTORY.
 
 use std::path::PathBuf;
 

@@ -72,7 +72,7 @@ pub struct Deck {
     pub touched: bool,
     /// Rate actually applied last block (1.0 = original speed), for display.
     pub applied_rate: f64,
-    /// Platter angle in revolutions, for the on-screen jog display.
+    /// CDeckJ angle in revolutions, for the on-screen jog display.
     pub platter_rev: f64,
     /// Seconds of the pitch-bend/scratch currently applied (for sync's phase lock to back off).
     pub bending: bool,

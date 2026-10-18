@@ -229,7 +229,7 @@ pub fn start(opts: &AudioOptions, engine: &SharedEngine) -> Result<AudioOut, Str
     Err(if errors.is_empty() { "no audio output device found".into() } else { errors.join(" — ") })
 }
 
-/// Formats Platter can write, best first.
+/// Formats CDeckJ can write, best first.
 const FORMATS: [SampleFormat; 12] = [
     SampleFormat::F32,
     SampleFormat::I32,
@@ -246,7 +246,7 @@ const FORMATS: [SampleFormat; 12] = [
 ];
 
 /// Pick a sample format the device accepts at this channel count and rate. The device's
-/// default can be one Platter has no writer for (e.g. 24-bit after switching a card to a
+/// default can be one CDeckJ has no writer for (e.g. 24-bit after switching a card to a
 /// surround profile), so look through everything it supports. PulseAudio/PipeWire convert
 /// any format, so float is always fine there.
 pub fn pick_format(supported: &[(u16, SampleFormat, u32, u32)], channels: u16, rate: u32, default: SampleFormat, pulse: bool) -> SampleFormat {

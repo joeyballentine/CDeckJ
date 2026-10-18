@@ -73,7 +73,7 @@ impl App {
         let main = Rect::from_min_max(pos2(side.max.x + 6.0, r.min.y), r.max);
         card(&p, main);
         let inner = main.shrink2(vec2(18.0, 14.0));
-        let mut rows = Rows { y: inner.min.y, x: inner.min.x, w: inner.width(), label_w: 250.0 };
+        let mut rows = Rows { y: inner.min.y, x: inner.min.x, w: inner.width(), label_w: 340.0 };
         match self.settings.page {
             0 => self.page_player(ui, &mut rows, v),
             1 => self.page_mixer(ui, &mut rows, v),
@@ -260,7 +260,7 @@ impl App {
         p.text(
             pos2(rows.x, inner.max.y - 18.0),
             Align2::LEFT_CENTER,
-            "Wrong control? Note the bytes and set the number in [midi] in ~/.config/platter/config.toml.",
+            "Wrong control? Note the bytes and set the number in [midi] in ~/.config/cdeckj/config.toml.",
             cond(14.0),
             t::INK_FAINT,
         );
@@ -269,7 +269,7 @@ impl App {
     fn page_system(&mut self, ui: &mut Ui, rows: &mut Rows) {
         let p = ui.painter().clone();
         let busy = self.settings.job_rx.is_some();
-        if let Some(i) = rows.seg(self, ui, "Open Platter when the controller is plugged in", "sal", &["OFF", "ON"], usize::from(self.settings.autolaunch)) {
+        if let Some(i) = rows.seg(self, ui, "Open CDeckJ when the controller is plugged in", "sal", &["OFF", "ON"], usize::from(self.settings.autolaunch)) {
             if !busy && (i == 1) != self.settings.autolaunch {
                 let (tx, rx) = crossbeam_channel::bounded(1);
                 std::thread::spawn(move || {

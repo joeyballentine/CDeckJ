@@ -1,4 +1,4 @@
-//! Platter — a minimal CDJ-style two-deck DJ player for the Steam Deck and a DDJ-GRV6.
+//! CDeckJ — a minimal CDJ-style two-deck DJ player for the Steam Deck and a DDJ-GRV6.
 
 mod analysis;
 mod autolaunch;
@@ -32,10 +32,10 @@ use config::{Config, Store};
 use engine::{CueRouting, Engine, EngineView};
 
 const HELP: &str = "\
-platter — CDJ-style DJ player
+cdeckj — CDJ-style DJ player
 
 USAGE:
-    platter [OPTIONS] [TRACK1] [TRACK2]
+    cdeckj [OPTIONS] [TRACK1] [TRACK2]
 
 OPTIONS:
     --music <DIR>        Music folder to browse (default: ~/Music)
@@ -49,14 +49,14 @@ OPTIONS:
     --windowed           Don't start fullscreen
     --list               List audio devices and MIDI ports, then exit
     --midi-monitor       Print incoming MIDI messages and their mapping, then exit with Ctrl+C
-    --install-autolaunch Start Platter whenever the controller is plugged in (no root needed)
+    --install-autolaunch Start CDeckJ whenever the controller is plugged in (no root needed)
     --uninstall-autolaunch
                          Turn that off again
     --watch              The watcher that --install-autolaunch runs in the background
     -h, --help           Show this help
 
-Settings live in ~/.config/platter/config.toml; saved cues and analysis in
-~/.local/share/platter/tracks.json. Command-line options override settings for one run.
+Settings live in ~/.config/cdeckj/config.toml; saved cues and analysis in
+~/.local/share/cdeckj/tracks.json. Command-line options override settings for one run.
 ";
 
 #[derive(Default)]
@@ -115,6 +115,7 @@ fn main() -> eframe::Result {
             std::process::exit(2);
         }
     };
+    config::migrate_old_dirs();
     let (cfg, cfg_warning) = Config::load();
     if let Some(w) = &cfg_warning {
         eprintln!("{w}");
@@ -180,8 +181,8 @@ fn main() -> eframe::Result {
 
     let native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Platter")
-            .with_app_id("platter")
+            .with_title("CDeckJ")
+            .with_app_id("cdeckj")
             .with_icon(theme::icon())
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([1100.0, 700.0])
@@ -189,7 +190,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "platter",
+        "cdeckj",
         native,
         Box::new(move |cc| {
             theme::install(&cc.egui_ctx);

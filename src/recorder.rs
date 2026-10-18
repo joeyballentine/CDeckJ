@@ -18,7 +18,7 @@ use crate::engine::mixer::{fader_gain_curve, xfade_gains_curve};
 use crate::engine::{EngineView, DECKS};
 
 /// Default folder name for recordings (inside the music folder); the library skips it.
-pub const DIR_NAME: &str = "Platter Recordings";
+pub const DIR_NAME: &str = "CDeckJ Recordings";
 
 /// Ring capacity in samples (interleaved stereo): about 11 s at 48 kHz, so a slow disk
 /// can stall for a while without losing audio.
@@ -395,7 +395,7 @@ pub fn tracklist_text(entries: &[Entry], parts: &[Part]) -> String {
 /// A CUE sheet so players and splitters see track markers in the WAV(s).
 pub fn cue_sheet(entries: &[Entry], parts: &[Part], title: &str) -> String {
     let esc = |s: &str| s.replace('"', "'");
-    let mut s = format!("PERFORMER \"Platter\"\nTITLE \"{}\"\n", esc(title));
+    let mut s = format!("PERFORMER \"CDeckJ\"\nTITLE \"{}\"\n", esc(title));
     let mut current: Option<usize> = None;
     for (i, e) in entries.iter().enumerate() {
         let pi = parts.iter().rposition(|p| p.start_frame <= e.frame).unwrap_or(0);
@@ -471,12 +471,12 @@ impl Recorder {
         if free_space(dir).is_some_and(|f| f < STOP_SPACE) {
             return Err(format!("not enough free space in {}", dir.display()));
         }
-        // "2026-10-18 01-42 Platter mix", made unique if a recording started this minute.
+        // "2026-10-18 01-42 CDeckJ mix", made unique if a recording started this minute.
         let stamp = local_stamp();
-        let mut base = dir.join(format!("{stamp} Platter mix"));
+        let mut base = dir.join(format!("{stamp} CDeckJ mix"));
         let mut k = 2;
         while base.with_file_name(format!("{}.wav", base.file_name().unwrap().to_string_lossy())).exists() {
-            base = dir.join(format!("{stamp} Platter mix {k}"));
+            base = dir.join(format!("{stamp} CDeckJ mix {k}"));
             k += 1;
         }
         let stop = Arc::new(AtomicBool::new(false));

@@ -1,5 +1,5 @@
-//! Settings (`~/.config/platter/config.toml`) and the per-track store
-//! (`~/.local/share/platter/tracks.json`: saved cues, grid fixes, tags and analysis cache).
+//! Settings (`~/.config/cdeckj/config.toml`) and the per-track store
+//! (`~/.local/share/cdeckj/tracks.json`: saved cues, grid fixes, tags and analysis cache).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -87,9 +87,9 @@ pub struct Config {
     pub background_analysis: bool,
     /// Use the Steam Deck's own buttons and sticks.
     pub gamepad: bool,
-    /// Ask the desktop not to dim or sleep while Platter runs.
+    /// Ask the desktop not to dim or sleep while CDeckJ runs.
     pub keep_awake: bool,
-    /// Where recordings go (default: Music/Platter Recordings).
+    /// Where recordings go (default: Music/CDeckJ Recordings).
     pub recording_dir: Option<PathBuf>,
     /// Apply a rekordbox stick's My Settings when it's plugged in, like a CDJ.
     pub apply_usb_settings: bool,
@@ -170,12 +170,29 @@ fn home() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Move settings and saved data from before the rename (…/platter → …/cdeckj), once.
+pub fn migrate_old_dirs() {
+    let pairs = [
+        (std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".config")), config_dir()),
+        (std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".local/share")), data_dir()),
+    ];
+    for (base, new) in pairs {
+        let old = base.join("platter");
+        if old.is_dir() && !new.exists() {
+            match std::fs::rename(&old, &new) {
+                Ok(()) => eprintln!("moved {} to {}", old.display(), new.display()),
+                Err(e) => eprintln!("couldn't move {} to {}: {e}", old.display(), new.display()),
+            }
+        }
+    }
+}
+
 pub fn config_dir() -> PathBuf {
-    std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".config")).join("platter")
+    std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".config")).join("cdeckj")
 }
 
 pub fn data_dir() -> PathBuf {
-    std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".local/share")).join("platter")
+    std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".local/share")).join("cdeckj")
 }
 
 /// Write via a temporary file so a crash never leaves a half-written file.

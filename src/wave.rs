@@ -1,5 +1,5 @@
 //! Waveform columns in the three CDJ colour modes (Blue, RGB, 3Band), from rekordbox's own
-//! waveforms when the track came from an export, otherwise from Platter's analysis.
+//! waveforms when the track came from an export, otherwise from CDeckJ's analysis.
 
 use std::path::{Path, PathBuf};
 
@@ -126,7 +126,7 @@ fn own_column(bin: &WaveBin, mode: WaveColor) -> Column {
 }
 
 /// A whole-track summary in `n` columns (browser previews), from rekordbox's waveforms if
-/// given, else Platter's own.
+/// given, else CDeckJ's own.
 pub fn summarize(rb: Option<&Waves>, own: &[WaveBin], mode: WaveColor, n: usize) -> Vec<Column> {
     let n = n.max(1);
     if let Some(w) = rb {
@@ -172,7 +172,7 @@ pub fn next_mode(m: WaveColor) -> WaveColor {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Cache of Platter's own waveforms, so plain files show their whole waveform the moment they
+// Cache of CDeckJ's own waveforms, so plain files show their whole waveform the moment they
 // load (filled by the background analysis and by the first full load).
 // ---------------------------------------------------------------------------------------------
 

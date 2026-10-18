@@ -1222,7 +1222,7 @@ fn caret(p: &Painter, at: Pos2, up: bool, col: Color32) {
 impl App {
     fn top_bar(&mut self, ui: &Ui, r: Rect, v: &EngineView) {
         let p = ui.painter().clone();
-        p.text(pos2(r.min.x + 12.0, r.center().y), Align2::LEFT_CENTER, "PLATTER", semi(18.0), t::INK);
+        p.text(pos2(r.min.x + 12.0, r.center().y), Align2::LEFT_CENTER, "CDeckJ", semi(18.0), t::INK);
         let right_w = 522.0;
         // View tabs, like a CDJ's screen buttons.
         let x = self.view_tabs(ui, r.min.x + 92.0, r) + 8.0;
@@ -1275,7 +1275,7 @@ impl App {
         let tip = match (confirm, busy) {
             (true, true) => "Press again to quit: playback stops and any recording is saved",
             (true, false) => "Press again to quit",
-            (false, _) => "Quit Platter. Press twice  ( Ctrl+Q )",
+            (false, _) => "Quit CDeckJ. Press twice  ( Ctrl+Q )",
         };
         if button_tip(ui, &mut self.touches, er, Id::NULL.with("exit"), if confirm { "EXIT?" } else { "EXIT" }, confirm.then_some(t::DANGER), semi(13.0), tip).clicked {
             self.exit_press(ui.ctx());
@@ -1428,7 +1428,7 @@ impl App {
         } else if rec {
             "Recording the mix. Press twice to stop  ( R R )"
         } else {
-            "Record the mix to Music/Platter Recordings, with a tracklist  ( R )"
+            "Record the mix to Music/CDeckJ Recordings, with a tracklist  ( R )"
         };
         let font = if rec && !confirm { mono(13.0) } else { semi(13.0) };
         if button_tip(ui, &mut self.touches, r, Id::NULL.with("rec"), &label, rec.then_some(t::DANGER), font, tip).clicked {

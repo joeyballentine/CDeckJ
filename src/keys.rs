@@ -1,5 +1,5 @@
 //! Musical keys as rekordbox writes them ("Fm", "C#m", "Abm", "8A", "Open Key 1m"…), mapped
-//! onto the Camelot wheel so Platter can tell which keys mix well together.
+//! onto the Camelot wheel so CDeckJ can tell which keys mix well together.
 
 /// Camelot position: number 1–12 and whether it's minor ("A") or major ("B").
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

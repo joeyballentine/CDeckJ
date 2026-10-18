@@ -310,8 +310,10 @@ impl App {
     pub(super) fn browse_view(&mut self, ui: &mut Ui, r: Rect, v: &EngineView) {
         self.previews.poll();
         let p = ui.painter().clone();
-        let side_w = 210.0;
-        let info_w = if self.config.browse_info { 300.0 } else { 0.0 };
+        // Narrow windows give the list more room.
+        let narrow = r.width() < 1180.0;
+        let side_w = if narrow { 172.0 } else { 210.0 };
+        let info_w = if !self.config.browse_info { 0.0 } else if narrow { 248.0 } else { 300.0 };
         let side = Rect::from_min_size(r.min, vec2(side_w, r.height()));
         let info = Rect::from_min_max(pos2(r.max.x - info_w, r.min.y), r.max);
         let main = Rect::from_min_max(pos2(side.max.x + 6.0, r.min.y), pos2(info.min.x - if info_w > 0.0 { 6.0 } else { 0.0 }, r.max.y));
@@ -450,10 +452,11 @@ impl App {
             x += w + 6.0;
             button_tip(ui, &mut app.touches, br, Id::NULL.with(id), label, lit.then_some(t::ACCENT), semi(14.0), tip).clicked
         };
-        if tool(self, 82.0, "bfilter", "FILTER", f.is_active() || self.browse_popup == Some(Popup::Filter), &ftip) {
+        let small = inner.width() < 700.0;
+        if tool(self, if small { 70.0 } else { 82.0 }, "bfilter", "FILTER", f.is_active() || self.browse_popup == Some(Popup::Filter), &ftip) {
             self.browse_popup = if self.browse_popup == Some(Popup::Filter) { None } else { Some(Popup::Filter) };
         }
-        if tool(self, 90.0, "bcols", "COLUMNS", self.browse_popup == Some(Popup::Columns), "Choose the columns shown") {
+        if tool(self, if small { 52.0 } else { 90.0 }, "bcols", if small { "COLS" } else { "COLUMNS" }, self.browse_popup == Some(Popup::Columns), "Choose the columns shown") {
             self.browse_popup = if self.browse_popup == Some(Popup::Columns) { None } else { Some(Popup::Columns) };
         }
         if tool(self, 40.0, "btext-", "A−", false, "Smaller text") {
@@ -464,7 +467,7 @@ impl App {
             self.config.browse_text = (self.config.browse_text + 1).min(2);
             self.scroll_to_selected = true;
         }
-        if tool(self, 64.0, "binfo", "INFO", self.config.browse_info, "Show details for the highlighted track") {
+        if tool(self, if small { 52.0 } else { 64.0 }, "binfo", "INFO", self.config.browse_info, "Show details for the highlighted track") {
             self.config.browse_info = !self.config.browse_info;
         }
         let _ = v;
@@ -474,17 +477,18 @@ impl App {
             _ => None,
         };
         let mut rx = inner.max.x;
+        let lw = if inner.width() < 700.0 { 80.0 } else { 92.0 };
         for d in (0..DECKS).rev() {
-            rx -= 96.0;
-            let br = Rect::from_min_size(pos2(rx, y2), vec2(92.0, h));
+            rx -= lw + 4.0;
+            let br = Rect::from_min_size(pos2(rx, y2), vec2(lw, h));
             let tip = if d == 0 { "Load the selected track on deck 1  ( Q )" } else { "Load the selected track on deck 2  ( P )" };
             if button_tip(ui, &mut self.touches, br, Id::NULL.with(("bload", d)), &format!("LOAD {}", d + 1), sel.is_some().then_some(t::DECK_TINT[d]), semi(15.0), tip).clicked {
                 self.load_selected(d);
             }
         }
-        rx -= 76.0;
+        rx -= 72.0;
         let tagged = sel.as_ref().is_some_and(|s| self.lib.is_tagged(&s.path));
-        let br = Rect::from_min_size(pos2(rx, y2), vec2(70.0, h));
+        let br = Rect::from_min_size(pos2(rx, y2), vec2(68.0, h));
         let tip = if tagged { "Remove from the tag list  ( T )" } else { "Add to the tag list  ( T )" };
         if button_tip(ui, &mut self.touches, br, Id::NULL.with("btag"), if tagged { "TAGGED" } else { "TAG" }, tagged.then_some(t::ACCENT), semi(14.0), tip).clicked {
             if let Some(s) = sel {
