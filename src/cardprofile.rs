@@ -130,7 +130,13 @@ pub fn prepare(hints: &[String]) {
             }
         }
         Ok(None) => {}
-        Err(e) => eprintln!("audio: couldn't check the controller's sound card profile: {e}"),
+        Err(e) => {
+            // Reconnects retry every 2 s: say it once.
+            static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                eprintln!("audio: couldn't check the controller's sound card profile: {e}");
+            }
+        }
     }
 }
 
