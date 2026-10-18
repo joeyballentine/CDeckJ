@@ -116,6 +116,55 @@ pub fn ensure_four_channel(hints: &[String]) -> Result<Option<Restore>, String> 
     Ok(None)
 }
 
+/// The controller's ALSA card from `/proc/asound/cards`: (index, name), e.g. (1, "DDJ-GRV6").
+pub fn alsa_card(hints: &[String]) -> Option<(u32, String)> {
+    let text = std::fs::read_to_string("/proc/asound/cards").ok()?;
+    parse_cards(&text).into_iter().find(|(_, label, _)| matches(label, hints)).map(|(i, _, name)| (i, name))
+}
+
+/// `/proc/asound/cards` entries as (index, both lines joined, short name).
+fn parse_cards(text: &str) -> Vec<(u32, String, String)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = Vec::new();
+    for (k, l) in lines.iter().enumerate() {
+        let t = l.trim_start();
+        let Some((num, rest)) = t.split_once(' ') else { continue };
+        let Ok(idx) = num.parse::<u32>() else { continue };
+        if !rest.trim_start().starts_with('[') {
+            continue;
+        }
+        let name = rest.rsplit_once(" - ").map(|(_, n)| n.trim().to_string()).unwrap_or_default();
+        let label = format!("{} {}", t, lines.get(k + 1).map(|s| s.trim()).unwrap_or(""));
+        out.push((idx, label, name));
+    }
+    out
+}
+
+/// Take the controller's card from PipeWire (profile "off") so its hardware device can be opened
+/// directly; the old profile goes back on exit. Ok(false) when PipeWire doesn't know the card.
+pub fn release(hints: &[String]) -> Result<bool, String> {
+    let mut c = Conn::open()?;
+    for card in c.cards()? {
+        if !matches(&card_label(&card), hints) {
+            continue;
+        }
+        let active = card.active_profile.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+        if active != "off" {
+            c.set_profile(card.index, &CString::new("off").unwrap())?;
+            let mut s = SAVED.lock();
+            if s.is_none() {
+                *s = Some(Restore { card: card.index, profile: CString::new(active).unwrap_or_default(), card_name: card.name.to_string_lossy().into_owned() });
+            }
+            drop(s);
+            // Give PipeWire a moment to close the device.
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            eprintln!("audio: took {} from PipeWire to use it directly", card.name.to_string_lossy());
+        }
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 /// The profile to restore on exit (the first one CDeckJ changed).
 static SAVED: parking_lot::Mutex<Option<Restore>> = parking_lot::const_mutex(None);
 
@@ -176,6 +225,16 @@ mod tests {
         assert_eq!(pick_profile("output:analog-stereo", &p(&["output:analog-stereo"])), None);
         let unavailable = vec![("output:analog-surround-40".to_string(), false)];
         assert_eq!(pick_profile("output:analog-stereo", &unavailable), None);
+    }
+
+    #[test]
+    fn finds_the_controller_in_proc_asound_cards() {
+        let text = " 0 [Generic        ]: HDA-Intel - HD-Audio Generic\n                      HD-Audio Generic at 0xfe600000 irq 87\n 1 [DDJGRV6        ]: USB-Audio - DDJ-GRV6\n                      AlphaTheta Corporation DDJ-GRV6 at usb-0000:04:00.3-1, high speed\n";
+        let cards = parse_cards(text);
+        assert_eq!(cards.len(), 2);
+        let hints = vec!["GRV6".to_string(), "DDJ".to_string()];
+        let hit = cards.into_iter().find(|(_, l, _)| matches(l, &hints)).map(|(i, _, n)| (i, n));
+        assert_eq!(hit, Some((1, "DDJ-GRV6".to_string())));
     }
 
     #[test]

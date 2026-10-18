@@ -114,6 +114,12 @@ mod tests {
         assert_eq!(dec(&mut m, [0x9A, 0x03, 0x7F]), "Some(HotCueDelete(1, 3))");
         assert_eq!(dec(&mut m, [0x96, 0x47, 0x7F]), "Some(Load(1))");
         assert_eq!(dec(&mut m, [0x96, 0x42, 0x7F]), "Some(Back)");
+        // GRV6 browse knob tilt: BACK and VIEW.
+        assert_eq!(dec(&mut m, [0x96, 0x65, 0x7F]), "Some(Back)");
+        assert_eq!(dec(&mut m, [0x96, 0x66, 0x7F]), "Some(Back)");
+        assert_eq!(dec(&mut m, [0x96, 0x65, 0x00]), "None", "release does nothing");
+        assert_eq!(dec(&mut m, [0x96, 0x7A, 0x7F]), "Some(CycleView(1))");
+        assert_eq!(dec(&mut m, [0x96, 0x67, 0x7F]), "Some(CycleView(-1))");
         assert_eq!(dec(&mut m, [0xB6, 0x40, 0x7F]), "Some(Browse(-1))");
         assert_eq!(dec(&mut m, [0x90, 0x54, 0x7F]), "Some(Mix(PflToggle(0)))");
         assert_eq!(dec(&mut m, [0x90, 0x47, 0x7F]), "Some(Reverse(0, true))");

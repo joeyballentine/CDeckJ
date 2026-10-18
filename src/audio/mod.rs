@@ -23,7 +23,13 @@ pub struct AudioOptions {
     pub split_cue: bool,
     /// Switch a matching card (controller) to its 4-channel profile first, for the cue.
     pub cue_profile_hints: Option<Vec<String>>,
+    /// Open a matching card's hardware device directly (see [`start_direct`]).
+    pub direct_hints: Option<Vec<String>>,
 }
+
+/// Set when opening the controller directly failed with the card present, so reconnects don't
+/// keep taking the card from PipeWire and giving it back. Cleared when the setting changes.
+pub static DIRECT_FAILED: AtomicBool = AtomicBool::new(false);
 
 pub struct AudioOut {
     _stream: cpal::Stream,
@@ -158,10 +164,62 @@ fn pick_device(host: &cpal::Host, wanted: Option<&str>) -> Option<cpal::Device> 
     best.map(|(_, d)| d).or_else(|| host.default_output_device())
 }
 
+/// Open the controller's own sound card through ALSA, bypassing PipeWire: its card profile is
+/// set to "off" (PipeWire lets go; the old profile returns on exit), then `plughw:CARD=n` is
+/// opened with all four channels, so master is exactly outputs 1/2 and headphones 3/4 with no
+/// remixing in between. Err(None) when the controller isn't plugged in.
+fn start_direct(opts: &AudioOptions, engine: &SharedEngine, hints: &[String]) -> Result<AudioOut, Option<String>> {
+    let (idx, name) = cardprofile::alsa_card(hints).ok_or(None)?;
+    if let Err(e) = cardprofile::release(hints) {
+        // No PipeWire (plain ALSA system): the device may be free anyway.
+        eprintln!("audio: couldn't ask PipeWire for the card ({e}); trying it anyway");
+    }
+    let host = cpal::host_from_id(cpal::HostId::Alsa).map_err(|e| Some(e.to_string()))?;
+    let id_is = |d: &cpal::Device, want: &str| d.id().map(|i| i.id() == want).unwrap_or(false);
+    let devices: Vec<cpal::Device> = host.devices().map_err(|e| Some(e.to_string()))?.collect();
+    let hw = devices.iter().find(|d| id_is(d, &format!("hw:CARD={idx},DEV=0")));
+    let plug = devices.iter().find(|d| id_is(d, &format!("plughw:CARD={idx},DEV=0"))).ok_or_else(|| Some(format!("no plughw device for card {idx}")))?;
+    // Channels and rates the hardware really has (the plug device would convert anything).
+    let hw_cfgs: Vec<(u16, u32, u32)> = hw
+        .and_then(|d| d.supported_output_configs().ok())
+        .map(|it| it.map(|c| (c.channels(), c.min_sample_rate(), c.max_sample_rate())).collect())
+        .unwrap_or_default();
+    let max_ch = hw_cfgs.iter().map(|c| c.0).max().unwrap_or(2);
+    let channels: u16 = if max_ch >= 4 { 4 } else { 2 };
+    let rate_ok = |r: u32| hw_cfgs.is_empty() || hw_cfgs.iter().any(|&(c, lo, hi)| c >= channels && lo <= r && r <= hi);
+    let sample_rate = [48000u32, 44100].into_iter().find(|&r| rate_ok(r)).unwrap_or(48000);
+    let routing = if channels >= 4 { CueRouting::Channels34 } else if opts.split_cue { CueRouting::SplitMono } else { CueRouting::MasterOnly };
+    let mut last = String::new();
+    for buffer in [BufferSize::Fixed(opts.buffer_frames), BufferSize::Default] {
+        let config = StreamConfig { channels, sample_rate, buffer_size: buffer };
+        engine.lock().set_output(sample_rate, channels, routing);
+        match build::<f32>(plug, &config, engine.clone()) {
+            Ok(stream) => {
+                return Ok(AudioOut { _stream: stream, description: format!("ALSA direct · {name}"), sample_rate, channels, routing });
+            }
+            Err(e) => last = format!("ALSA direct · {name} ({channels} ch, {sample_rate} Hz): {e}"),
+        }
+    }
+    Err(Some(last))
+}
+
 pub fn start(opts: &AudioOptions, engine: &SharedEngine) -> Result<AudioOut, String> {
     STREAM_LOST.store(false, Ordering::Relaxed);
+    if let (Some(h), None) = (&opts.direct_hints, &opts.device) {
+        if !DIRECT_FAILED.load(Ordering::Relaxed) {
+            match start_direct(opts, engine, h) {
+                Ok(out) => return Ok(out),
+                Err(None) => {}
+                Err(Some(e)) => {
+                    eprintln!("audio: direct access failed, using PipeWire instead: {e}");
+                    DIRECT_FAILED.store(true, Ordering::Relaxed);
+                    cardprofile::restore_saved();
+                }
+            }
+        }
+    }
     if let (Some(h), false) = (&opts.cue_profile_hints, opts.force_alsa) {
-        crate::audio::cardprofile::prepare(h);
+        cardprofile::prepare(h);
     }
     // One error per host, so a PipeWire failure isn't hidden behind the ALSA fallback's.
     let mut errors: Vec<String> = Vec::new();

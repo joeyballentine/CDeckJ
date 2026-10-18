@@ -206,8 +206,18 @@ impl App {
             self.config.buffer_frames = bufs[i];
             self.restart_audio();
         }
+        let di = usize::from(self.audio_opts.direct_hints.is_some());
+        if let Some(i) = rows.seg(self, ui, "Use the controller's sound card directly", "sdir", &["OFF", "ON"], di) {
+            self.config.direct_audio = i == 1;
+            self.audio_opts.direct_hints = (i == 1).then(|| self.config.midi.port_hints.clone());
+            crate::audio::DIRECT_FAILED.store(false, std::sync::atomic::Ordering::Relaxed);
+            // Close the stream and hand the card back before reconnecting either way.
+            self.audio = None;
+            crate::audio::cardprofile::restore_saved();
+            self.restart_audio();
+        }
         let cp = usize::from(self.audio_opts.cue_profile_hints.is_some());
-        if let Some(i) = rows.seg(self, ui, "Set the controller to 4 channels (headphone cue)", "scp", &["OFF", "ON"], cp) {
+        if let Some(i) = rows.seg(self, ui, "Otherwise: 4-channel profile (headphone cue)", "scp", &["OFF", "ON"], cp) {
             self.config.cue_profile = i == 1;
             if i == 0 {
                 self.audio = None;
@@ -220,6 +230,12 @@ impl App {
             self.audio_opts.split_cue = i == 1;
             self.config.split_cue = i == 1;
             self.restart_audio();
+        }
+        // Output test: which socket does each output channel reach?
+        let ch = self.audio.as_ref().map(|a| a.channels).unwrap_or(0);
+        let labels: Vec<&str> = ["1 · MASTER L", "2 · MASTER R", "3 · PHONES L", "4 · PHONES R"].into_iter().take(ch.max(2) as usize).collect();
+        if let Some(i) = rows.seg(self, ui, "Output test: beep on one channel", "stest", &labels, usize::MAX) {
+            self.send(crate::engine::Cmd::TestTone(i));
         }
         let _ = v;
         heading(&p, pos2(rows.x, rows.y + 6.0), "CHOOSE THE OUTPUT (AUTO PICKS THE CONTROLLER'S SOUND CARD)");

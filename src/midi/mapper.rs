@@ -178,6 +178,10 @@ impl Mapper {
                 return match d1 {
                     n if n == m.browse_press => u(UiAction::BrowsePress),
                     n if n == m.shift_browse_press => u(UiAction::Back),
+                    n if n == m.back || n == m.shift_back => u(UiAction::Back),
+                    // VIEW: next screen, like a CDJ's screen buttons; SHIFT + VIEW goes back one.
+                    n if n == m.view => u(UiAction::CycleView(1)),
+                    n if n == m.shift_view => u(UiAction::CycleView(-1)),
                     n if (m.load_base..m.load_base + 4).contains(&n) => u(UiAction::Load((n - m.load_base) as usize % DECKS)),
                     _ => None,
                 };

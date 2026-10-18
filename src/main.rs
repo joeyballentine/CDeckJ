@@ -178,6 +178,7 @@ fn main() -> eframe::Result {
         buffer_frames: args.buffer.unwrap_or(cfg.buffer_frames),
         split_cue: args.split_cue || cfg.split_cue,
         cue_profile_hints: cfg.cue_profile.then(|| cfg.midi.port_hints.clone()),
+        direct_hints: cfg.direct_audio.then(|| cfg.midi.port_hints.clone()),
     };
     let audio = audio::start(&audio_opts, &engine);
     match &audio {

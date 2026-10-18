@@ -42,6 +42,8 @@ pub enum MixParam {
 #[derive(Debug)]
 pub enum Cmd {
     Load { deck: usize, track: Arc<Track>, generation: u64 },
+    /// Beep on one output channel (0-based) for a few seconds, to check where each output goes.
+    TestTone(usize),
     Play(usize),
     Cue(usize, bool),
     ToStart(usize),

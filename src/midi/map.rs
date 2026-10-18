@@ -40,6 +40,12 @@ pub struct MidiMap {
     pub global_channel: u8,
     pub browse_press: u8,
     pub shift_browse_press: u8,
+    /// The GRV6's browse knob tilts: BACK (left) and VIEW. Pioneer's usual notes for BACK
+    /// (0x65, SHIFT 0x66); VIEW (0x7A, SHIFT 0x67) is from the GRV6 MIDI list's ordering.
+    pub back: u8,
+    pub shift_back: u8,
+    pub view: u8,
+    pub shift_view: u8,
     pub load_base: u8,
     pub cc_browse: u8,
     pub cc_crossfader: u8,
@@ -101,6 +107,10 @@ impl Default for MidiMap {
             global_channel: 6,
             browse_press: 0x41,
             shift_browse_press: 0x42,
+            back: 0x65,
+            shift_back: 0x66,
+            view: 0x7A,
+            shift_view: 0x67,
             load_base: 0x46,
             cc_browse: 0x40,
             cc_crossfader: 0x1F,

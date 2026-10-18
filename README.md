@@ -134,7 +134,11 @@ The stick must contain the classic **Device Library** (`export.pdb`). Most expor
 
 ### Audio routing
 
-CDeckJ talks to PipeWire through its PulseAudio interface and picks the controller's sound card automatically. The GRV6 plays master on outputs 1/2 and the headphones on 3/4, but PipeWire usually starts it in a stereo profile, so CDeckJ switches the card to its **Analog Surround 4.0** profile while it runs and puts the old profile back when it quits. Tap the status in the top bar to check: it should say `phones on 3/4`. Turn the switching off in SETTINGS → AUDIO (or `cue_profile = false`) to manage the profile yourself.
+The GRV6 plays master on its outputs 1/2 and the headphones on 3/4. CDeckJ uses the controller's sound card **directly**: while it runs, it asks PipeWire to let go of the card (its profile is set to *Off*; the old profile comes back when CDeckJ quits) and opens the hardware with all four channels, so master and headphones land exactly where they should with nothing remixing them on the way. The top bar then says `ALSA direct · DDJ-GRV6 · phones on 3/4`. Other sounds (Steam, the desktop) carry on through the Deck's own speakers meanwhile.
+
+If direct access doesn't work, CDeckJ falls back to PipeWire, switching the card to its **Analog Surround 4.0** profile while it runs. Turn direct access off in SETTINGS → AUDIO (`direct_audio = false`), and the profile switching with the switch below it (`cue_profile = false`).
+
+**Check the routing** with SETTINGS → AUDIO → *Output test*: each button beeps on one output for three seconds. 1 and 2 should come from the left and right speakers, 3 and 4 from the left and right of the headphones.
 
 To hear the cue, press a channel's CUE button on the GRV6 and turn HEADPHONES MIX towards CUE. With no CUE pressed, the headphones play the master.
 
@@ -173,7 +177,8 @@ Press **REC** in the top bar (or R, or ≡ on the Steam Deck) to start. The butt
 | Mixer ch 1–2 | Trim, EQ, CFX (filter), fader, CUE |
 | Crossfader, headphone MIX | As labelled |
 | BROWSE rotate / press | Move in the library / open a folder or playlist |
-| SHIFT + BROWSE press | Back up one level |
+| BROWSE tilt BACK, or SHIFT + BROWSE press | Back up one level |
+| BROWSE tilt VIEW / SHIFT + VIEW | Next / previous screen (PERFORM, WAVE, BROWSE, TAG, SETTINGS) |
 | LOAD 1·2 | Load the selected track |
 | BEAT FX SELECT / BEAT ◀ ▶ | Next effect / beat value |
 | FX CH SELECT lever | Effect on channel 1, 2 or master |

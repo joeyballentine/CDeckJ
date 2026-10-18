@@ -47,7 +47,13 @@ pub struct Engine {
     cue: Vec<f32>,
     dsp_load: f32,
     tap: Option<Arc<crate::recorder::Tap>>,
+    /// Output test: (channel, samples played, samples left).
+    test_tone: Option<(usize, u32, u32)>,
 }
+
+/// How long the output test beeps, and its tone.
+const TEST_TONE_SECS: u32 = 3;
+const TEST_TONE_HZ: f32 = 880.0;
 
 impl Engine {
     pub fn new(
@@ -73,6 +79,7 @@ impl Engine {
             deck_buf: [vec![0.0; MAX_BLOCK * 2], vec![0.0; MAX_BLOCK * 2]],
             master: vec![0.0; MAX_BLOCK * 2],
             cue: vec![0.0; MAX_BLOCK * 2],
+            test_tone: None,
             dsp_load: 0.0,
             tap: None,
         }
@@ -222,6 +229,7 @@ impl Engine {
                 self.decks[d].set_reverse(on);
             }
             Reverse(d, on) => self.decks[d].set_reverse(on),
+            TestTone(c) => self.test_tone = Some((c, 0, self.sample_rate * TEST_TONE_SECS)),
             QuantizeToggle => self.set_quantize(!self.quantize),
             Quantize(on) => self.set_quantize(on),
             QuantizeBeats(b) => {
@@ -364,6 +372,20 @@ impl Engine {
                     frame[1] = mr;
                 }
             }
+            // Output test: 0.2 s beeps on one channel only.
+            if let Some((tc, played, left)) = &mut self.test_tone {
+                if *tc < ch && *left > 0 {
+                    let t = *played as f32 / self.sample_rate.max(1) as f32;
+                    if t % 0.35 < 0.2 {
+                        frame[*tc] += 0.25 * (std::f32::consts::TAU * TEST_TONE_HZ * t).sin();
+                    }
+                }
+                *played += 1;
+                *left = left.saturating_sub(1);
+            }
+        }
+        if matches!(self.test_tone, Some((_, _, 0))) {
+            self.test_tone = None;
         }
     }
 
@@ -442,6 +464,20 @@ mod tests {
             all.extend_from_slice(&out);
         }
         all
+    }
+
+    #[test]
+    fn output_test_beeps_on_one_channel_then_stops() {
+        let (mut e, tx, _) = engine();
+        tx.send(Cmd::TestTone(2)).unwrap();
+        let out = run(&mut e, 0.1);
+        let energy = |c: usize| out.chunks(4).map(|f| f[c] * f[c]).sum::<f32>();
+        assert!(energy(2) > 1.0, "channel 3 (phones L) beeps");
+        assert_eq!((energy(0), energy(1), energy(3)), (0.0, 0.0, 0.0), "nothing else");
+        let _ = run(&mut e, TEST_TONE_SECS as f64);
+        assert!(e.test_tone.is_none(), "stops by itself");
+        let after = run(&mut e, 0.05);
+        assert!(after.iter().all(|x| *x == 0.0));
     }
 
     fn phase_diff(e: &Engine) -> f64 {

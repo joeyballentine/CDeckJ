@@ -83,6 +83,9 @@ pub struct Config {
     pub split_cue: bool,
     /// Switch the controller's sound card to 4 channels (headphone cue on 3/4) while running.
     pub cue_profile: bool,
+    /// Open the controller's sound card directly (taking it from PipeWire while CDeckJ runs),
+    /// so master and headphones land on exactly outputs 1/2 and 3/4.
+    pub direct_audio: bool,
     pub midi_port: Option<String>,
     pub fullscreen: bool,
     pub quantize: bool,
@@ -144,6 +147,7 @@ impl Default for Config {
             buffer_frames: 256,
             split_cue: false,
             cue_profile: true,
+            direct_audio: true,
             midi_port: None,
             fullscreen: true,
             quantize: true,
