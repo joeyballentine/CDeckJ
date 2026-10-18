@@ -4,6 +4,7 @@
 //! Dark only on purpose: a bright screen in a dark room ruins your eyes and the crowd's.
 //! Signature: the stacked, scrolling three-band waveforms across the top.
 //! Colour vocabulary is borrowed from the hardware itself: PLAY is green, CUE is amber.
+//! Everything else stays cool: blue accents, teal loops, blue-graphite surfaces.
 
 use std::sync::Arc;
 
@@ -17,30 +18,32 @@ const fn c(hex: u32) -> Color32 {
     Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
-// Warm graphite neutrals, ~3 % luminance steps.
-pub const CHROME: Color32 = c(0x121214);
-pub const SURFACE: Color32 = c(0x19191C);
-pub const RAISED: Color32 = c(0x232327);
-pub const INSET: Color32 = c(0x0C0C0E);
-pub const BORDER: Color32 = c(0x2E2E33);
-pub const HOVER: Color32 = c(0x2C2C31);
+// Cool blue-graphite neutrals, ~3 % luminance steps.
+pub const CHROME: Color32 = c(0x101318);
+pub const SURFACE: Color32 = c(0x161A20);
+pub const RAISED: Color32 = c(0x1F242C);
+pub const INSET: Color32 = c(0x0A0C10);
+pub const BORDER: Color32 = c(0x2A3039);
+pub const HOVER: Color32 = c(0x283039);
 
-pub const INK: Color32 = c(0xE8E4DC);
-pub const INK_MUTED: Color32 = c(0xB2ADA4);
-/// Captions and placeholders: still ≥ 4.5:1 on every background layer.
-pub const INK_FAINT: Color32 = c(0x8E8A82);
+pub const INK: Color32 = c(0xE4E9F0);
+pub const INK_MUTED: Color32 = c(0xA9B4C3);
+/// Captions and placeholders: still ≥ 4.5:1 on the surfaces they sit on.
+pub const INK_FAINT: Color32 = c(0x8893A3);
 
 pub const PLAY: Color32 = c(0x47D16C);
 pub const CUE: Color32 = c(0xF2A13B);
-pub const SYNC: Color32 = c(0x5FB8F0);
-pub const LOOP: Color32 = c(0xE9D25A);
+pub const SYNC: Color32 = c(0x5FC4F5);
+/// Loops and loop regions: teal, to keep the palette cool.
+pub const LOOP: Color32 = c(0x3CD4C4);
 pub const DANGER: Color32 = c(0xF0675F);
 /// Memory cues (rekordbox): red, as on the players.
 pub const MEMORY_CUE: Color32 = c(0xE5484D);
-/// Selection / focus accent.
-pub const ACCENT: Color32 = CUE;
+/// Selection, focus and "on" state accent: a cool blue.
+pub const ACCENT: Color32 = c(0x4D9CFF);
 
-pub const DECK_TINT: [Color32; 2] = [c(0x5FB8F0), c(0xF2779B)];
+/// Deck 1 sky blue, deck 2 violet.
+pub const DECK_TINT: [Color32; 2] = [c(0x5FC4F5), c(0xB497FF)];
 
 /// Rekordbox-like hot cue colours, one per pad.
 pub const HOT_CUE: [Color32; 8] = [

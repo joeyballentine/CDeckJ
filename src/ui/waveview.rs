@@ -111,7 +111,7 @@ impl App {
         let mut rx = inner.max.x;
         let bpm = dv.bpm.map(|b| format!("{b:.2}")).unwrap_or_else(|| "--.--".into());
         p.text(pos2(rx, val_y + 2.0), Align2::RIGHT_BOTTOM, bpm, mono(26.0), if dv.synced { t::SYNC } else { t::INK });
-        p.text(pos2(rx, cap_y), Align2::RIGHT_TOP, if dv.is_master { "BPM · MASTER" } else { "BPM" }, caption(), if dv.is_master { t::CUE } else { t::INK_FAINT });
+        p.text(pos2(rx, cap_y), Align2::RIGHT_TOP, if dv.is_master { "BPM · MASTER" } else { "BPM" }, caption(), if dv.is_master { t::ACCENT } else { t::INK_FAINT });
         rx -= 130.0;
         let sr = dv.sample_rate.max(1) as f64;
         let (elapsed, remain) = (dv.pos / sr, (dv.length as f64 - dv.pos) / sr);

@@ -1298,7 +1298,7 @@ impl App {
         self.rec_button(ui, &p, Rect::from_min_size(pos2(r.max.x - right_w + 6.0, r.min.y + 5.0), vec2(90.0, 24.0)));
         let qr = Rect::from_min_size(pos2(r.max.x - right_w + 102.0, r.min.y + 5.0), vec2(84.0, 24.0));
         let qtip = if v.quantize { "Quantize on: cues, loops and jumps snap to the beat  ( G )" } else { "Quantize off  ( G )" };
-        if button_tip(ui, &mut self.touches, qr, Id::NULL.with("quantize"), "QUANTIZE", v.quantize.then_some(t::LOOP), semi(13.0), qtip).clicked {
+        if button_tip(ui, &mut self.touches, qr, Id::NULL.with("quantize"), "QUANTIZE", v.quantize.then_some(t::ACCENT), semi(13.0), qtip).clicked {
             self.send(Cmd::QuantizeToggle);
         }
     }
@@ -1320,7 +1320,7 @@ impl App {
         let chip_w = ((r.max.x - 12.0 - x - right) / FX_KINDS.len() as f32 - 4.0).clamp(48.0, 92.0);
         for (i, k) in FX_KINDS.iter().enumerate() {
             let br = Rect::from_min_size(pos2(x, y), vec2(chip_w, h));
-            let lit = (fx.kind == *k).then_some(if fx.on { t::DANGER } else { t::LOOP });
+            let lit = (fx.kind == *k).then_some(if fx.on { t::DANGER } else { t::ACCENT });
             if button(ui, &mut self.touches, br, Id::NULL.with(("fxk", i)), k.name(), lit, cond(14.0)).clicked {
                 self.send(Cmd::Mix(MixParam::FxKind(*k)));
             }
@@ -1448,7 +1448,7 @@ impl App {
 
     fn banner_row(&mut self, ui: &Ui, r: Rect) {
         let p = ui.painter().clone();
-        p.rect_filled(r, 0, t::CUE.gamma_multiply(0.14));
+        p.rect_filled(r, 0, t::ACCENT.gamma_multiply(0.16));
         if let Some(b) = &self.banner {
             let g = p.layout(b.clone(), cond(15.0), t::INK, r.width() - 140.0);
             p.galley(pos2(r.min.x + 14.0, r.center().y - g.size().y / 2.0), g, t::INK);
@@ -1629,9 +1629,9 @@ impl App {
             key.map(|k| (k, key_col)),
             dv.slip.then(|| ("SLIP".to_string(), t::SYNC)),
             dv.reverse.then(|| ("REV".to_string(), t::DANGER)),
-            dv.keylock.then(|| ("MT".to_string(), t::LOOP)),
+            dv.keylock.then(|| ("MT".to_string(), t::ACCENT)),
             dv.synced.then(|| ("SYNC".to_string(), t::SYNC)),
-            dv.is_master.then(|| ("MASTER".to_string(), t::CUE)),
+            dv.is_master.then(|| ("MASTER".to_string(), t::ACCENT)),
         ]
         .into_iter()
         .flatten()
@@ -1751,7 +1751,7 @@ impl App {
             [
                 ("SHIFT", shift.then_some(t::INK), 10),
                 ("SYNC", dv.synced.then_some(t::SYNC), 11),
-                ("MT", dv.keylock.then_some(t::LOOP), 12),
+                ("MT", dv.keylock.then_some(t::ACCENT), 12),
                 ("SLIP", dv.slip.then_some(t::SYNC), 13),
                 ("REV", dv.reverse.then_some(t::DANGER), 14),
                 ("« CALL", None, 15),
@@ -2042,7 +2042,7 @@ impl App {
         let mut y = center.min.y;
         let knobs = [
             ("MASTER", m.master, t::INK_MUTED, None),
-            ("PH MIX", m.head_mix, t::CUE, Some(MidiCtl::HeadMix)),
+            ("PH MIX", m.head_mix, t::SYNC, Some(MidiCtl::HeadMix)),
             ("PH LVL", m.head_level, t::INK_MUTED, Some(MidiCtl::HeadLevel)),
         ];
         for (i, (label, val, col, ctl)) in knobs.into_iter().enumerate() {
