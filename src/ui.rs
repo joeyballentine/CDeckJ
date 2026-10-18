@@ -135,6 +135,8 @@ pub struct App {
     started: Instant,
     /// First tap of the two-tap stop, so a stray touch can't end a recording.
     rec_confirm: Option<Instant>,
+    /// First press of the two-press EXIT.
+    exit_confirm: Option<Instant>,
     rec_low_warned: bool,
 }
 
@@ -200,6 +202,7 @@ impl App {
             started: Instant::now(),
             art: { let c = ctx.clone(); crate::art::ArtCache::new(move || c.request_repaint()) },
             rec_confirm: None,
+            exit_confirm: None,
             rec_low_warned: false,
         };
         for (d, p) in init.preload.into_iter().take(DECKS).enumerate() {
@@ -677,11 +680,15 @@ impl App {
         }
         // A focused control owns the arrows, Enter and Space.
         let widget_focus = ui.ctx().memory(|m| m.focused().is_some());
+        // Ctrl+Q quits (press twice); Ctrl-chords never reach the deck shortcuts.
+        if ui.input(|i| i.modifiers.command && i.key_pressed(Key::Q)) {
+            self.exit_press(ui.ctx());
+        }
         let events: Vec<(Key, bool, bool)> = ui.input(|i| {
             i.events
                 .iter()
                 .filter_map(|e| match e {
-                    Event::Key { key, pressed, repeat, .. } => Some((*key, *pressed, *repeat)),
+                    Event::Key { key, pressed, repeat, modifiers, .. } if !modifiers.command => Some((*key, *pressed, *repeat)),
                     _ => None,
                 })
                 .collect()
@@ -1211,11 +1218,23 @@ impl App {
             (None, Some(g)) => format!("{g}  ·  no DJ controller"),
             (None, None) => "No controller — touch & keyboard".into(),
         };
-        let right_w = 456.0;
+        let right_w = 522.0;
         text_fit(&p, pos2(x + 10.0, r.center().y), Align2::LEFT_CENTER, &ctl, cond(15.0), t::INK_MUTED, r.max.x - right_w - x - 20.0);
 
         // Right: QUANTIZE, DSP load, master meter.
-        let m = Rect::from_min_size(pos2(r.max.x - 120.0, r.center().y - 4.0), vec2(106.0, 8.0));
+        // EXIT (press twice), at the far right like a window's close button.
+        let er = Rect::from_min_size(pos2(r.max.x - 66.0, r.min.y + 5.0), vec2(58.0, 24.0));
+        let confirm = self.exit_confirm.is_some_and(|t| t.elapsed() < Duration::from_secs(3));
+        let busy = self.recorder.is_recording() || v.decks.iter().any(|d| d.playing);
+        let tip = match (confirm, busy) {
+            (true, true) => "Press again to quit: playback stops and any recording is saved",
+            (true, false) => "Press again to quit",
+            (false, _) => "Quit Platter. Press twice  ( Ctrl+Q )",
+        };
+        if button_tip(ui, &mut self.touches, er, Id::NULL.with("exit"), if confirm { "EXIT?" } else { "EXIT" }, confirm.then_some(t::DANGER), semi(13.0), tip).clicked {
+            self.exit_press(ui.ctx());
+        }
+        let m = Rect::from_min_size(pos2(r.max.x - 186.0, r.center().y - 4.0), vec2(106.0, 8.0));
         p.rect_filled(m, 2, t::INSET);
         let db = 20.0 * v.peak_master.max(1e-6).log10();
         let f = ((db + 42.0) / 42.0).clamp(0.0, 1.0);
@@ -1302,6 +1321,16 @@ impl App {
         let lit = fx.on.then_some(if blink { t::DANGER } else { t::DANGER.gamma_multiply(0.7) });
         if button_tip(ui, &mut self.touches, or, Id::NULL.with("fxon"), "ON", lit, semi(15.0), "Beat FX on/off  ( F )").clicked {
             self.send(Cmd::Mix(MixParam::FxToggle));
+        }
+    }
+
+    /// Quit on the second press within 3 s, so a stray tap can't end a set.
+    fn exit_press(&mut self, ctx: &egui::Context) {
+        if self.exit_confirm.is_some_and(|t| t.elapsed() < Duration::from_secs(3)) {
+            ctx.send_viewport_cmd(ViewportCommand::Close);
+        } else {
+            self.exit_confirm = Some(Instant::now());
+            ctx.request_repaint_after(Duration::from_secs(3));
         }
     }
 

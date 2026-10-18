@@ -1,6 +1,6 @@
 [package]
 name = "platter"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2024"
 license = "MIT"
 description = "Minimal CDJ-style DJ player for the Steam Deck and DDJ-GRV6"

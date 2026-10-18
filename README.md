@@ -41,6 +41,10 @@ Every control has a screen-reader name (AccessKit), can be reached with Tab, and
 
 The prebuilt binary needs only glibc 2.35+, `libasound` and `libudev`, all present on SteamOS.
 
+### Quitting
+
+Press **EXIT** at the top right twice (or Ctrl+Q twice); the second press has to come within 3 seconds, so a stray tap can't end a set. In Game Mode the Steam button → *Exit game* works too. Quitting stops playback, saves settings and cues, and finishes any recording properly.
+
 ### Start automatically when the controller is plugged in
 
 ```sh
@@ -169,7 +173,7 @@ Set `gamepad = false` in the settings file to turn this off.
 | S | J | Master Tempo |
 | Q | P | Load selected track |
 
-G toggles quantize; F turns beat FX on/off; W changes the waveform colour; R records (press twice to stop); − / = zoom the waveforms out / in; `/` or Ctrl+F searches; ↑ ↓ / Page Up / Page Down move; Enter or → opens; Backspace, Esc or ← goes back; F11 toggles fullscreen.
+Ctrl+Q (twice) quits; G toggles quantize; F turns beat FX on/off; W changes the waveform colour; R records (press twice to stop); − / = zoom the waveforms out / in; `/` or Ctrl+F searches; ↑ ↓ / Page Up / Page Down move; Enter or → opens; Backspace, Esc or ← goes back; F11 toggles fullscreen.
 
 Tab moves keyboard focus through every on-screen control (shown with an orange ring). Enter or Space presses the focused button. ← → turn a focused knob, jump a beat on a focused waveform, 16 beats on the overview, and search on the jog. Hover a button for its shortcut.
 
