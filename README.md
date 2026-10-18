@@ -63,7 +63,11 @@ This project was called Platter until 0.6. On first start CDeckJ moves `~/.confi
 3. Put music in `~/Music` (subfolders are fine), or just plug in a rekordbox USB stick.
 4. Plug in the DDJ-GRV6 (a powered USB-C hub helps). CDeckJ opens.
 
-To update, extract the new version and run its `install.sh` again. To remove CDeckJ, run `./install.sh --uninstall`: your settings, cues, history and recordings are kept.
+**Download:** every push to `main` is built and tested on GitHub and published as the [latest release](https://github.com/joeyballentine/CDeckJ/releases/latest) ([direct link](https://github.com/joeyballentine/CDeckJ/releases/latest/download/cdeckj-steamdeck-x86_64.tar.gz)).
+
+**Update:** right-click CDeckJ in the applications menu and choose *Update CDeckJ*, or run `~/Applications/cdeckj-install.sh --update`. Either downloads the latest release and installs it. (Or extract a new download and run its `install.sh`.) SETTINGS → SYSTEM shows the version and build.
+
+To remove CDeckJ, run `~/Applications/cdeckj-install.sh --uninstall`: your settings, cues, history and recordings are kept.
 
 To do it by hand instead: `chmod +x cdeckj`, then `./cdeckj --install-autolaunch` (auto-launch, menu entry and Steam art) or just `./cdeckj --install-desktop` (menu entry and Steam art only).
 
@@ -316,7 +320,7 @@ cargo build --release
 cargo test --release
 ```
 
-The release binary is built against glibc 2.35 so it runs on older SteamOS too:
+The release binary is built against glibc 2.35 so it runs on older SteamOS too (CI does this on every push, see `.github/workflows/build.yml`; `tools/package.sh` makes the tarball):
 
 ```sh
 pip install ziglang cargo-zigbuild

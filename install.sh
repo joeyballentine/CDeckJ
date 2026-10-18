@@ -2,8 +2,12 @@
 # Install CDeckJ for this user: the app, auto-launch when the controller is plugged in,
 # the applications-menu entry with its icon, and Steam library artwork.
 #
-#   ./install.sh               install or update (or double-click it and choose Execute)
+#   ./install.sh               install or update from this folder (or double-click it, choose Execute)
+#   ./install.sh --update      download the latest build from GitHub and install it
 #   ./install.sh --uninstall   remove (settings, cues, history and recordings are kept)
+#
+# A copy is kept as ~/Applications/cdeckj-install.sh, and the menu entry's right-click menu has
+# "Update CDeckJ", which runs it with --update.
 #
 # No root or password needed. Run it again after downloading a new version to update.
 set -euo pipefail
@@ -18,6 +22,7 @@ fi
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 src="$here/cdeckj"
 default_dir="${CDECKJ_DIR:-$HOME/Applications}"
+latest_url="https://github.com/joeyballentine/CDeckJ/releases/latest/download/cdeckj-steamdeck-x86_64.tar.gz"
 
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
@@ -40,6 +45,19 @@ if [ -n "$target" ] && [ "$(dirname "$target")" != "$here" ] && [ ! -d "$(dirnam
 fi
 [ -n "$target" ] || target="$default_dir/cdeckj"
 
+if [ "${1:-}" = "--update" ]; then
+    command -v curl >/dev/null 2>&1 || die "curl is needed to download the update."
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    say "Downloading the latest CDeckJ"
+    curl -fL --retry 3 --progress-bar -o "$tmp/cdeckj.tar.gz" "$latest_url" || die "Couldn't download $latest_url (are you online?)"
+    tar -xzf "$tmp/cdeckj.tar.gz" -C "$tmp" || die "The download is damaged; try again."
+    [ -f "$tmp/cdeckj-steamdeck/install.sh" ] || die "The download doesn't contain install.sh."
+    status=0
+    CDECKJ_IN_TERMINAL=1 bash "$tmp/cdeckj-steamdeck/install.sh" || status=$?
+    exit "$status"
+fi
+
 if [ "${1:-}" = "--uninstall" ]; then
     app=""
     for f in "$target" "$default_dir/cdeckj" "$src"; do
@@ -52,7 +70,7 @@ if [ "${1:-}" = "--uninstall" ]; then
     "$app" --uninstall-desktop || true
     # The copy this script installs; never the one in the download folder.
     if [ -f "$default_dir/cdeckj" ] && [ "$(readlink -f "$default_dir/cdeckj")" != "$(readlink -f "$src" 2>/dev/null || true)" ]; then
-        rm -f "$default_dir/cdeckj" "$default_dir/cdeckj.png"
+        rm -f "$default_dir/cdeckj" "$default_dir/cdeckj.png" "$default_dir/cdeckj-install.sh"
         say "Removed $default_dir/cdeckj"
     fi
     echo
@@ -80,6 +98,10 @@ if [ "$(readlink -f "$src")" != "$(readlink -f "$target" 2>/dev/null || echo "$t
     mv -f "$tmp" "$target"
 else
     chmod 755 "$target"
+fi
+# Keep this script beside the app, for --update later (and the menu's "Update CDeckJ").
+if [ "$(readlink -f "$here/install.sh" 2>/dev/null)" != "$(readlink -f "$(dirname "$target")/cdeckj-install.sh" 2>/dev/null || true)" ]; then
+    cp -f "$here/install.sh" "$(dirname "$target")/cdeckj-install.sh" && chmod 755 "$(dirname "$target")/cdeckj-install.sh"
 fi
 out=""
 [ -f "$here/cdeckj.png" ] && cp -f "$here/cdeckj.png" "$(dirname "$target")/cdeckj.png" 2>/dev/null || true

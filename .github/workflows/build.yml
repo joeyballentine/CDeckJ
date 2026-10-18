@@ -1,0 +1,78 @@
+# Test every push and pull request. On main, also build the Steam Deck package and publish it
+# as the rolling "latest" release:
+# https://github.com/joeyballentine/CDeckJ/releases/latest/download/cdeckj-steamdeck-x86_64.tar.gz
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test
+
+      - name: Zig toolchain (to target glibc 2.35, like SteamOS)
+        run: pip install --break-system-packages ziglang cargo-zigbuild
+
+      - name: Release build
+        env:
+          # Link against the runner's newer libasound without requiring its symbol versions.
+          RUSTFLAGS: -C link-arg=-Wl,--allow-shlib-undefined
+          CDECKJ_BUILD: ${{ github.sha }}
+        run: cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.35
+
+      - name: Check it runs on glibc 2.35
+        run: |
+          need=$(objdump -T target/x86_64-unknown-linux-gnu/release/cdeckj | grep -o 'GLIBC_2\.[0-9]*' | sort -uV | tail -1)
+          echo "needs $need"
+          [ "$(printf '%s\nGLIBC_2.35\n' "$need" | sort -V | tail -1)" = "GLIBC_2.35" ]
+
+      - name: Package
+        run: tools/package.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cdeckj-steamdeck-x86_64
+          path: dist/cdeckj-steamdeck-x86_64.tar.gz
+
+      - name: Publish the latest release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          short=$(git rev-parse --short HEAD)
+          notes=$(printf 'CDeckJ %s, built from %s (%s).\n\n%s\n\n**Install or update on the Steam Deck:** download `cdeckj-steamdeck-x86_64.tar.gz`, extract it, and double-click `install.sh` (choose *Execute*). Already installed? Run `./install.sh --update`.' \
+            "$version" "$short" "$(date -u +%Y-%m-%d)" "$(git log -1 --pretty=%s)")
+          git tag -f latest
+          git push -f origin refs/tags/latest
+          if gh release view latest >/dev/null 2>&1; then
+            gh release edit latest --title "CDeckJ $version (latest build)" --notes "$notes" --latest
+          else
+            gh release create latest --title "CDeckJ $version (latest build)" --notes "$notes" --latest
+          fi
+          gh release upload latest dist/cdeckj-steamdeck-x86_64.tar.gz --clobber

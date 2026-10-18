@@ -9,7 +9,7 @@ trap 'rm -rf "$tmp"' EXIT
 (cd "$tmp" && npm pack --silent "@phosphor-icons/web@$VERSION" >/dev/null && tar xzf phosphor-icons-web-*.tgz)
 codes=$(grep -o '\\u{[0-9a-f]*}' src/ui/icons.rs | tr -d '\\u{}' | sort -u | sed 's/^/U+/' | paste -sd, -)
 for w in Bold Fill; do
-  lw=$(echo "$w" | tr 'A-Z' 'a-z')
+  lw=$(echo "$w" | tr '[:upper:]' '[:lower:]')
   pyftsubset "$tmp/package/src/$lw/Phosphor-$w.ttf" --unicodes="U+0020,$codes" \
     --layout-features='' --no-hinting --output-file="assets/fonts/Phosphor-$w.ttf"
 done

@@ -314,7 +314,11 @@ impl App {
         rows.text(&p, "Music folder", &self.lib.local_root.display().to_string());
         rows.text(&p, "Settings file", &crate::config::Config::path().display().to_string());
         rows.text(&p, "Saved data", &crate::config::data_dir().display().to_string());
-        rows.text(&p, "Version", env!("CARGO_PKG_VERSION"));
+        let version = match option_env!("CDECKJ_BUILD") {
+            Some(b) if b.len() >= 7 => format!("{} (build {})", env!("CARGO_PKG_VERSION"), &b[..7]),
+            _ => env!("CARGO_PKG_VERSION").to_string(),
+        };
+        rows.text(&p, "Version", &version);
     }
 }
 

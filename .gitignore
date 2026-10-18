@@ -25,3 +25,4 @@ rustc-ice-*.txt
 
 # Platter: rekordbox test exports are .pdb files, keep them
 !tests/fixtures/**/*.pdb
+dist/
