@@ -65,6 +65,16 @@ pub struct MidiMap {
     pub pad_hot_cue: u8,
     pub pad_beat_jump: u8,
     pub pad_beat_loop: u8,
+    /// BEAT FX section (DDJ-400/FLX layout: MIDI channel 5).
+    pub fx_channel: u8,
+    pub fx_select: u8,
+    pub fx_beat_left: u8,
+    pub fx_beat_right: u8,
+    pub fx_ch1: u8,
+    pub fx_ch2: u8,
+    pub fx_master: u8,
+    pub fx_on: u8,
+    pub cc_fx_level: u8,
 }
 
 impl Default for MidiMap {
@@ -112,6 +122,15 @@ impl Default for MidiMap {
             pad_hot_cue: 0x00,
             pad_beat_jump: 0x20,
             pad_beat_loop: 0x60,
+            fx_channel: 4,
+            fx_select: 0x63,
+            fx_beat_left: 0x4A,
+            fx_beat_right: 0x4B,
+            fx_ch1: 0x10,
+            fx_ch2: 0x11,
+            fx_master: 0x14,
+            fx_on: 0x47,
+            cc_fx_level: 0x02,
         }
     }
 }
@@ -157,6 +176,7 @@ pub enum Ctl {
     Crossfader,
     HeadMix,
     HeadLevel,
+    FxLevel,
 }
 
 impl Ctl {
@@ -177,6 +197,7 @@ impl Ctl {
             Ctl::Crossfader => m.crossfader,
             Ctl::HeadMix => m.head_mix,
             Ctl::HeadLevel => m.head_level,
+            Ctl::FxLevel => m.fx.level,
         }
     }
 }
@@ -264,7 +285,8 @@ impl Mapper {
                     | MixParam::Fader(_, x)
                     | MixParam::Crossfader(x)
                     | MixParam::HeadMix(x)
-                    | MixParam::HeadLevel(x) => x,
+                    | MixParam::HeadLevel(x)
+                    | MixParam::FxLevel(x) => x,
                     _ => return Some(action),
                 },
                 _ => return Some(action),
@@ -315,6 +337,32 @@ impl Mapper {
             } else {
                 None
             };
+        }
+
+        // Beat FX section.
+        if ch == m.fx_channel {
+            use crate::engine::fx::FxTarget;
+            if is_note {
+                if !pressed {
+                    return None;
+                }
+                let mx = |p: MixParam| e(Cmd::Mix(p));
+                return match d1 {
+                    n if n == m.fx_select => mx(MixParam::FxNext(1)),
+                    n if n == m.fx_beat_left => mx(MixParam::FxBeat(-1)),
+                    n if n == m.fx_beat_right => mx(MixParam::FxBeat(1)),
+                    n if n == m.fx_ch1 => mx(MixParam::FxTarget(FxTarget::Ch(0))),
+                    n if n == m.fx_ch2 => mx(MixParam::FxTarget(FxTarget::Ch(1))),
+                    n if n == m.fx_master => mx(MixParam::FxTarget(FxTarget::Master)),
+                    n if n == m.fx_on => mx(MixParam::FxToggle),
+                    _ => None,
+                };
+            }
+            if kind == 0xB0 && (d1 == m.cc_fx_level || d1 == m.cc_fx_level + 0x20) {
+                let v = self.hires(ch, d1, d2, d1 != m.cc_fx_level);
+                return ec(Cmd::Mix(MixParam::FxLevel(v)), Ctl::FxLevel);
+            }
+            return None;
         }
 
         // Global section.
@@ -525,6 +573,10 @@ fn led_targets(v: &EngineView, map: &MidiMap, blink: bool) -> Vec<(u8, u8, u8)> 
             want.push((st, map.reloop, on(dv.loop_active)));
         }
         want.push((0x90 + d as u8, map.pfl, on(v.mixer.ch[d].pfl)));
+        // BEAT FX ON blinks while on, like the hardware.
+        if d == 0 {
+            want.push((0x90 + map.fx_channel, map.fx_on, on(v.mixer.fx.on && blink)));
+        }
         for s in [0, 1] {
             let st = map.pad_status + 2 * d as u8 + s;
             for i in 0..8u8 {
@@ -657,6 +709,10 @@ mod tests {
         assert_eq!(dec(&mut m, [0xB6, 0x40, 0x7F]), "Some(Browse(-1))");
         assert_eq!(dec(&mut m, [0x90, 0x54, 0x7F]), "Some(Mix(PflToggle(0)))");
         assert_eq!(dec(&mut m, [0x90, 0x47, 0x7F]), "Some(Reverse(0, true))");
+        assert_eq!(dec(&mut m, [0x94, 0x47, 0x7F]), "Some(Mix(FxToggle))");
+        assert_eq!(dec(&mut m, [0x94, 0x4B, 0x7F]), "Some(Mix(FxBeat(1)))");
+        assert_eq!(dec(&mut m, [0x94, 0x11, 0x7F]), "Some(Mix(FxTarget(Ch(1))))");
+        assert_eq!(dec(&mut m, [0xB4, 0x22, 0x7F]), format!("Some(Mix(FxLevel({:?})))", 127.0 / 16383.0f32));
         assert_eq!(dec(&mut m, [0xB0, 0x13, 0x7F]), format!("Some(Mix(Fader(0, {:?})))", 127.0 * 128.0 / 16383.0f32));
         assert_eq!(dec(&mut m, [0xB0, 0x33, 0x7F]), "Some(Mix(Fader(0, 1.0)))");
         assert_eq!(dec(&mut m, [0xB6, 0x17, 0x40]), format!("Some(Mix(Filter(0, {:?})))", 64.0 * 128.0 / 16383.0f32));

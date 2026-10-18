@@ -3,6 +3,7 @@
 
 pub mod deck;
 pub mod dsp;
+pub mod fx;
 pub mod mixer;
 pub mod stretch;
 
@@ -37,6 +38,16 @@ pub enum MixParam {
     Master(f32),
     FaderCurve(mixer::FaderCurve),
     CrossfaderCurve(mixer::CrossfaderCurve),
+    FxKind(fx::FxKind),
+    /// Step through the effects (FX SELECT).
+    FxNext(i32),
+    /// Step the beat value (BEAT ◀ ▶).
+    FxBeat(i32),
+    FxBeatIdx(usize),
+    FxTarget(fx::FxTarget),
+    FxLevel(f32),
+    FxToggle,
+    FxQuantize(bool),
 }
 
 /// Everything the UI, MIDI, gamepad and keyboard can ask the engine to do.
@@ -241,6 +252,20 @@ impl Engine {
     }
 
     /// Which deck is the tempo master: the un-synced one, else deck 1.
+    /// Tempo for the beat FX: the sync master if it's playing, else a playing deck that's
+    /// audible, else the master deck's tempo with a free-running clock.
+    fn fx_clock(&self) -> fx::FxClock {
+        let m = self.master_deck();
+        let audible = |d: usize| self.decks[d].playing && self.params.ch[d].fader > 0.05;
+        let d = if self.decks[m].playing { m } else { (0..DECKS).find(|&d| audible(d)).unwrap_or(m) };
+        let deck = &self.decks[d];
+        let rate = self.rate_for(d);
+        match deck.bpm() {
+            Some(b) => fx::FxClock { bpm: b * rate, beat: deck.playing.then(|| deck.beat_at(deck.pos)).flatten() },
+            None => fx::FxClock::default(),
+        }
+    }
+
     fn master_deck(&self) -> usize {
         (0..DECKS).find(|&d| !self.decks[d].synced).unwrap_or(0)
     }
@@ -405,6 +430,18 @@ impl Engine {
             Master(v) => m.master = v,
             FaderCurve(c) => m.fader_curve = c,
             CrossfaderCurve(c) => m.crossfader_curve = c,
+            FxKind(k) => m.fx.kind = k,
+            FxNext(dir) => {
+                let n = fx::FX_KINDS.len() as i32;
+                let i = fx::FX_KINDS.iter().position(|&k| k == m.fx.kind).unwrap_or(0) as i32;
+                m.fx.kind = fx::FX_KINDS[(i + dir).rem_euclid(n) as usize];
+            }
+            FxBeat(dir) => m.fx.beat_idx = (m.fx.beat_idx as i32 + dir).clamp(0, fx::FX_BEATS.len() as i32 - 1) as usize,
+            FxBeatIdx(i) => m.fx.beat_idx = i.min(fx::FX_BEATS.len() - 1),
+            FxTarget(t) => m.fx.target = t,
+            FxLevel(v) => m.fx.level = v.clamp(0.0, 1.0),
+            FxToggle => m.fx.on = !m.fx.on,
+            FxQuantize(q) => m.fx.quantize = q,
         }
     }
 
@@ -436,8 +473,10 @@ impl Engine {
         for d in 0..DECKS {
             self.decks[d].render(&mut self.deck_buf[d][..n * 2], rates[d]);
         }
-        self.mixer.process(
+        let clk = self.fx_clock();
+        self.mixer.process_fx(
             &self.params,
+            &clk,
             [&self.deck_buf[0][..n * 2], &self.deck_buf[1][..n * 2]],
             &mut self.master[..n * 2],
             &mut self.cue[..n * 2],

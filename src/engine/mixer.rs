@@ -1,6 +1,7 @@
 //! Two-channel DJ mixer: trim, 3-band isolator EQ, colour filter, fader, crossfader, PFL.
 
 use super::dsp::{db_to_gain, Isolator, Smooth, Svf};
+use super::fx::{BeatFx, FxClock, FxParams, FxTarget};
 pub use crate::rekordbox::settings::{CrossfaderCurve, FaderCurve};
 
 /// Knob/fader positions as the hardware reports them (all 0..=1, knobs centred at 0.5).
@@ -40,6 +41,7 @@ pub struct MixerParams {
     pub master: f32,
     pub fader_curve: FaderCurve,
     pub crossfader_curve: CrossfaderCurve,
+    pub fx: FxParams,
 }
 
 impl Default for MixerParams {
@@ -52,6 +54,7 @@ impl Default for MixerParams {
             master: 0.8,
             fader_curve: FaderCurve::Linear,
             crossfader_curve: CrossfaderCurve::SlowCut,
+            fx: FxParams::default(),
         }
     }
 }
@@ -175,6 +178,9 @@ pub struct Mixer {
     pub peak_master: f32,
     /// The last block's master mix before the MASTER knob, for recording.
     rec: Vec<f32>,
+    /// Each channel after its fader (where a channel's beat FX goes).
+    post: [Vec<f32>; 2],
+    fx: BeatFx,
 }
 
 impl Mixer {
@@ -188,6 +194,8 @@ impl Mixer {
             peak_ch: [0.0; 2],
             peak_master: 0.0,
             rec: vec![0.0; 4096],
+            post: [vec![0.0; 4096], vec![0.0; 4096]],
+            fx: BeatFx::new(sr),
         }
     }
 
@@ -197,6 +205,7 @@ impl Mixer {
     }
 
     /// Mix the two deck buffers (interleaved stereo) into master and cue buses.
+    #[allow(dead_code)] // tests and tools; the engine passes a tempo
     pub fn process(
         &mut self,
         p: &MixerParams,
@@ -204,9 +213,26 @@ impl Mixer {
         master: &mut [f32],
         cue: &mut [f32],
     ) {
+        self.process_fx(p, &FxClock::default(), decks, master, cue);
+    }
+
+    /// Like [`Self::process`], with the tempo the beat FX follow.
+    pub fn process_fx(
+        &mut self,
+        p: &MixerParams,
+        clk: &FxClock,
+        decks: [&[f32]; 2],
+        master: &mut [f32],
+        cue: &mut [f32],
+    ) {
         let n = master.len() / 2;
         master.fill(0.0);
         cue.fill(0.0);
+        for post in self.post.iter_mut() {
+            if post.len() < 2 * n {
+                post.resize(2 * n, 0.0); // only for oversized test blocks
+            }
+        }
         let (xa, xb) = xfade_gains_curve(p.crossfader, p.crossfader_curve);
         let mut any_pfl = false;
 
@@ -232,6 +258,7 @@ impl Mixer {
             let t_pfl = if cp.pfl { 1.0 } else { 0.0 };
             let input = decks[c];
             let mut peak = 0f32;
+            let post = &mut self.post[c];
 
             for i in 0..n {
                 let gt = strip.g_trim.tick(t_trim);
@@ -248,11 +275,25 @@ impl Mixer {
                         x = strip.hp[s].tick(x).high;
                     }
                     peak = peak.max(x.abs());
-                    master[2 * i + s] += x * go;
+                    post[2 * i + s] = x * go;
                     cue[2 * i + s] += x * gp;
                 }
             }
             self.peak_ch[c] = peak;
+        }
+        // Beat FX after the channel fader (or on the summed master), then sum.
+        if let FxTarget::Ch(c) = p.fx.target {
+            if c < 2 {
+                self.fx.process(&p.fx, clk, &mut self.post[c][..2 * n]);
+            }
+        }
+        for post in &self.post {
+            for (m, v) in master.iter_mut().zip(&post[..2 * n]) {
+                *m += v;
+            }
+        }
+        if p.fx.target == FxTarget::Master {
+            self.fx.process(&p.fx, clk, master);
         }
 
         let t_master = p.master * p.master * 1.25;

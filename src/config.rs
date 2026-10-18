@@ -25,6 +25,23 @@ impl Default for DeckPrefs {
     }
 }
 
+/// The beat FX selection (not ON: every set starts with effects off).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct FxPrefs {
+    pub kind: crate::engine::fx::FxKind,
+    pub beat_idx: usize,
+    pub target: crate::engine::fx::FxTarget,
+    pub level: f32,
+}
+
+impl Default for FxPrefs {
+    fn default() -> Self {
+        let p = crate::engine::fx::FxParams::default();
+        Self { kind: p.kind, beat_idx: p.beat_idx, target: p.target, level: p.level }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
@@ -76,6 +93,7 @@ pub struct Config {
     pub fader_curve: FaderCurve,
     pub crossfader_curve: CrossfaderCurve,
     pub beat_fx_quantize: bool,
+    pub fx: FxPrefs,
     pub midi: MidiMap,
 }
 
@@ -115,6 +133,7 @@ impl Default for Config {
             fader_curve: FaderCurve::Linear,
             crossfader_curve: CrossfaderCurve::SlowCut,
             beat_fx_quantize: true,
+            fx: FxPrefs::default(),
             midi: MidiMap::default(),
         }
     }

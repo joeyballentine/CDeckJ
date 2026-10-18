@@ -428,6 +428,7 @@ impl App {
             c.decks[d].master_tempo = dv.keylock;
             c.decks[d].tempo_range = dv.range_idx;
         }
+        c.fx = crate::config::FxPrefs { kind: v.mixer.fx.kind, beat_idx: v.mixer.fx.beat_idx, target: v.mixer.fx.target, level: v.mixer.fx.level };
         c.master_level = v.mixer.master;
         c.phones_mix = v.mixer.head_mix;
         c.phones_level = v.mixer.head_level;
@@ -524,6 +525,9 @@ impl App {
         if let Some(v) = s.quantize_beats {
             c.quantize_beats = v;
             self.send(Cmd::QuantizeBeats(v));
+        }
+        if let Some(v) = s.beat_fx_quantize {
+            self.send(Cmd::Mix(MixParam::FxQuantize(v)));
         }
         if let Some(v) = s.fader_curve {
             self.config.fader_curve = v;
@@ -732,6 +736,7 @@ impl App {
                 (Key::P, true) => self.load_selected(1),
                 (Key::G, true) => self.send(Cmd::QuantizeToggle),
                 (Key::R, true) => self.record_toggle(),
+                (Key::F, true) => self.send(Cmd::Mix(MixParam::FxToggle)),
                 (Key::W, true) => self.config.waveform_color = crate::wave::next_mode(self.config.waveform_color),
                 // Same as the on-screen −/+: minus shows more time (zoom out).
                 (Key::Minus, true) => self.set_zoom(1),
@@ -775,15 +780,17 @@ impl eframe::App for App {
 
         let top_h = 34.0;
         let banner_h = if self.banner.is_some() { 30.0 } else { 0.0 };
-        let wave_h = (full.height() * 0.175).clamp(100.0, 180.0);
-        let main_h = 396.0f32.min((full.height() - top_h - banner_h - wave_h - 150.0).max(330.0));
+        let wave_h = (full.height() * 0.15).clamp(92.0, 170.0);
+        let fx_h = 44.0;
+        let main_h = 396.0f32.min((full.height() - top_h - banner_h - wave_h - fx_h - 140.0).max(330.0));
         let mixer_w = 340.0;
 
         let top = Rect::from_min_size(full.min, vec2(full.width(), top_h));
         let banner = Rect::from_min_size(pos2(full.min.x, top.max.y), vec2(full.width(), banner_h));
         let waves = Rect::from_min_size(pos2(full.min.x, banner.max.y), vec2(full.width(), wave_h));
         let main = Rect::from_min_size(pos2(full.min.x, waves.max.y), vec2(full.width(), main_h));
-        let browser = Rect::from_min_max(pos2(full.min.x, main.max.y), full.max);
+        let fx_bar = Rect::from_min_size(pos2(full.min.x, main.max.y), vec2(full.width(), fx_h));
+        let browser = Rect::from_min_max(pos2(full.min.x, fx_bar.max.y), full.max);
         let deck_w = (full.width() - mixer_w) / 2.0;
         let deck_rects = [
             Rect::from_min_size(main.min, vec2(deck_w, main_h)),
@@ -805,6 +812,7 @@ impl eframe::App for App {
             self.deck_panel(ui, deck_rects[d].shrink(6.0), d, &v.decks[d]);
         }
         self.mixer_panel(ui, mixer.shrink2(vec2(0.0, 6.0)), &v);
+        self.fx_bar(ui, fx_bar.shrink2(vec2(6.0, 2.0)), &v);
         self.browser(ui, browser.shrink(6.0));
 
         let busy = v.decks.iter().any(|d| d.playing || d.previewing || d.touched || !d.complete)
@@ -1046,6 +1054,30 @@ fn vfader(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, value: f32, color: Color32
     None
 }
 
+/// Horizontal slider: drag or tap to set, ← → when focused. The label is drawn inside.
+fn hslider(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, value: f32, color: Color32, label: &str) -> Option<f32> {
+    let l = label.to_string();
+    let (c, resp) = control(ui, tc, r, id, || WidgetInfo::slider(true, value as f64, &l));
+    let p = ui.painter();
+    p.rect_filled(r, CornerRadius::same(t::R_CONTROL), t::INSET);
+    let fill = Rect::from_min_size(r.min, vec2(r.width() * value.clamp(0.0, 1.0), r.height()));
+    p.rect_filled(fill, CornerRadius::same(t::R_CONTROL), color.gamma_multiply(0.25));
+    p.vline(fill.max.x, r.y_range().shrink(4.0), Stroke::new(2.0, color));
+    p.text(r.left_center() + vec2(8.0, 0.0), Align2::LEFT_CENTER, "LEVEL", caption(), t::INK_MUTED);
+    p.text(r.right_center() - vec2(8.0, 0.0), Align2::RIGHT_CENTER, format!("{:.0}", value * 100.0), mono(12.0), t::INK_MUTED);
+    focus_ring(p, r, &resp, t::R_CONTROL);
+    if c.down || c.clicked {
+        if let Some(pos) = c.pos {
+            return Some(((pos.x - r.min.x) / r.width()).clamp(0.0, 1.0));
+        }
+    }
+    let step = focused_arrow(ui, &resp);
+    if step != 0.0 {
+        return Some((value + step as f32 * 0.05).clamp(0.0, 1.0));
+    }
+    None
+}
+
 fn meter(p: &Painter, r: Rect, level: f32) {
     p.rect_filled(r, 1, t::INSET);
     let segs = 14;
@@ -1203,6 +1235,73 @@ impl App {
         let qtip = if v.quantize { "Quantize on: cues, loops and jumps snap to the beat  ( G )" } else { "Quantize off  ( G )" };
         if button_tip(ui, &mut self.touches, qr, Id::NULL.with("quantize"), "QUANTIZE", v.quantize.then_some(t::LOOP), semi(13.0), qtip).clicked {
             self.send(Cmd::QuantizeToggle);
+        }
+    }
+
+    /// BEAT FX: effect, beat value, channel, level and ON, laid out like a DJM's FX section.
+    fn fx_bar(&mut self, ui: &Ui, r: Rect, v: &EngineView) {
+        use crate::engine::fx::{beats_label, FxTarget, FX_KINDS};
+        let p = ui.painter().clone();
+        card(&p, r);
+        let fx = v.mixer.fx;
+        let h = 32.0;
+        let y = r.center().y - h / 2.0;
+        let mut x = r.min.x + 12.0;
+        p.text(pos2(x, r.center().y), Align2::LEFT_CENTER, "BEAT FX", caption(), t::INK_FAINT);
+        x += 58.0;
+        // Right-hand block widths, so the effect chips get whatever is left.
+        let (beat_w, ch_w, lvl_w, on_w) = (32.0 * 2.0 + 52.0, 3.0 * 38.0, 150.0, 64.0);
+        let right = beat_w + ch_w + lvl_w + on_w + 4.0 * 14.0;
+        let chip_w = ((r.max.x - 12.0 - x - right) / FX_KINDS.len() as f32 - 4.0).clamp(48.0, 92.0);
+        for (i, k) in FX_KINDS.iter().enumerate() {
+            let br = Rect::from_min_size(pos2(x, y), vec2(chip_w, h));
+            let lit = (fx.kind == *k).then_some(if fx.on { t::DANGER } else { t::LOOP });
+            if button(ui, &mut self.touches, br, Id::NULL.with(("fxk", i)), k.name(), lit, cond(14.0)).clicked {
+                self.send(Cmd::Mix(MixParam::FxKind(*k)));
+            }
+            x += chip_w + 4.0;
+        }
+        x += 10.0;
+        // Beat ◀ value ▶
+        let l = Rect::from_min_size(pos2(x, y), vec2(32.0, h));
+        if button_tip(ui, &mut self.touches, l, Id::NULL.with("fxb-"), "‹", None, semi(18.0), "Shorter beat value").clicked {
+            self.send(Cmd::Mix(MixParam::FxBeat(-1)));
+        }
+        let label = if fx.kind == crate::engine::fx::FxKind::Reverb { format!("{}%", 10 + fx.beat_idx * 11) } else { beats_label(fx.beats()) };
+        p.text(pos2(x + 32.0 + 26.0, r.center().y), Align2::CENTER_CENTER, label, mono(15.0), t::INK);
+        let rr = Rect::from_min_size(pos2(x + 32.0 + 52.0, y), vec2(32.0, h));
+        if button_tip(ui, &mut self.touches, rr, Id::NULL.with("fxb+"), "›", None, semi(18.0), "Longer beat value").clicked {
+            self.send(Cmd::Mix(MixParam::FxBeat(1)));
+        }
+        x += beat_w + 14.0;
+        // Channel: 1 / 2 / MASTER
+        for (i, (lab, tg)) in [("1", FxTarget::Ch(0)), ("2", FxTarget::Ch(1)), ("M", FxTarget::Master)].into_iter().enumerate() {
+            let br = Rect::from_min_size(pos2(x + i as f32 * 38.0, y), vec2(34.0, h));
+            let col = match tg {
+                FxTarget::Ch(c) => t::DECK_TINT[c],
+                FxTarget::Master => t::INK,
+            };
+            let tip = match tg {
+                FxTarget::Ch(c) => format!("Effect on channel {}", c + 1),
+                FxTarget::Master => "Effect on the master".to_string(),
+            };
+            if button_tip(ui, &mut self.touches, br, Id::NULL.with(("fxc", i)), lab, (fx.target == tg).then_some(col), semi(15.0), &tip).clicked {
+                self.send(Cmd::Mix(MixParam::FxTarget(tg)));
+            }
+        }
+        x += ch_w + 14.0;
+        // LEVEL/DEPTH
+        let lr = Rect::from_min_size(pos2(x, y), vec2(lvl_w, h));
+        if let Some(nv) = hslider(ui, &mut self.touches, lr, Id::NULL.with("fxlvl"), fx.level, if fx.on { t::DANGER } else { t::INK_MUTED }, "Beat FX level/depth") {
+            self.send_touched(Cmd::Mix(MixParam::FxLevel(nv)), MidiCtl::FxLevel);
+        }
+        x += lvl_w + 14.0;
+        // ON (blinks red while on, like the hardware)
+        let or = Rect::from_min_size(pos2(x, y), vec2(on_w, h));
+        let blink = (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0;
+        let lit = fx.on.then_some(if blink { t::DANGER } else { t::DANGER.gamma_multiply(0.7) });
+        if button_tip(ui, &mut self.touches, or, Id::NULL.with("fxon"), "ON", lit, semi(15.0), "Beat FX on/off  ( F )").clicked {
+            self.send(Cmd::Mix(MixParam::FxToggle));
         }
     }
 
@@ -2161,5 +2260,10 @@ pub fn restore_commands(cfg: &Config) -> Vec<Cmd> {
     v.push(Cmd::QuantizeBeats(cfg.quantize_beats));
     v.push(Cmd::Mix(MixParam::FaderCurve(cfg.fader_curve)));
     v.push(Cmd::Mix(MixParam::CrossfaderCurve(cfg.crossfader_curve)));
+    v.push(Cmd::Mix(MixParam::FxKind(cfg.fx.kind)));
+    v.push(Cmd::Mix(MixParam::FxBeatIdx(cfg.fx.beat_idx)));
+    v.push(Cmd::Mix(MixParam::FxTarget(cfg.fx.target)));
+    v.push(Cmd::Mix(MixParam::FxLevel(cfg.fx.level)));
+    v.push(Cmd::Mix(MixParam::FxQuantize(cfg.beat_fx_quantize)));
     v
 }
