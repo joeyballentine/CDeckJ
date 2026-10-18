@@ -1,6 +1,7 @@
 //! Platter — a minimal CDJ-style two-deck DJ player for the Steam Deck and a DDJ-GRV6.
 
 mod analysis;
+mod autolaunch;
 mod art;
 mod audio;
 mod config;
@@ -45,6 +46,10 @@ OPTIONS:
     --windowed           Don't start fullscreen
     --list               List audio devices and MIDI ports, then exit
     --midi-monitor       Print incoming MIDI messages and their mapping, then exit with Ctrl+C
+    --install-autolaunch Start Platter whenever the controller is plugged in (no root needed)
+    --uninstall-autolaunch
+                         Turn that off again
+    --watch              The watcher that --install-autolaunch runs in the background
     -h, --help           Show this help
 
 Settings live in ~/.config/platter/config.toml; saved cues and analysis in
@@ -63,6 +68,9 @@ struct Args {
     windowed: bool,
     list: bool,
     monitor: bool,
+    watch: bool,
+    install_autolaunch: bool,
+    uninstall_autolaunch: bool,
     tracks: Vec<PathBuf>,
 }
 
@@ -82,6 +90,9 @@ fn parse_args() -> Result<Args, String> {
             "--windowed" => a.windowed = true,
             "--list" => a.list = true,
             "--midi-monitor" => a.monitor = true,
+            "--watch" => a.watch = true,
+            "--install-autolaunch" => a.install_autolaunch = true,
+            "--uninstall-autolaunch" => a.uninstall_autolaunch = true,
             "-h" | "--help" => {
                 print!("{HELP}");
                 std::process::exit(0);
@@ -112,6 +123,20 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     let midi_port = args.midi.clone().or(cfg.midi_port.clone());
+    if args.install_autolaunch || args.uninstall_autolaunch {
+        let r = if args.install_autolaunch { autolaunch::install() } else { autolaunch::uninstall() };
+        match r {
+            Ok(msg) => println!("{msg}"),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
+    if args.watch {
+        autolaunch::watch(&cfg.midi.port_hints);
+    }
     if args.monitor {
         midi::monitor(midi_port.as_deref(), cfg.midi.clone());
         return Ok(());

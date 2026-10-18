@@ -41,6 +41,19 @@ Every control has a screen-reader name (AccessKit), can be reached with Tab, and
 
 The prebuilt binary needs only glibc 2.35+, `libasound` and `libudev`, all present on SteamOS.
 
+### Start automatically when the controller is plugged in
+
+```sh
+./platter --install-autolaunch
+```
+
+From then on, plugging in the DDJ-GRV6 opens Platter. Nothing else changes, and no root or password is needed: this installs a small background service for your user (`~/.config/systemd/user/platter-watch.service`) that checks for the controller every two seconds and uses next to no CPU.
+
+- If Platter has been added to Steam (*Add a Non-Steam Game*), it opens through Steam, so it works in **Game Mode** as well as Desktop Mode. Without that, it only opens in Desktop Mode.
+- It opens when the controller *arrives*. If you quit Platter with the controller still plugged in, it won't reopen until you unplug and replug it (or log in again).
+- It looks for the same names as the MIDI connection (`port_hints` in the `[midi]` settings: GRV6, DDJ, AlphaTheta, Pioneer), so other Pioneer DJ gear triggers it too. Narrow the list to `["GRV6"]` if that's not what you want.
+- If you move the `platter` file, run `--install-autolaunch` again. `./platter --uninstall-autolaunch` turns it off.
+
 ### rekordbox USB sticks
 
 Plug in a stick exported from rekordbox. Platter watches `/run/media/$USER` (where SteamOS mounts drives in Desktop Mode) and `/media`, so it shows up under **Sources** within a couple of seconds. Use `--usb <folder>` for a drive mounted elsewhere, or for a copy of an export on disk.
@@ -178,6 +191,8 @@ platter [OPTIONS] [TRACK1] [TRACK2]
   --windowed         don't start fullscreen
   --list             list audio devices and MIDI ports
   --midi-monitor     print incoming MIDI and how it is mapped
+  --install-autolaunch / --uninstall-autolaunch
+                     start Platter whenever the controller is plugged in
 ```
 
 Command-line options override the settings file for that run.
