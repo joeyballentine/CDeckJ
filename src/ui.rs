@@ -84,6 +84,7 @@ pub struct AppInit {
     pub preload: Vec<PathBuf>,
     pub keep_awake: Option<KeepAwake>,
     pub keep: Vec<Box<dyn Any>>,
+    pub tap: Arc<crate::recorder::Tap>,
 }
 
 pub struct App {
@@ -123,6 +124,10 @@ pub struct App {
     ctx: egui::Context,
     _keep_awake: Option<KeepAwake>,
     _keep: Vec<Box<dyn Any>>,
+    recorder: crate::recorder::Recorder,
+    /// First tap of the two-tap stop, so a stray touch can't end a recording.
+    rec_confirm: Option<Instant>,
+    rec_low_warned: bool,
 }
 
 impl App {
@@ -182,6 +187,9 @@ impl App {
             ctx: ctx.clone(),
             _keep_awake: init.keep_awake,
             _keep: init.keep,
+            recorder: crate::recorder::Recorder::new(init.tap),
+            rec_confirm: None,
+            rec_low_warned: false,
         };
         for (d, p) in init.preload.into_iter().take(DECKS).enumerate() {
             let (title, artist) = track::names_from_path(&p);
@@ -311,6 +319,7 @@ impl App {
                 UiAction::BrowsePress => self.browse_enter(),
                 UiAction::Back => self.browse_back(),
                 UiAction::Load(d) => self.load_selected(d),
+                UiAction::Record => self.record_toggle(),
             }
         }
     }
@@ -426,6 +435,69 @@ impl App {
         crate::config::write_in_background(job);
     }
 
+    fn recordings_dir(&self) -> PathBuf {
+        self.config.recording_dir.clone().unwrap_or_else(|| library::default_root().join(crate::recorder::DIR_NAME))
+    }
+
+    /// Start recording, or stop on the second press within 3 s.
+    fn record_toggle(&mut self) {
+        if !self.recorder.is_recording() {
+            self.rec_low_warned = false;
+            self.rec_confirm = None;
+            match self.recorder.start(&self.recordings_dir()) {
+                Ok(base) => eprintln!("recording: {}", base.display()),
+                Err(e) => self.banner = Some(format!("Couldn't start recording: {e}")),
+            }
+        } else if self.rec_confirm.is_some_and(|t| t.elapsed() < Duration::from_secs(3)) {
+            self.rec_confirm = None;
+            if let Some(f) = self.recorder.stop() {
+                self.recording_finished(f);
+            }
+        } else {
+            self.rec_confirm = Some(Instant::now());
+        }
+    }
+
+    fn recording_finished(&mut self, f: crate::recorder::Finished) {
+        let mut file = f.parts.first().map(|p| p.path.display().to_string()).unwrap_or_default();
+        if let Some(home) = std::env::var_os("HOME").map(|h| h.to_string_lossy().into_owned()) {
+            if !home.is_empty() && file.starts_with(&home) {
+                file = format!("~{}", &file[home.len()..]);
+            }
+        }
+        let len = crate::recorder::fmt_elapsed(f.secs);
+        let tracks = match f.tracks {
+            0 => String::new(),
+            1 => ", 1 track".into(),
+            n => format!(", {n} tracks"),
+        };
+        let parts = if f.parts.len() > 1 { format!(" (in {} files)", f.parts.len()) } else { String::new() };
+        let lost = if f.dropped_secs > 0.05 { format!(" — {:.1} s lost because the disk was too slow", f.dropped_secs) } else { String::new() };
+        self.banner = Some(match f.error {
+            Some(e) => format!("Recording stopped: {e}. Saved {len}{tracks} to {file}"),
+            None => format!("Recording saved: {len}{tracks}{parts} — {file}{lost}"),
+        });
+    }
+
+    fn recording_tick(&mut self, v: &EngineView) {
+        if !self.recorder.is_recording() {
+            return;
+        }
+        let meta: [Option<(String, String)>; DECKS] =
+            std::array::from_fn(|d| self.decks[d].track.as_ref().map(|t| (t.artist.clone(), t.title.clone())));
+        if let Some(f) = self.recorder.tick(v, meta) {
+            self.recording_finished(f);
+            return;
+        }
+        if self.recorder.low_space() && !self.rec_low_warned {
+            self.rec_low_warned = true;
+            self.banner = Some("Less than 1 GB free for the recording (about an hour left). It will stop safely before the disk fills.".into());
+        }
+        if self.rec_confirm.is_some_and(|t| t.elapsed() >= Duration::from_secs(3)) {
+            self.rec_confirm = None;
+        }
+    }
+
     fn set_zoom(&mut self, dir: i32) {
         let cur = WAVE_ZOOMS.iter().position(|z| (*z - self.config.waveform_seconds).abs() < 0.01).unwrap_or(2) as i32;
         let i = (cur + dir).clamp(0, WAVE_ZOOMS.len() as i32 - 1) as usize;
@@ -514,6 +586,7 @@ impl App {
                 (Key::Q, true) => self.load_selected(0),
                 (Key::P, true) => self.load_selected(1),
                 (Key::G, true) => self.send(Cmd::QuantizeToggle),
+                (Key::R, true) => self.record_toggle(),
                 // Same as the on-screen −/+: minus shows more time (zoom out).
                 (Key::Minus, true) => self.set_zoom(1),
                 (Key::Equals | Key::Plus, true) => self.set_zoom(-1),
@@ -546,6 +619,7 @@ impl eframe::App for App {
         self.keyboard(ui);
         let v: EngineView = *self.view.lock();
         self.persist(&v);
+        self.recording_tick(&v);
 
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0, t::CHROME);
@@ -591,6 +665,8 @@ impl eframe::App for App {
             || self.touches.touch_mode();
         if busy {
             ui.ctx().request_repaint();
+        } else if self.recorder.is_recording() {
+            ui.ctx().request_repaint_after(Duration::from_millis(250));
         } else if v.decks.iter().any(|d| d.loaded) {
             // Paused decks blink CUE/PLAY at 1 Hz (2 edges/s): wake exactly on the next edge.
             let now = ui.input(|i| i.time);
@@ -602,6 +678,9 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        if let Some(f) = self.recorder.stop() {
+            eprintln!("recording: saved {}", f.parts.first().map(|p| p.path.display().to_string()).unwrap_or_default());
+        }
         let _ = self.config.save();
         self.store.lock().flush(true);
     }
@@ -941,7 +1020,7 @@ impl App {
             (None, Some(g)) => format!("{g}  ·  no DJ controller"),
             (None, None) => "No controller — touch & keyboard".into(),
         };
-        let right_w = 360.0;
+        let right_w = 456.0;
         text_fit(&p, pos2(x + 10.0, r.center().y), Align2::LEFT_CENTER, &ctl, cond(15.0), t::INK_MUTED, r.max.x - right_w - x - 20.0);
 
         // Right: QUANTIZE, DSP load, master meter.
@@ -960,10 +1039,44 @@ impl App {
             (format!("DSP {load}%"), if load > 70 { t::CUE } else { t::INK_FAINT })
         };
         p.text(pos2(m.min.x - 64.0, r.center().y), Align2::RIGHT_CENTER, dsp, mono(12.0), dcol);
-        let qr = Rect::from_min_size(pos2(r.max.x - right_w + 6.0, r.min.y + 5.0), vec2(84.0, 24.0));
+        self.rec_button(ui, &p, Rect::from_min_size(pos2(r.max.x - right_w + 6.0, r.min.y + 5.0), vec2(90.0, 24.0)));
+        let qr = Rect::from_min_size(pos2(r.max.x - right_w + 102.0, r.min.y + 5.0), vec2(84.0, 24.0));
         let qtip = if v.quantize { "Quantize on: cues, loops and jumps snap to the beat  ( G )" } else { "Quantize off  ( G )" };
         if button_tip(ui, &mut self.touches, qr, Id::NULL.with("quantize"), "QUANTIZE", v.quantize.then_some(t::LOOP), semi(13.0), qtip).clicked {
             self.send(Cmd::QuantizeToggle);
+        }
+    }
+
+    fn rec_button(&mut self, ui: &Ui, p: &Painter, r: Rect) {
+        let rec = self.recorder.is_recording();
+        let confirm = rec && self.rec_confirm.is_some();
+        let label = if confirm {
+            "STOP?".to_string()
+        } else if rec {
+            format!("   {}", crate::recorder::fmt_elapsed(self.recorder.elapsed()))
+        } else {
+            "   REC".to_string()
+        };
+        let tip = if confirm {
+            "Press again to stop recording"
+        } else if rec {
+            "Recording the mix. Press twice to stop  ( R R )"
+        } else {
+            "Record the mix to Music/Platter Recordings, with a tracklist  ( R )"
+        };
+        let font = if rec && !confirm { mono(13.0) } else { semi(13.0) };
+        if button_tip(ui, &mut self.touches, r, Id::NULL.with("rec"), &label, rec.then_some(t::DANGER), font, tip).clicked {
+            self.record_toggle();
+        }
+        if !confirm {
+            let blink = (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0;
+            let lit = !rec || blink;
+            let c = pos2(r.min.x + 16.0, r.center().y);
+            if lit {
+                p.circle_filled(c, 4.5, t::DANGER);
+            } else {
+                p.circle_stroke(c, 4.0, Stroke::new(1.2, t::DANGER));
+            }
         }
     }
 

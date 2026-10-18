@@ -1,6 +1,6 @@
 [package]
 name = "platter"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 license = "MIT"
 description = "Minimal CDJ-style DJ player for the Steam Deck and DDJ-GRV6"
@@ -11,6 +11,7 @@ cpal = { version = "0.18.2", features = ["pulseaudio"] }
 crossbeam-channel = "0.5.17"
 eframe = { version = "0.37.0", default-features = false, features = ["glow", "default_fonts", "x11", "wayland", "accesskit"] }
 egui = "0.37"
+libc = "0.2"
 gilrs = "0.11.2"
 midir = "0.11.1"
 parking_lot = "0.12.5"

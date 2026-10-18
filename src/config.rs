@@ -52,6 +52,8 @@ pub struct Config {
     pub gamepad: bool,
     /// Ask the desktop not to dim or sleep while Platter runs.
     pub keep_awake: bool,
+    /// Where recordings go (default: Music/Platter Recordings).
+    pub recording_dir: Option<PathBuf>,
     pub midi: MidiMap,
 }
 
@@ -77,6 +79,7 @@ impl Default for Config {
             background_analysis: true,
             gamepad: true,
             keep_awake: true,
+            recording_dir: None,
             midi: MidiMap::default(),
         }
     }

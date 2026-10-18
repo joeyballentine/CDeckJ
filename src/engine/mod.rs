@@ -174,6 +174,7 @@ pub struct Engine {
     master: Vec<f32>,
     cue: Vec<f32>,
     dsp_load: f32,
+    tap: Option<Arc<crate::recorder::Tap>>,
 }
 
 impl Engine {
@@ -201,7 +202,14 @@ impl Engine {
             master: vec![0.0; MAX_BLOCK * 2],
             cue: vec![0.0; MAX_BLOCK * 2],
             dsp_load: 0.0,
+            tap: None,
         }
+    }
+
+    /// Send the mix to a recorder.
+    pub fn set_tap(&mut self, tap: Arc<crate::recorder::Tap>) {
+        tap.set_rate(self.sample_rate);
+        self.tap = Some(tap);
     }
 
     /// Re-target the engine at a new output (after reconnecting audio). Deck state is kept.
@@ -213,6 +221,9 @@ impl Engine {
             }
         }
         self.sample_rate = sample_rate;
+        if let Some(t) = &self.tap {
+            t.set_rate(sample_rate);
+        }
         self.channels = channels as usize;
         self.routing = routing;
         let mut v = self.view.lock();
@@ -420,6 +431,9 @@ impl Engine {
             &mut self.master[..n * 2],
             &mut self.cue[..n * 2],
         );
+        if let Some(t) = &self.tap {
+            t.push(self.mixer.rec(n));
+        }
         let ch = self.channels.max(1);
         let (m, c) = (&self.master, &self.cue);
         for i in 0..n {

@@ -206,7 +206,7 @@ mod tests {
         let k = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(40.0, 40.0));
         let id = Id::NULL.with("knob");
         let mut t = Touches::default();
-        let mut tap = |t: &mut Touches, n: u64, at: f64| {
+        let tap = |t: &mut Touches, n: u64, at: f64| {
             t.begin_frame(&[touch(n, TouchPhase::Start, 5.0, 5.0)], at);
             t.ctl(k, id, &r);
             t.begin_frame(&[touch(n, TouchPhase::End, 5.0, 5.0)], at + 0.05);

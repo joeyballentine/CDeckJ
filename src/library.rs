@@ -472,7 +472,8 @@ fn walk(dir: &Path, depth: usize, out: &mut Vec<LibTrack>) {
     for e in rd.flatten() {
         let p = e.path();
         let name = e.file_name();
-        if name.to_string_lossy().starts_with('.') {
+        // Hidden files, and our own recordings (a WAV still being written isn't a track).
+        if name.to_string_lossy().starts_with('.') || name == crate::recorder::DIR_NAME {
             continue;
         }
         let Ok(ft) = e.file_type() else { continue };

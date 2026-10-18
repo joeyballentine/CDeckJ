@@ -126,6 +126,8 @@ pub enum UiAction {
     BrowsePress,
     Back,
     Load(usize),
+    /// Start recording, or (pressed twice) stop.
+    Record,
 }
 
 pub enum Action {

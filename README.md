@@ -21,6 +21,7 @@ A minimal two-deck DJ player in Rust, built to feel like a pair of CDJs and a tw
 - Steam Deck controls work as a mini controller (see below), and the screen won't dim or sleep while Platter runs.
 - Keeps running without an audio device (silent), and reconnects when one appears.
 - Reads rekordbox USB sticks: browse playlists and the full collection, and load tracks with their rekordbox beat grid, hot cues (with colours, comments and saved loops) and memory cues.
+- Records the mix to 24-bit WAV with a tracklist and CUE sheet (see *Recording*).
 - Library search (`/`), sortable columns (title, artist, BPM, key, time), tags read from the files, and BPM analysis of your music folder in the background.
 - Decodes MP3, FLAC, WAV, AIFF, OGG/Vorbis and AAC/ALAC in M4A. MP3 timing matches rekordbox, so rekordbox grids and cues line up.
 
@@ -58,6 +59,18 @@ The stick must contain the classic **Device Library** (`export.pdb`). Most expor
 Platter talks to PipeWire through its PulseAudio interface and picks the controller's sound card automatically. For headphone cueing, the card must expose 4 channels: in *System Settings → Audio* (or `pavucontrol`), set the DDJ-GRV6 profile to **Analog Surround 4.0 Output**. The top bar shows `phones on 3/4` when this works.
 
 No controller sound card? Use `--split-cue` with a stereo output and a splitter cable: master plays in the left ear, cue in the right.
+
+## Recording
+
+Press **REC** in the top bar (or R, or ≡ on the Steam Deck) to start. The button shows the elapsed time. To stop, press it twice within 3 seconds, so a stray tap can't end a set.
+
+- Files go to `~/Music/Platter Recordings/` (change with `recording_dir` in the settings file), named like `2026-10-18 21-30 Platter mix.wav`.
+- The recording is the master mix **before the MASTER knob**, like a DJM's REC OUT: turning the room down doesn't make the recording quieter. It keeps going if the audio device drops out.
+- 24-bit stereo WAV, about 1 GB per hour at 48 kHz. Past about 3¾ hours (or if the sample rate changes mid-set) it carries on in `… part 2.wav`.
+- The file is kept playable while recording, so a crash or power cut loses at most the last second.
+- Next to it: `… tracklist.txt` (`00:00 Artist - Title`, ready to paste into a mix description) and a `.cue` sheet with track markers. A track goes on the list once it has been audible (playing, fader and crossfader open) for 5 seconds, timed from when it came in.
+- Platter warns when less than 1 GB is free and stops cleanly before the disk fills.
+- The library skips the recordings folder.
 
 ## Controls
 
@@ -98,6 +111,7 @@ Use Steam's *Gamepad* controller layout for Platter.
 | X / B | Load deck 1 / 2 |
 | Left / right stick ← → | Nudge deck 1 / 2 |
 | View + left stick ← → | Crossfader |
+| ≡ (Menu) | Record; press twice to stop |
 
 Set `gamepad = false` in the settings file to turn this off.
 
@@ -112,7 +126,7 @@ Set `gamepad = false` in the settings file to turn this off.
 | S | J | Master Tempo |
 | Q | P | Load selected track |
 
-G toggles quantize; − / = zoom the waveforms out / in; `/` or Ctrl+F searches; ↑ ↓ / Page Up / Page Down move; Enter or → opens; Backspace, Esc or ← goes back; F11 toggles fullscreen.
+G toggles quantize; R records (press twice to stop); − / = zoom the waveforms out / in; `/` or Ctrl+F searches; ↑ ↓ / Page Up / Page Down move; Enter or → opens; Backspace, Esc or ← goes back; F11 toggles fullscreen.
 
 Tab moves keyboard focus through every on-screen control (shown with an orange ring). Enter or Space presses the focused button. ← → turn a focused knob, jump a beat on a focused waveform, 16 beats on the overview, and search on the jog. Hover a button for its shortcut.
 
@@ -152,6 +166,7 @@ bpm_range = [70.0, 180.0]     # detected tempos are folded into this range, e.g.
 background_analysis = true    # detect BPM of music-folder tracks while idle
 gamepad = true                # use the Steam Deck's own buttons
 keep_awake = true             # stop the screen dimming and the Deck sleeping
+recording_dir = "/home/deck/Music/Platter Recordings"
 
 [grid_offset_ms]              # shift rekordbox grids and cues per file type, if they're off
 # mp3 = 0.0
@@ -191,7 +206,7 @@ On SteamOS itself, build inside a `distrobox` container (Arch or Ubuntu) rather 
 
 ## Not included
 
-More than two decks, beat FX, sampler, recording, artwork, saving cues back to the stick, and rekordbox's OneLibrary format. Detected grids (non-rekordbox tracks) assume a constant tempo.
+More than two decks, beat FX, sampler, artwork, saving cues back to the stick, and rekordbox's OneLibrary format. Detected grids (non-rekordbox tracks) assume a constant tempo.
 
 Not yet tested on hardware: the DDJ-GRV6 mapping, the Steam Deck's own audio, touchscreen and controls, and the screen-sleep inhibit. Each was built against documentation and tested in software only.
 

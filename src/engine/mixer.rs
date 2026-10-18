@@ -142,6 +142,8 @@ pub struct Mixer {
     g_head_master: Smooth,
     pub peak_ch: [f32; 2],
     pub peak_master: f32,
+    /// The last block's master mix before the MASTER knob, for recording.
+    rec: Vec<f32>,
 }
 
 impl Mixer {
@@ -154,7 +156,13 @@ impl Mixer {
             g_head_master: Smooth::new(0.0, 0.01, sr),
             peak_ch: [0.0; 2],
             peak_master: 0.0,
+            rec: vec![0.0; 4096],
         }
+    }
+
+    /// Recording feed for the last `n` frames processed (interleaved stereo).
+    pub fn rec(&self, n: usize) -> &[f32] {
+        &self.rec[..2 * n]
     }
 
     /// Mix the two deck buffers (interleaved stereo) into master and cue buses.
@@ -226,11 +234,15 @@ impl Mixer {
             (0.0, lvl)
         };
         let mut mpeak = 0f32;
+        if self.rec.len() < 2 * n {
+            self.rec.resize(2 * n, 0.0); // only for oversized test blocks
+        }
         for i in 0..n {
             let g = self.g_master.tick(t_master);
             let hc = self.g_head_cue.tick(t_hc);
             let hmg = self.g_head_master.tick(t_hm);
             for s in 0..2 {
+                self.rec[2 * i + s] = super::dsp::soft_clip(master[2 * i + s]);
                 let m = master[2 * i + s] * g;
                 mpeak = mpeak.max(m.abs());
                 let m = super::dsp::soft_clip(m);

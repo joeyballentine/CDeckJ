@@ -6,6 +6,7 @@ mod config;
 mod engine;
 mod library;
 mod midi;
+mod recorder;
 mod rekordbox;
 mod system;
 mod theme;
@@ -126,6 +127,8 @@ fn main() -> eframe::Result {
         .expect("spawn");
     let view = Arc::new(Mutex::new(EngineView::new(48000, 2, CueRouting::MasterOnly)));
     let engine = Arc::new(Mutex::new(Engine::new(48000, 2, CueRouting::MasterOnly, cmd_rx, garbage_tx, view.clone())));
+    let tap = Arc::new(recorder::Tap::default());
+    engine.lock().set_tap(tap.clone());
     for c in ui::restore_commands(&cfg) {
         let _ = cmd_tx.send(c);
     }
@@ -187,6 +190,7 @@ fn main() -> eframe::Result {
                     preload: args.tracks,
                     keep_awake,
                     keep,
+                    tap,
                 },
             )))
         }),
