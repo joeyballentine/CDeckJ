@@ -75,6 +75,10 @@ pub struct MidiMap {
     pub fx_master: u8,
     pub fx_on: u8,
     pub cc_fx_level: u8,
+    /// Channel level indicators: Platter sends each channel's level (0–127) as this CC on
+    /// the deck's MIDI channel. The controller's meters show nothing unless the software
+    /// drives them.
+    pub cc_level_meter: u8,
 }
 
 impl Default for MidiMap {
@@ -131,6 +135,7 @@ impl Default for MidiMap {
             fx_master: 0x14,
             fx_on: 0x47,
             cc_fx_level: 0x02,
+            cc_level_meter: 0x02,
         }
     }
 }
@@ -556,6 +561,13 @@ fn port_present(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Channel level (linear peak, pre-fader) → the controller's meter scale. −42 dB and below
+/// is dark, 0 dB fills it, matching the on-screen meters.
+pub fn meter_value(peak: f32) -> u8 {
+    let db = 20.0 * peak.max(1e-6).log10();
+    (((db + 42.0) / 42.0).clamp(0.0, 1.0) * 127.0).round() as u8
+}
+
 fn led_targets(v: &EngineView, map: &MidiMap, blink: bool) -> Vec<(u8, u8, u8)> {
     let on = |b: bool| if b { 0x7F } else { 0x00 };
     let mut want = Vec::with_capacity(64);
@@ -573,6 +585,7 @@ fn led_targets(v: &EngineView, map: &MidiMap, blink: bool) -> Vec<(u8, u8, u8)> 
             want.push((st, map.reloop, on(dv.loop_active)));
         }
         want.push((0x90 + d as u8, map.pfl, on(v.mixer.ch[d].pfl)));
+        want.push((0xB0 + d as u8, map.cc_level_meter, meter_value(dv.peak)));
         // BEAT FX ON blinks while on, like the hardware.
         if d == 0 {
             want.push((0x90 + map.fx_channel, map.fx_on, on(v.mixer.fx.on && blink)));
@@ -710,6 +723,14 @@ mod tests {
         assert_eq!(dec(&mut m, [0x90, 0x54, 0x7F]), "Some(Mix(PflToggle(0)))");
         assert_eq!(dec(&mut m, [0x90, 0x47, 0x7F]), "Some(Reverse(0, true))");
         assert_eq!(dec(&mut m, [0x94, 0x47, 0x7F]), "Some(Mix(FxToggle))");
+        // Level meters go out as CC 0x02 on each deck's channel.
+        let mut v = EngineView::new(48000, 2, crate::engine::CueRouting::MasterOnly);
+        v.decks[0].peak = 1.0;
+        v.decks[1].peak = 0.0;
+        let leds = led_targets(&v, &MidiMap::default(), false);
+        assert!(leds.contains(&(0xB0, 0x02, 127)));
+        assert!(leds.contains(&(0xB1, 0x02, 0)));
+        assert!((40..90).contains(&meter_value(0.1)), "-20 dB lights about half: {}", meter_value(0.1));
         assert_eq!(dec(&mut m, [0x94, 0x4B, 0x7F]), "Some(Mix(FxBeat(1)))");
         assert_eq!(dec(&mut m, [0x94, 0x11, 0x7F]), "Some(Mix(FxTarget(Ch(1))))");
         assert_eq!(dec(&mut m, [0xB4, 0x22, 0x7F]), format!("Some(Mix(FxLevel({:?})))", 127.0 / 16383.0f32));

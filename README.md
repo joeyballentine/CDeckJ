@@ -102,6 +102,8 @@ The stick must contain the classic **Device Library** (`export.pdb`). Most expor
 
 Platter talks to PipeWire through its PulseAudio interface and picks the controller's sound card automatically. For headphone cueing, the card must expose 4 channels: in *System Settings → Audio* (or `pavucontrol`), set the DDJ-GRV6 profile to **Analog Surround 4.0 Output**. The top bar shows `phones on 3/4` when this works.
 
+**No sound from the GRV6?** The top bar shows which output Platter picked. If it names the GRV6 but you hear nothing: check the GRV6's MASTER LEVEL knob, then in Desktop Mode open *System Settings → Audio* and make sure the GRV6's output isn't muted or at 0 % (PipeWire keeps a volume per device). The channel level lights on the controller only move when the software drives them, which Platter does from 0.5.3 on.
+
 No controller sound card? Use `--split-cue` with a stereo output and a splitter cable: master plays in the left ear, cue in the right.
 
 ## Recording
@@ -140,6 +142,7 @@ Press **REC** in the top bar (or R, or ≡ on the Steam Deck) to start. The butt
 | BEAT FX SELECT / BEAT ◀ ▶ | Next effect / beat value |
 | FX CH SELECT lever | Effect on channel 1, 2 or master |
 | LEVEL/DEPTH, BEAT FX ON | As labelled (ON blinks while active) |
+| Channel level indicators | Driven by Platter (each channel's level before the fader, like a DJM) |
 
 Deck 3/4 layers control decks 1/2. Mixer channels 3/4 are ignored.
 
