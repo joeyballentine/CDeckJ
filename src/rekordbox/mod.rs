@@ -17,6 +17,8 @@ pub struct Export {
     pub name: String,
     pub db: Database,
     by_id: HashMap<u32, usize>,
+    /// Export-relative file path → track id (finding history entries again).
+    by_path: HashMap<String, u32>,
 }
 
 /// Child of `dir` whose name matches `name` case-insensitively (FAT/exFAT sticks vary).
@@ -53,11 +55,16 @@ impl Export {
         let data = std::fs::read(&path).map_err(|e| format!("reading {}: {e}", path.display()))?;
         let db = Database::parse(&data)?;
         let by_id = db.tracks.iter().enumerate().map(|(i, t)| (t.id, i)).collect();
+        let by_path = db.tracks.iter().map(|t| (t.file_path.clone(), t.id)).collect();
         let name = root
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "USB".into());
-        Ok(Export { root: root.to_path_buf(), name, db, by_id })
+        Ok(Export { root: root.to_path_buf(), name, db, by_id, by_path })
+    }
+
+    pub fn track_by_path(&self, file_path: &str) -> Option<u32> {
+        self.by_path.get(file_path).copied()
     }
 
     pub fn track(&self, id: u32) -> Option<&TrackRow> {

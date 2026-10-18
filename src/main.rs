@@ -5,6 +5,7 @@ mod art;
 mod audio;
 mod config;
 mod engine;
+mod history;
 mod library;
 mod midi;
 mod recorder;

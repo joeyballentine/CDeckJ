@@ -1,7 +1,7 @@
 //! The browser model: a CDJ-style tree of sources (music folder, rekordbox USB drives),
 //! playlists and tracks, navigated one level at a time.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -37,6 +37,10 @@ pub enum Node {
     UsbPlaylist(usize, u32),
     UsbHistory(usize),
     UsbHistoryList(usize, u32),
+    /// Platter's own play history: sessions, this one, and a past one.
+    History,
+    HistoryCurrent,
+    HistoryPast(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +82,8 @@ pub enum LibEvent {
     UsbAdded(Arc<Export>),
     UsbRemoved(PathBuf),
     UsbError(PathBuf, String),
+    /// Saved play history (newest first).
+    History(Vec<crate::history::Session>),
 }
 
 pub struct Library {
@@ -94,6 +100,10 @@ pub struct Library {
     pub filter: String,
     pub sort: Option<(SortKey, bool)>,
     pub analysis_progress: Option<(usize, usize)>,
+    pub sessions: Vec<crate::history::Session>,
+    pub current: crate::history::Session,
+    /// Tracks played this session (greyed out in lists).
+    pub played: HashSet<PathBuf>,
 }
 
 fn apply_tags(t: &mut LibTrack, tags: &Tags) {
@@ -125,6 +135,9 @@ impl Library {
             filter: String::new(),
             sort: None,
             analysis_progress: None,
+            sessions: Vec::new(),
+            current: crate::history::Session::new(),
+            played: HashSet::new(),
         };
         l.refresh();
         l
@@ -206,7 +219,9 @@ impl Library {
                     .and_then(|e| e.db.playlists.iter().find(|p| p.id == id))
                     .map(|p| p.name.clone())
                     .unwrap_or_default(),
-                Node::UsbHistory(_) => "History".into(),
+                Node::UsbHistory(_) | Node::History => "History".into(),
+                Node::HistoryCurrent => "This session".into(),
+                Node::HistoryPast(i) => self.sessions.get(i).map(|s| s.label()).unwrap_or_default(),
                 Node::UsbHistoryList(u, id) => self
                     .usbs
                     .get(u)
@@ -215,6 +230,39 @@ impl Library {
                     .unwrap_or_default(),
             })
             .collect()
+    }
+
+    /// A track went on air: add it to this session's history and mark it played.
+    pub fn record_play(&mut self, e: crate::history::HistEntry) {
+        self.played.insert(e.path.clone());
+        self.current.entries.push(e);
+        self.current.save();
+        self.refresh();
+    }
+
+    /// A history entry as a loadable track: from a mounted stick if it's there now.
+    fn hist_track(&self, e: &crate::history::HistEntry) -> LibTrack {
+        if let Some(rp) = &e.rb_path {
+            // Prefer the stick with the same name, then any stick with that file.
+            let mut order: Vec<usize> = (0..self.usbs.len()).collect();
+            order.sort_by_key(|&u| Some(&self.usbs[u].name) != e.usb.as_ref());
+            for u in order {
+                let ex = &self.usbs[u];
+                if let Some(t) = ex.track_by_path(rp).and_then(|id| self.rb_track(u, ex, id)) {
+                    return t;
+                }
+            }
+        }
+        LibTrack {
+            ext: e.path.extension().map(|x| x.to_string_lossy().to_uppercase()).unwrap_or_default(),
+            path: e.path.clone(),
+            title: e.title.clone(),
+            artist: e.artist.clone(),
+            key: e.key.clone(),
+            bpm: e.bpm,
+            duration: e.duration,
+            rb: None,
+        }
     }
 
     pub fn learn(&mut self, path: &Path, bpm: Option<f64>, key: &str) {
@@ -295,6 +343,12 @@ impl Library {
                     self.stack.truncate(1);
                 }
             }
+            LibEvent::History(s) => {
+                self.sessions = s;
+                // Don't list this session twice if it was already saved.
+                let cur = self.current.started.clone();
+                self.sessions.retain(|x| x.started != cur);
+            }
             LibEvent::UsbError(root, e) => {
                 self.usb_errors.retain(|(p, _)| *p != root);
                 self.usb_errors.push((root, e));
@@ -337,6 +391,26 @@ impl Library {
                     None => format!("{} · scanning…", self.local_root.display()),
                 };
                 rows.push(nav("Music folder".into(), detail, NavKind::Folder, Node::Folder));
+                let n = self.sessions.len() + usize::from(!self.current.entries.is_empty());
+                if n > 0 {
+                    rows.push(nav("History".into(), format!("{n} sessions"), NavKind::Collection, Node::History));
+                }
+            }
+            Node::History => {
+                if !self.current.entries.is_empty() {
+                    rows.push(nav("This session".into(), format!("{} tracks", self.current.entries.len()), NavKind::Playlist, Node::HistoryCurrent));
+                }
+                for (i, s) in self.sessions.iter().enumerate() {
+                    rows.push(nav(s.label(), format!("{} tracks", s.entries.len()), NavKind::Playlist, Node::HistoryPast(i)));
+                }
+            }
+            Node::HistoryCurrent => {
+                rows.extend(self.current.entries.iter().map(|e| Row::Track(self.hist_track(e))));
+            }
+            Node::HistoryPast(i) => {
+                if let Some(s) = self.sessions.get(i) {
+                    rows.extend(s.entries.iter().map(|e| Row::Track(self.hist_track(e))));
+                }
             }
             Node::Folder => {
                 rows.extend(self.local.iter().flatten().cloned().map(Row::Track));
@@ -512,6 +586,7 @@ pub fn spawn_watchers(opts: WatchOptions, tx: Sender<LibEvent>, wake: impl Fn() 
     std::thread::Builder::new()
         .name("scan".into())
         .spawn(move || {
+            let _ = tx1.send(LibEvent::History(crate::history::load_all()));
             let mut local = scan(&local_root);
             // Apply what's cached, then fill in tags for the rest.
             let mut missing = Vec::new();

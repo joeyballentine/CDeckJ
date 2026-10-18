@@ -65,6 +65,8 @@ struct DeckUi {
     jog_angle: Option<f32>,
     saved: Option<CueSnapshot>,
     art: Option<crate::art::ArtKey>,
+    /// Where the loaded track came from in the library (for history).
+    lib: Option<LibTrack>,
 }
 
 pub struct AppInit {
@@ -128,6 +130,9 @@ pub struct App {
     _keep: Vec<Box<dyn Any>>,
     recorder: crate::recorder::Recorder,
     art: crate::art::ArtCache,
+    /// What has gone on air this session (drives history and "played" marks).
+    onair: crate::recorder::Tracklist,
+    started: Instant,
     /// First tap of the two-tap stop, so a stray touch can't end a recording.
     rec_confirm: Option<Instant>,
     rec_low_warned: bool,
@@ -191,6 +196,8 @@ impl App {
             _keep_awake: init.keep_awake,
             _keep: init.keep,
             recorder: crate::recorder::Recorder::new(init.tap),
+            onair: Default::default(),
+            started: Instant::now(),
             art: { let c = ctx.clone(); crate::art::ArtCache::new(move || c.request_repaint()) },
             rec_confirm: None,
             rec_low_warned: false,
@@ -222,6 +229,7 @@ impl App {
         du.error = None;
         du.loading = Some(lt.title.clone());
         du.art = None;
+        du.lib = Some(lt.clone());
         let art = self.art_key(lt);
         self.decks[deck].art = art;
         let (path, mut meta, rb) = self.lib.load_request(lt);
@@ -586,6 +594,36 @@ impl App {
         });
     }
 
+    /// Add tracks to the session history once they've been on air for a few seconds.
+    fn history_tick(&mut self, v: &EngineView) {
+        let meta: [Option<(String, String)>; DECKS] =
+            std::array::from_fn(|d| self.decks[d].track.as_ref().map(|t| (t.artist.clone(), t.title.clone())));
+        let ms = self.started.elapsed().as_millis() as u64;
+        let before = self.onair.entries.len();
+        if !self.onair.observe(v, ms, 1000, meta) {
+            return;
+        }
+        let new: Vec<usize> = self.onair.entries[before..].iter().map(|e| e.deck).collect();
+        for d in new {
+            let (Some(lt), Some(tr)) = (self.decks[d].lib.clone(), self.decks[d].track.clone()) else { continue };
+            let rb = lt.rb.and_then(|(u, id)| {
+                let ex = self.lib.usbs.get(u)?;
+                Some((ex.track(id)?.file_path.clone(), ex.name.clone()))
+            });
+            self.lib.record_play(crate::history::HistEntry {
+                time: crate::history::clock(),
+                title: tr.title.clone(),
+                artist: tr.artist.clone(),
+                key: tr.key.clone(),
+                bpm: tr.bpm().or(lt.bpm),
+                duration: lt.duration.or(Some((tr.length() as f64 / tr.sample_rate.max(1) as f64).round() as u32)),
+                path: lt.path.clone(),
+                rb_path: rb.as_ref().map(|r| r.0.clone()),
+                usb: rb.map(|r| r.1),
+            });
+        }
+    }
+
     fn recording_tick(&mut self, v: &EngineView) {
         if !self.recorder.is_recording() {
             return;
@@ -729,6 +767,7 @@ impl eframe::App for App {
         let v: EngineView = *self.view.lock();
         self.persist(&v);
         self.recording_tick(&v);
+        self.history_tick(&v);
 
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0, t::CHROME);
@@ -1982,6 +2021,7 @@ impl App {
         let rows_rect = Rect::from_min_max(pos2(list.min.x, top), list.max);
         let row_h = 30.0;
         let loaded: Vec<Option<PathBuf>> = self.decks.iter().map(|d| d.track.as_ref().map(|t| t.path.clone())).collect();
+        let played = &self.lib.played;
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rows_rect));
         child.spacing_mut().item_spacing.y = 0.0;
         let selected = self.lib.selected();
@@ -2040,7 +2080,15 @@ impl App {
                     }
                     Row::Track(e) => {
                         resp.widget_info(|| WidgetInfo::selected(egui::Role::Button, true, i == selected, format!("{} — {}", e.title, e.artist)));
+                        let was_played = played.contains(&e.path);
                         let mut bx = rr.min.x + 10.0;
+                        if was_played && !loaded.iter().any(|lp| lp.as_ref() == Some(&e.path)) {
+                            // Played this session: a tick, and the row in muted ink.
+                            let c = pos2(bx + 4.0, y);
+                            let st = Stroke::new(2.0, t::PLAY);
+                            p.line_segment([c + vec2(-5.0, 0.0), c + vec2(-1.5, 3.5)], st);
+                            p.line_segment([c + vec2(-1.5, 3.5), c + vec2(5.0, -4.0)], st);
+                        }
                         for (d, lp) in loaded.iter().enumerate() {
                             if lp.as_ref() == Some(&e.path) {
                                 p.circle_filled(pos2(bx, y), 8.0, t::DECK_TINT[d].gamma_multiply(0.25));
@@ -2058,7 +2106,8 @@ impl App {
                             }
                             title_x += 32.0;
                         }
-                        text_fit(p, pos2(title_x, y), Align2::LEFT_CENTER, &e.title, semi(16.0), t::INK, cx[2] - cx[1] - 16.0 - (title_x - at(1)));
+                        let title_ink = if was_played { t::INK_FAINT } else { t::INK };
+                        text_fit(p, pos2(title_x, y), Align2::LEFT_CENTER, &e.title, semi(16.0), title_ink, cx[2] - cx[1] - 16.0 - (title_x - at(1)));
                         text_fit(p, pos2(at(2), y), Align2::LEFT_CENTER, &e.artist, cond(16.0), t::INK_MUTED, cx[3] - cx[2] - 16.0);
                         let bpm = e.bpm.map(|b| format!("{b:.1}")).unwrap_or_else(|| "–".into());
                         p.text(pos2(at(3), y), Align2::LEFT_CENTER, bpm, mono(13.0), if e.bpm.is_some() { t::INK } else { t::INK_FAINT });
