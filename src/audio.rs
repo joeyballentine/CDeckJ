@@ -143,16 +143,20 @@ fn pick_device(host: &cpal::Host, wanted: Option<&str>) -> Option<cpal::Device> 
 
 pub fn start(opts: &AudioOptions, engine: &SharedEngine) -> Result<AudioOut, String> {
     STREAM_LOST.store(false, Ordering::Relaxed);
-    let mut last_err = String::from("no audio output device found");
+    // One error per host, so a PipeWire failure isn't hidden behind the ALSA fallback's.
+    let mut errors: Vec<String> = Vec::new();
     for host in hosts(opts.force_alsa) {
+        let hname = host.id().name();
         let Some(device) = pick_device(&host, opts.device.as_deref()) else {
+            errors.push(format!("{hname}: no output device"));
             continue;
         };
+        let mut last_err = String::new();
         let (_, desc) = describe(&device);
         let def = match device.default_output_config() {
             Ok(c) => c,
             Err(e) => {
-                last_err = format!("{desc}: {e}");
+                errors.push(format!("{hname} · {desc}: {e}"));
                 continue;
             }
         };
@@ -165,16 +169,29 @@ pub fn start(opts: &AudioOptions, engine: &SharedEngine) -> Result<AudioOut, Str
             CueRouting::MasterOnly
         };
         let sample_rate = def.sample_rate();
+        let supported: Vec<(u16, SampleFormat, u32, u32)> = device
+            .supported_output_configs()
+            .map(|it| it.map(|c| (c.channels(), c.sample_format(), c.min_sample_rate(), c.max_sample_rate())).collect())
+            .unwrap_or_default();
+        let format = pick_format(&supported, channels, sample_rate, def.sample_format(), host.id() == cpal::HostId::PulseAudio);
         for buffer in [BufferSize::Fixed(opts.buffer_frames), BufferSize::Default] {
             let config = StreamConfig { channels, sample_rate, buffer_size: buffer };
             engine.lock().set_output(sample_rate, channels, routing);
             let e = engine.clone();
-            let res = match def.sample_format() {
+            let res = match format {
                 SampleFormat::F32 => build::<f32>(&device, &config, e),
-                SampleFormat::I16 => build::<i16>(&device, &config, e),
+                SampleFormat::F64 => build::<f64>(&device, &config, e),
                 SampleFormat::I32 => build::<i32>(&device, &config, e),
+                SampleFormat::I24 => build::<cpal::I24>(&device, &config, e),
+                SampleFormat::I16 => build::<i16>(&device, &config, e),
+                SampleFormat::I8 => build::<i8>(&device, &config, e),
+                SampleFormat::I64 => build::<i64>(&device, &config, e),
+                SampleFormat::U32 => build::<u32>(&device, &config, e),
+                SampleFormat::U24 => build::<cpal::U24>(&device, &config, e),
                 SampleFormat::U16 => build::<u16>(&device, &config, e),
-                f => Err(format!("unsupported sample format {f:?}")),
+                SampleFormat::U8 => build::<u8>(&device, &config, e),
+                SampleFormat::U64 => build::<u64>(&device, &config, e),
+                f => Err(format!("the device only offers {f:?}, which isn't PCM audio")),
             };
             match res {
                 Ok(stream) => {
@@ -186,11 +203,40 @@ pub fn start(opts: &AudioOptions, engine: &SharedEngine) -> Result<AudioOut, Str
                         routing,
                     });
                 }
-                Err(e) => last_err = format!("{desc}: {e}"),
+                Err(e) => last_err = format!("{hname} · {desc} ({format:?}, {channels} ch, {sample_rate} Hz): {e}"),
             }
         }
+        errors.push(last_err);
     }
-    Err(last_err)
+    Err(if errors.is_empty() { "no audio output device found".into() } else { errors.join(" — ") })
+}
+
+/// Formats Platter can write, best first.
+const FORMATS: [SampleFormat; 12] = [
+    SampleFormat::F32,
+    SampleFormat::I32,
+    SampleFormat::I24,
+    SampleFormat::I16,
+    SampleFormat::F64,
+    SampleFormat::U32,
+    SampleFormat::U24,
+    SampleFormat::U16,
+    SampleFormat::I64,
+    SampleFormat::U64,
+    SampleFormat::I8,
+    SampleFormat::U8,
+];
+
+/// Pick a sample format the device accepts at this channel count and rate. The device's
+/// default can be one Platter has no writer for (e.g. 24-bit after switching a card to a
+/// surround profile), so look through everything it supports. PulseAudio/PipeWire convert
+/// any format, so float is always fine there.
+pub fn pick_format(supported: &[(u16, SampleFormat, u32, u32)], channels: u16, rate: u32, default: SampleFormat, pulse: bool) -> SampleFormat {
+    if pulse {
+        return SampleFormat::F32;
+    }
+    let ok = |f: SampleFormat| supported.iter().any(|&(c, sf, lo, hi)| c == channels && sf == f && lo <= rate && rate <= hi);
+    FORMATS.iter().copied().find(|&f| ok(f)).unwrap_or(if FORMATS.contains(&default) { default } else { SampleFormat::F32 })
 }
 
 fn build<T>(device: &cpal::Device, config: &StreamConfig, engine: SharedEngine) -> Result<cpal::Stream, String>
@@ -235,4 +281,23 @@ where
         .map_err(|e| e.to_string())?;
     stream.play().map_err(|e| e.to_string())?;
     Ok(stream)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn picks_a_format_platter_can_write() {
+        use SampleFormat::*;
+        // A 4-channel profile that only offers 24-bit at 48 kHz (and float at stereo).
+        let sup = [(4, I24, 44100, 48000), (2, F32, 44100, 48000)];
+        assert_eq!(pick_format(&sup, 4, 48000, I24, false), I24);
+        assert_eq!(pick_format(&sup, 2, 48000, I24, false), F32);
+        // Nothing listed: fall back to the default if writable, else float.
+        assert_eq!(pick_format(&[], 2, 48000, I16, false), I16);
+        assert_eq!(pick_format(&[], 2, 48000, DsdU8, false), F32);
+        // PipeWire/PulseAudio converts, so always float there.
+        assert_eq!(pick_format(&sup, 4, 48000, I24, true), F32);
+    }
 }

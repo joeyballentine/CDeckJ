@@ -786,7 +786,14 @@ impl eframe::App for App {
         fit_to_window(ui.ctx(), full);
 
         let top_h = 34.0;
-        let banner_h = if self.banner.is_some() { 30.0 } else { 0.0 };
+        // Banners wrap (error messages can be long) and grow to fit, up to three lines.
+        let banner_h = match &self.banner {
+            Some(b) => {
+                let g = ui.painter().layout(b.clone(), cond(15.0), t::INK, full.width() - 140.0);
+                (g.size().y + 12.0).clamp(30.0, 66.0)
+            }
+            None => 0.0,
+        };
         let wave_h = (full.height() * 0.15).clamp(92.0, 170.0);
         let fx_h = 44.0;
         let main_h = 396.0f32.min((full.height() - top_h - banner_h - wave_h - fx_h - 140.0).max(330.0));
@@ -1204,8 +1211,13 @@ impl App {
             }
             (None, e) => {
                 dot(x, false);
-                let s = format!("No audio — {}. Retrying…", e.as_deref().unwrap_or("not started"));
+                let s = format!("No audio — {}. Retrying…", e.as_deref().unwrap_or("not started").trim_end_matches('.'));
                 text_fit(&p, pos2(x + 10.0, r.center().y), Align2::LEFT_CENTER, &s, cond(15.0), t::DANGER, 400.0);
+                // The message is usually too long for the bar: tap it to read all of it.
+                let hr = Rect::from_min_size(pos2(x - 6.0, r.min.y + 3.0), vec2(416.0, r.height() - 6.0));
+                if invisible_button(ui, &mut self.touches, hr, Id::NULL.with("audio_err"), "Audio error details", "Tap to show the whole message").clicked {
+                    self.banner = Some(s.clone());
+                }
             }
         }
         x += 430.0;
@@ -1371,7 +1383,8 @@ impl App {
         let p = ui.painter().clone();
         p.rect_filled(r, 0, t::CUE.gamma_multiply(0.14));
         if let Some(b) = &self.banner {
-            text_fit(&p, pos2(r.min.x + 14.0, r.center().y), Align2::LEFT_CENTER, b, cond(15.0), t::INK, r.width() - 140.0);
+            let g = p.layout(b.clone(), cond(15.0), t::INK, r.width() - 140.0);
+            p.galley(pos2(r.min.x + 14.0, r.center().y - g.size().y / 2.0), g, t::INK);
         }
         let br = Rect::from_min_size(pos2(r.max.x - 104.0, r.min.y + 3.0), vec2(96.0, 24.0));
         if button(ui, &mut self.touches, br, Id::NULL.with("banner"), "DISMISS", None, semi(13.0)).clicked {
