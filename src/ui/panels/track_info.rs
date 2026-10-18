@@ -48,11 +48,11 @@ impl App {
         let mut facts: Vec<(&str, String)> = Vec::new();
         let mut rating = 0;
         facts.push(("BPM", e.bpm.map(|b| format!("{b:.2}")).unwrap_or_else(|| "–".into())));
-        let lead_key = lead_deck(v).and_then(|d| self.decks[d].track.as_ref()).and_then(|t| crate::keys::parse(&t.key));
-        let key_s = match crate::keys::parse(&e.key) {
+        let lead_key = lead_deck(v).and_then(|d| self.decks[d].track.as_ref()).and_then(|t| crate::library::keys::parse(&t.key));
+        let key_s = match crate::library::keys::parse(&e.key) {
             Some(k) => {
-                let m = lead_key.is_some_and(|l| crate::keys::compatible(l, k));
-                format!("{}  ({}){}", e.key, crate::keys::label(k), if m { "  · mixes with the playing deck" } else { "" })
+                let m = lead_key.is_some_and(|l| crate::library::keys::compatible(l, k));
+                format!("{}  ({}){}", e.key, crate::library::keys::label(k), if m { "  · mixes with the playing deck" } else { "" })
             }
             None => e.key.clone(),
         };

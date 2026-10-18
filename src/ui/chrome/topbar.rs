@@ -13,7 +13,7 @@ impl App {
         let p = ui.painter().clone();
         // The app icon, then the name.
         let logo = self.logo.get_or_insert_with(|| {
-            let icon = crate::desktop::window_icon();
+            let icon = crate::platform::desktop::window_icon();
             let img = egui::ColorImage::from_rgba_unmultiplied([icon.width as usize, icon.height as usize], &icon.rgba);
             ui.ctx().load_texture("cdeckj-logo", img, egui::TextureOptions::LINEAR)
         });

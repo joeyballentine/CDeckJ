@@ -13,7 +13,7 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 OUT = os.path.join(ROOT, "assets", "icon")
 FONT = os.path.join(ROOT, "assets", "fonts", "BarlowCondensed-SemiBold.ttf")
 
-# App palette (src/theme.rs).
+# App palette (src/ui/theme.rs).
 CHROME, SURFACE, RAISED, INSET, BORDER = "#101318", "#161A20", "#1F242C", "#0A0C10", "#2A3039"
 INK, ACCENT, SKY, VIOLET, CUE = "#E4E9F0", "#4D9CFF", "#5FC4F5", "#B497FF", "#F2A13B"
 

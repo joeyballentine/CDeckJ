@@ -62,7 +62,7 @@ impl App {
                 // Without rekordbox's waveforms, show a cached one of our own straight away.
                 let has_rb_wave = meta.analysis.as_ref().is_some_and(|a| !a.waves.is_empty());
                 if !has_rb_wave {
-                    meta.cached_wave = crate::wave::load_cached(&path);
+                    meta.cached_wave = crate::track::wave::load_cached(&path);
                 }
                 let had_cache = meta.cached_wave.is_some();
                 let tx2 = tx.clone();
@@ -73,7 +73,7 @@ impl App {
                 });
                 if let (Ok(t), false, false) = (&res, had_cache, has_rb_wave) {
                     if t.is_complete() {
-                        crate::wave::save_cached(&path, &t.wave.read());
+                        crate::track::wave::save_cached(&path, &t.wave.read());
                         store.lock().update(&path, |r| r.wave = true);
                     }
                 }
@@ -87,13 +87,13 @@ impl App {
     }
 
     /// Where a library track's cover comes from: the stick's artwork, else the file's tags.
-    pub(crate) fn art_key(&self, lt: &LibTrack) -> Option<crate::art::ArtKey> {
+    pub(crate) fn art_key(&self, lt: &LibTrack) -> Option<crate::ui::cache::art::ArtKey> {
         match lt.rb {
             Some((u, id)) => {
                 let ex = self.lib.usbs.get(u)?;
-                ex.track(id).and_then(|t| ex.artwork_path(t)).map(crate::art::ArtKey::File)
+                ex.track(id).and_then(|t| ex.artwork_path(t)).map(crate::ui::cache::art::ArtKey::File)
             }
-            None => Some(crate::art::ArtKey::Embedded(lt.path.clone())),
+            None => Some(crate::ui::cache::art::ArtKey::Embedded(lt.path.clone())),
         }
     }
 

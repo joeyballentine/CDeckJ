@@ -36,7 +36,7 @@ impl App {
             let _ = tx.send(crate::audio::output_device_list(alsa));
         });
         self.settings.devices_rx = Some(rx);
-        self.settings.autolaunch = crate::autolaunch::is_installed();
+        self.settings.autolaunch = crate::platform::autolaunch::is_installed();
     }
 
     /// Drop the audio stream and reconnect with the current options.
@@ -62,7 +62,7 @@ impl App {
                     Ok(m) | Err(m) => m,
                 });
                 self.settings.job_rx = None;
-                self.settings.autolaunch = crate::autolaunch::is_installed();
+                self.settings.autolaunch = crate::platform::autolaunch::is_installed();
             }
         }
         let p = ui.painter().clone();
@@ -211,7 +211,7 @@ impl App {
             self.config.cue_profile = i == 1;
             if i == 0 {
                 self.audio = None;
-                crate::cardprofile::restore_saved();
+                crate::audio::cardprofile::restore_saved();
             }
             self.audio_opts.cue_profile_hints = (i == 1).then(|| self.config.midi.port_hints.clone());
             self.restart_audio();
@@ -287,7 +287,7 @@ impl App {
             if !busy && (i == 1) != self.settings.autolaunch {
                 let (tx, rx) = crossbeam_channel::bounded(1);
                 std::thread::spawn(move || {
-                    let _ = tx.send(if i == 1 { crate::autolaunch::install() } else { crate::autolaunch::uninstall() });
+                    let _ = tx.send(if i == 1 { crate::platform::autolaunch::install() } else { crate::platform::autolaunch::uninstall() });
                 });
                 self.settings.job_rx = Some(rx);
                 self.settings.msg = Some("Working…".into());

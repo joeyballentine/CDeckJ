@@ -90,7 +90,7 @@ impl App {
                     }
                 }
                 (Key::F, true) => self.send(Cmd::Mix(MixParam::FxToggle)),
-                (Key::W, true) => self.config.waveform_color = crate::wave::next_mode(self.config.waveform_color),
+                (Key::W, true) => self.config.waveform_color = crate::track::wave::next_mode(self.config.waveform_color),
                 // Same as the on-screen −/+: minus shows more time (zoom out).
                 (Key::Minus, true) => self.set_zoom(1),
                 (Key::Equals | Key::Plus, true) => self.set_zoom(-1),

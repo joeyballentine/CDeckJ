@@ -1,23 +1,14 @@
 //! CDeckJ — a minimal CDJ-style two-deck DJ player for the Steam Deck and a DDJ-GRV6.
 
-mod analysis;
-mod autolaunch;
-mod art;
 mod audio;
-mod cardprofile;
 mod config;
-mod desktop;
 mod engine;
-mod history;
-mod keys;
 mod library;
 mod midi;
-mod preview;
+mod platform;
 mod recorder;
 mod rekordbox;
-mod system;
 mod track;
-mod wave;
 mod ui;
 
 use std::any::Any;
@@ -28,6 +19,7 @@ use crossbeam_channel::{bounded, unbounded};
 use parking_lot::Mutex;
 
 use config::{Config, Store};
+use platform::{autolaunch, desktop};
 use engine::{CueRouting, Engine, EngineView};
 
 const HELP: &str = "\
@@ -222,8 +214,8 @@ fn main() -> eframe::Result {
             let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(move || ctx.request_repaint());
             let locks = midi::PickupLocks::default();
             let midi = midi::spawn(midi_port, cfg.midi.clone(), locks.clone(), cmd_tx.clone(), ui_tx.clone(), repaint.clone(), view.clone());
-            let gamepad = cfg.gamepad.then(|| system::spawn_gamepad(cmd_tx.clone(), ui_tx, repaint, view.clone()));
-            let keep_awake = cfg.keep_awake.then(system::keep_awake);
+            let gamepad = cfg.gamepad.then(|| platform::spawn_gamepad(cmd_tx.clone(), ui_tx, repaint, view.clone()));
+            let keep_awake = cfg.keep_awake.then(platform::keep_awake);
             let keep: Vec<Box<dyn Any>> = Vec::new();
             Ok(Box::new(ui::App::new(
                 &cc.egui_ctx,

@@ -1,5 +1,7 @@
 //! Audio output via cpal. Prefers PipeWire's PulseAudio interface (SteamOS), falls back to ALSA.
 
+pub mod cardprofile;
+
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -159,7 +161,7 @@ fn pick_device(host: &cpal::Host, wanted: Option<&str>) -> Option<cpal::Device> 
 pub fn start(opts: &AudioOptions, engine: &SharedEngine) -> Result<AudioOut, String> {
     STREAM_LOST.store(false, Ordering::Relaxed);
     if let (Some(h), false) = (&opts.cue_profile_hints, opts.force_alsa) {
-        crate::cardprofile::prepare(h);
+        crate::audio::cardprofile::prepare(h);
     }
     // One error per host, so a PipeWire failure isn't hidden behind the ALSA fallback's.
     let mut errors: Vec<String> = Vec::new();

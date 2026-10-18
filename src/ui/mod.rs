@@ -23,12 +23,13 @@ use crate::engine::deck::{HotCue, HOT_CUES};
 use crate::engine::{Cmd, EngineView, SharedEngine, SharedView, DECKS};
 use crate::library::{self, LibEvent, LibTrack, Library};
 use crate::midi::{MidiStatus, PickupLocks, UiAction};
-use crate::system::{GamepadStatus, KeepAwake};
+use crate::platform::{GamepadStatus, KeepAwake};
 use crate::track::{self, Track};
 use theme::{self as t, cond};
 use touch::Touches;
 
 mod actions;
+pub(crate) mod cache;
 mod chrome;
 mod deckinfo;
 pub mod icons;
@@ -83,7 +84,7 @@ struct DeckUi {
     play_held: bool,
     jog_angle: Option<f32>,
     saved: Option<CueSnapshot>,
-    art: Option<crate::art::ArtKey>,
+    art: Option<crate::ui::cache::art::ArtKey>,
     /// Where the loaded track came from in the library (for history).
     lib: Option<LibTrack>,
 }
@@ -148,7 +149,7 @@ pub struct App {
     _keep_awake: Option<KeepAwake>,
     _keep: Vec<Box<dyn Any>>,
     recorder: crate::recorder::Recorder,
-    art: crate::art::ArtCache,
+    art: crate::ui::cache::art::ArtCache,
     /// The app icon for the top bar, uploaded on first use.
     logo: Option<egui::TextureHandle>,
     /// What has gone on air this session (drives history and "played" marks).
@@ -160,7 +161,7 @@ pub struct App {
     /// The play view (PERFORM or WAVE) to return to after loading from BROWSE.
     last_play_view: View,
     keyboard_open: bool,
-    previews: crate::preview::PreviewCache,
+    previews: crate::ui::cache::preview::PreviewCache,
     browse_popup: Option<browse::Popup>,
     clear_tags_confirm: Option<Instant>,
     settings: settings::SettingsState,
@@ -229,13 +230,13 @@ impl App {
             recorder: crate::recorder::Recorder::new(init.tap),
             onair: Default::default(),
             started: Instant::now(),
-            art: { let c = ctx.clone(); crate::art::ArtCache::new(move || c.request_repaint()) },
+            art: { let c = ctx.clone(); crate::ui::cache::art::ArtCache::new(move || c.request_repaint()) },
             logo: None,
             rec_confirm: None,
             view_mode: View::Perform,
             last_play_view: View::Perform,
             keyboard_open: false,
-            previews: { let c = ctx.clone(); crate::preview::PreviewCache::new(move || c.request_repaint()) },
+            previews: { let c = ctx.clone(); crate::ui::cache::preview::PreviewCache::new(move || c.request_repaint()) },
             browse_popup: None,
             clear_tags_confirm: None,
             settings: Default::default(),
@@ -328,7 +329,7 @@ impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         // Close the stream before handing the card back its old profile.
         self.audio = None;
-        crate::cardprofile::restore_saved();
+        crate::audio::cardprofile::restore_saved();
         if let Some(f) = self.recorder.stop() {
             eprintln!("recording: saved {}", f.parts.first().map(|p| p.path.display().to_string()).unwrap_or_default());
         }

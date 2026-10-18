@@ -304,7 +304,7 @@ Beat values run from 1/8 to 16 beats. Effects are part of the recording.
 
 ## About the MIDI mapping
 
-The mapping follows the DDJ-400/FLX layout that the DDJ-GRV6 shares, cross-checked against a community Mixxx mapping for the GRV6. It has not been verified on a physical unit. If a control does nothing or behaves oddly, run `cdeckj --midi-monitor`, move the control, and note the bytes. Then set the matching number in the `[midi]` section of the settings file (the names are listed in `MidiMap` in `src/midi.rs`). If the tempo fader runs backwards, set `invert_tempo = true`.
+The mapping follows the DDJ-400/FLX layout that the DDJ-GRV6 shares, cross-checked against a community Mixxx mapping for the GRV6. It has not been verified on a physical unit. If a control does nothing or behaves oddly, run `cdeckj --midi-monitor`, move the control, and note the bytes. Then set the matching number in the `[midi]` section of the settings file (the names are listed in `MidiMap` in `src/midi/map.rs`). If the tempo fader runs backwards, set `invert_tempo = true`.
 
 ## Build from source
 
@@ -325,6 +325,22 @@ RUSTFLAGS="-C link-arg=-Wl,--allow-shlib-undefined" cargo zigbuild --release --t
 
 On SteamOS itself, build inside a `distrobox` container (Arch or Ubuntu) rather than unlocking the read-only root filesystem.
 
+### Code layout
+
+| Path | What's there |
+|---|---|
+| `src/main.rs` | Command line and startup |
+| `src/engine/` | The realtime engine: decks (transport, cues, loops, sync), mixer, Beat FX, time-stretch; `messages.rs` is what crosses between the UI and the audio thread |
+| `src/audio/` | Audio output (PipeWire/PulseAudio or ALSA) and switching the controller's card to 4 channels |
+| `src/track/` | A loaded track: sample store, beat grid, decoding and tags, BPM/beat analysis, waveforms |
+| `src/rekordbox/` | Reading a rekordbox USB export: `export.pdb`, ANLZ analysis files, My Settings |
+| `src/library/` | Browsing: the music folder and sticks, scanning and watchers, play history, the tag list, keys |
+| `src/midi/` | The controller: message map (`map.rs`), messages → actions (`mapper.rs`), the connection, LEDs and meters (`device.rs`) |
+| `src/recorder/` | Mix recording: the tap on the audio thread, the WAV writer, the tracklist and CUE sheet |
+| `src/platform/` | Steam Deck integration: auto-launch, menu entry and Steam artwork, the Deck's buttons, keep-awake |
+| `src/config.rs` | Settings file and saved cues |
+| `src/ui/` | The touch UI: `mod.rs` (app state, frame loop), `state.rs` / `actions.rs` / `keyboard.rs`, `widgets.rs`, `theme.rs`, `icons.rs`; `chrome/` (top bar, button rail), `panels/` (deck, mixer, waveforms, track list, …) and `views/` (one file per screen) |
+
 ## Not included
 
 More than two decks, sampler, mic input, building playlists in CDeckJ, key detection for plain files, saving cues back to the stick, and rekordbox's OneLibrary format. Detected grids (non-rekordbox tracks) assume a constant tempo.
@@ -333,4 +349,4 @@ Not yet tested on hardware: the DDJ-GRV6 mapping (including the BEAT FX section)
 
 ## Licences
 
-Code: MIT. Test fixtures in `tests/fixtures/rekordbox` come from the rekordcrate project (MPL-2.0). Fonts in `assets/fonts` (Barlow Condensed, JetBrains Mono): SIL Open Font License 1.1, see the `OFL-*.txt` files. The app icon and Steam artwork in `assets/icon` are drawn by `tools/make-icons.py`. Icons: [Phosphor](https://phosphoricons.com) (MIT, `LICENSE-Phosphor.txt`), embedded as font subsets; after adding an icon to `src/icons.rs`, run `tools/subset-icons.sh`.
+Code: MIT. Test fixtures in `tests/fixtures/rekordbox` come from the rekordcrate project (MPL-2.0). Fonts in `assets/fonts` (Barlow Condensed, JetBrains Mono): SIL Open Font License 1.1, see the `OFL-*.txt` files. The app icon and Steam artwork in `assets/icon` are drawn by `tools/make-icons.py`. Icons: [Phosphor](https://phosphoricons.com) (MIT, `LICENSE-Phosphor.txt`), embedded as font subsets; after adding an icon to `src/ui/icons.rs`, run `tools/subset-icons.sh`.

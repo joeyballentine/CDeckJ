@@ -9,7 +9,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 
 use crate::rekordbox::settings::WaveColor;
 use crate::rekordbox::Export;
-use crate::wave::Column;
+use crate::track::wave::Column;
 
 /// Columns per preview (drawn scaled to whatever width the cell has).
 pub const COLS: usize = 160;
@@ -82,9 +82,9 @@ fn build(key: &Key, src: Source) -> Option<Vec<Column>> {
             if a.waves.is_empty() {
                 return None;
             }
-            crate::wave::summarize(Some(&a.waves), &[], *mode, COLS)
+            crate::track::wave::summarize(Some(&a.waves), &[], *mode, COLS)
         }
-        Source::Local => crate::wave::summarize(None, &crate::wave::load_cached(path)?, *mode, COLS),
+        Source::Local => crate::track::wave::summarize(None, &crate::track::wave::load_cached(path)?, *mode, COLS),
     };
     (!cols.is_empty()).then_some(cols)
 }

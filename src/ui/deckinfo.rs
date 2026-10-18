@@ -45,9 +45,9 @@ pub(crate) fn bars_beats(beats: f64) -> String {
 
 /// The key colour: green when it mixes with the other loaded deck.
 pub(crate) fn key_colour(app: &App, d: usize) -> Color32 {
-    let k = |i: usize| app.decks[i].track.as_ref().and_then(|t| crate::keys::parse(&t.key));
+    let k = |i: usize| app.decks[i].track.as_ref().and_then(|t| crate::library::keys::parse(&t.key));
     match (k(d), k(1 - d)) {
-        (Some(a), Some(b)) if crate::keys::compatible(a, b) => t::PLAY,
+        (Some(a), Some(b)) if crate::library::keys::compatible(a, b) => t::PLAY,
         _ => t::INK_MUTED,
     }
 }

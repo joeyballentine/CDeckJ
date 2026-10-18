@@ -228,8 +228,8 @@ impl App {
         }
         let mode = self.config.waveform_color;
         let mr = Rect::from_min_size(pos2(inner.max.x - 2.0 * (w + 4.0) - 72.0, r.center().y - 15.0), vec2(66.0, 30.0));
-        if button(ui, &mut self.touches, mr, Id::NULL.with("wmode"), crate::wave::mode_name(mode), None, semi(13.0)).clicked {
-            self.config.waveform_color = crate::wave::next_mode(mode);
+        if button(ui, &mut self.touches, mr, Id::NULL.with("wmode"), crate::track::wave::mode_name(mode), None, semi(13.0)).clicked {
+            self.config.waveform_color = crate::track::wave::next_mode(mode);
         }
     }
 }

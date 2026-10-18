@@ -7,23 +7,23 @@ use std::path::{Path, PathBuf};
 
 /// Icon sizes for the freedesktop icon theme (hicolor), with their PNGs.
 const ICONS: [(u32, &[u8]); 7] = [
-    (16, include_bytes!("../assets/icon/cdeckj-16.png")),
-    (32, include_bytes!("../assets/icon/cdeckj-32.png")),
-    (48, include_bytes!("../assets/icon/cdeckj-48.png")),
-    (64, include_bytes!("../assets/icon/cdeckj-64.png")),
-    (128, include_bytes!("../assets/icon/cdeckj-128.png")),
-    (256, include_bytes!("../assets/icon/cdeckj-256.png")),
-    (512, include_bytes!("../assets/icon/cdeckj-512.png")),
+    (16, include_bytes!("../../assets/icon/cdeckj-16.png")),
+    (32, include_bytes!("../../assets/icon/cdeckj-32.png")),
+    (48, include_bytes!("../../assets/icon/cdeckj-48.png")),
+    (64, include_bytes!("../../assets/icon/cdeckj-64.png")),
+    (128, include_bytes!("../../assets/icon/cdeckj-128.png")),
+    (256, include_bytes!("../../assets/icon/cdeckj-256.png")),
+    (512, include_bytes!("../../assets/icon/cdeckj-512.png")),
 ];
-const SVG: &[u8] = include_bytes!("../assets/icon/cdeckj.svg");
+const SVG: &[u8] = include_bytes!("../../assets/icon/cdeckj.svg");
 
 /// Steam's custom artwork for a non-Steam shortcut, by file-name suffix after the app id:
 /// portrait capsule, wide capsule, hero banner, logo.
 const STEAM_ART: [(&str, &[u8]); 4] = [
-    ("p.png", include_bytes!("../assets/icon/steam-capsule.png")),
-    (".png", include_bytes!("../assets/icon/steam-wide.png")),
-    ("_hero.png", include_bytes!("../assets/icon/steam-hero.png")),
-    ("_logo.png", include_bytes!("../assets/icon/steam-logo.png")),
+    ("p.png", include_bytes!("../../assets/icon/steam-capsule.png")),
+    (".png", include_bytes!("../../assets/icon/steam-wide.png")),
+    ("_hero.png", include_bytes!("../../assets/icon/steam-hero.png")),
+    ("_logo.png", include_bytes!("../../assets/icon/steam-logo.png")),
 ];
 
 /// The window icon.
@@ -108,7 +108,7 @@ pub fn uninstall() -> Result<String, String> {
 /// many files were written.
 pub fn steam_art(exe: &Path) -> usize {
     let mut n = 0;
-    for (config, appid) in crate::autolaunch::shortcuts(exe) {
+    for (config, appid) in crate::platform::autolaunch::shortcuts(exe) {
         let grid = config.join("grid");
         for (suffix, png) in STEAM_ART {
             let path = grid.join(format!("{appid}{suffix}"));

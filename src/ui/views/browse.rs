@@ -153,7 +153,7 @@ impl App {
             _ => format!(
                 "Filter on: {}{}",
                 f.bpm.map(|(b, pct)| format!("{b:.1} BPM ±{pct:.0} %  ")).unwrap_or_default(),
-                f.key.map(|k| format!("key {} and neighbours", crate::keys::label(k))).unwrap_or_default()
+                f.key.map(|k| format!("key {} and neighbours", crate::library::keys::label(k))).unwrap_or_default()
             ),
         };
         let mut tool = |app: &mut App, w: f32, id: &str, label: &str, lit: bool, tip: &str| -> bool {
@@ -235,12 +235,12 @@ impl App {
             Popup::Filter => {
                 let lead = lead_deck(v);
                 let lead_bpm = lead.and_then(|d| v.decks[d].bpm);
-                let lead_key = lead.and_then(|d| self.decks[d].track.as_ref()).and_then(|t| crate::keys::parse(&t.key));
+                let lead_key = lead.and_then(|d| self.decks[d].track.as_ref()).and_then(|t| crate::library::keys::parse(&t.key));
                 let src = match (lead, lead_bpm) {
                     (Some(d), Some(b)) => format!(
                         "Matching deck {}: {b:.1} BPM{}",
                         d + 1,
-                        lead_key.map(|k| format!(", key {}", crate::keys::label(k))).unwrap_or_default()
+                        lead_key.map(|k| format!(", key {}", crate::library::keys::label(k))).unwrap_or_default()
                     ),
                     _ => "Load a track to filter against it".into(),
                 };

@@ -14,8 +14,8 @@ impl App {
         // Waveform colour (BLUE / RGB / 3BAND), as WAVEFORM COLOR on a CDJ.
         let mode = self.config.waveform_color;
         let mr = Rect::from_min_size(pos2(waves.max.x - 2.0 * (w + 4.0) - 6.0 - mw - 4.0, waves.min.y + 4.0), vec2(mw, h));
-        if button_tip(ui, &mut self.touches, mr, Id::NULL.with("wavemode"), crate::wave::mode_name(mode), None, semi(if big { 14.0 } else { 13.0 }), "Waveform colour: Blue / RGB / 3-Band  ( W )").clicked {
-            self.config.waveform_color = crate::wave::next_mode(mode);
+        if button_tip(ui, &mut self.touches, mr, Id::NULL.with("wavemode"), crate::track::wave::mode_name(mode), None, semi(if big { 14.0 } else { 13.0 }), "Waveform colour: Blue / RGB / 3-Band  ( W )").clicked {
+            self.config.waveform_color = crate::track::wave::next_mode(mode);
         }
         for (i, (label, dir)) in [(icons::ZOOM_OUT, 1), (icons::ZOOM_IN, -1)].into_iter().enumerate() {
             let r = Rect::from_min_size(pos2(waves.max.x - 2.0 * (w + 4.0) - 6.0 + i as f32 * (w + 4.0), waves.min.y + 4.0), vec2(w, h));
@@ -70,12 +70,12 @@ impl App {
             let px_s = 1.0 / pps;
             for x in x0..x1 {
                 let ts = t_at(x as f32);
-                let a = crate::wave::bin_at(&track, ts);
+                let a = crate::track::wave::bin_at(&track, ts);
                 if a < 0.0 {
                     continue;
                 }
-                let b = crate::wave::bin_at(&track, ts + px_s);
-                let Some(col) = crate::wave::column(&track, &own, mode, a as usize, b as usize) else { break };
+                let b = crate::track::wave::bin_at(&track, ts + px_s);
+                let Some(col) = crate::track::wave::column(&track, &own, mode, a as usize, b as usize) else { break };
                 let played = (x as f32) < cx;
                 for &(h, c) in &col.layers[..col.n] {
                     let h = h * half;
@@ -148,9 +148,9 @@ impl App {
             let own = track.wave.read();
             let mode = self.config.waveform_color;
             for x in 0..w {
-                let a = crate::wave::bin_at(&track, x as f64 / w as f64 * len_s).max(0.0) as usize;
-                let b = crate::wave::bin_at(&track, (x + 1) as f64 / w as f64 * len_s).max(0.0) as usize;
-                let Some(col) = crate::wave::column(&track, &own, mode, a, b) else { break };
+                let a = crate::track::wave::bin_at(&track, x as f64 / w as f64 * len_s).max(0.0) as usize;
+                let b = crate::track::wave::bin_at(&track, (x + 1) as f64 / w as f64 * len_s).max(0.0) as usize;
+                let Some(col) = crate::track::wave::column(&track, &own, mode, a, b) else { break };
                 let px = r.min.x + x as f32;
                 for &(h, c) in &col.layers[..col.n] {
                     let c = if px < play_x { c.gamma_multiply(0.45) } else { c };

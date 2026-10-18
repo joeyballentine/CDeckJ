@@ -93,10 +93,10 @@ pub(crate) fn lead_deck(v: &EngineView) -> Option<usize> {
 }
 
 impl App {
-    pub(crate) fn preview_source(&self, e: &LibTrack) -> crate::preview::Source {
+    pub(crate) fn preview_source(&self, e: &LibTrack) -> crate::ui::cache::preview::Source {
         match e.rb.and_then(|(u, id)| self.lib.usbs.get(u).map(|ex| (ex.clone(), id))) {
-            Some((ex, id)) => crate::preview::Source::Rekordbox(ex, id),
-            None => crate::preview::Source::Local,
+            Some((ex, id)) => crate::ui::cache::preview::Source::Rekordbox(ex, id),
+            None => crate::ui::cache::preview::Source::Local,
         }
     }
 
@@ -158,7 +158,7 @@ impl App {
         let first = (self.browser_offset / row_h).max(0.0) as usize;
         let vis_rows = (rows_rect.height() / row_h) as usize + 2;
         let visible = first..(first + vis_rows).min(rows.len());
-        let arts: HashMap<usize, Option<crate::art::ArtKey>> = visible
+        let arts: HashMap<usize, Option<crate::ui::cache::art::ArtKey>> = visible
             .clone()
             .filter_map(|i| match &rows[i] {
                 Row::Track(e) if e.rb.is_some() && o.art => Some((i, self.art_key(e))),
@@ -166,7 +166,7 @@ impl App {
             })
             .collect();
         let mode = self.config.waveform_color;
-        let mut previews: HashMap<usize, std::sync::Arc<Vec<crate::wave::Column>>> = HashMap::new();
+        let mut previews: HashMap<usize, std::sync::Arc<Vec<crate::track::wave::Column>>> = HashMap::new();
         if o.cols.preview {
             for i in visible {
                 if let Row::Track(e) = &rows[i] {
@@ -304,7 +304,7 @@ impl App {
 }
 
 /// Draw a whole-track preview into `r` (bars from the bottom), with a playhead if given.
-pub(crate) fn draw_preview(p: &egui::Painter, r: Rect, cols: &[crate::wave::Column], play: Option<f32>) {
+pub(crate) fn draw_preview(p: &egui::Painter, r: Rect, cols: &[crate::track::wave::Column], play: Option<f32>) {
     if cols.is_empty() {
         return;
     }

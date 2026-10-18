@@ -267,8 +267,8 @@ impl App {
                 let ex = self.lib.usbs.get(u)?;
                 Some((ex.track(id)?.file_path.clone(), ex.name.clone()))
             });
-            self.lib.record_play(crate::history::HistEntry {
-                time: crate::history::clock(),
+            self.lib.record_play(crate::library::history::HistEntry {
+                time: crate::library::history::clock(),
                 title: tr.title.clone(),
                 artist: tr.artist.clone(),
                 key: tr.key.clone(),

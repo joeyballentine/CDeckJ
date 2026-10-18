@@ -252,7 +252,7 @@ pub fn install() -> Result<String, String> {
     systemctl(&["enable", SERVICE])?;
     // Restart rather than start, so a reinstall or an updated binary takes over.
     systemctl(&["restart", SERVICE])?;
-    let desktop = crate::desktop::install(&exe).map(|m| format!("{m}\n")).unwrap_or_else(|e| format!("(Couldn't add the menu entry: {e})\n"));
+    let desktop = crate::platform::desktop::install(&exe).map(|m| format!("{m}\n")).unwrap_or_else(|e| format!("(Couldn't add the menu entry: {e})\n"));
     let steam = if find_shortcut(&exe).is_some() {
         "CDeckJ is in Steam, so it will open in Game Mode and Desktop Mode.".to_string()
     } else {
