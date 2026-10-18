@@ -214,6 +214,11 @@ fn systemctl(args: &[&str]) -> Result<(), String> {
     }
 }
 
+/// Whether the auto-launch service is installed.
+pub fn is_installed() -> bool {
+    unit_path().is_some_and(|p| p.exists())
+}
+
 /// `platter --install-autolaunch`
 pub fn install() -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;

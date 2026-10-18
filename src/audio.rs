@@ -19,6 +19,8 @@ pub struct AudioOptions {
     pub force_alsa: bool,
     pub buffer_frames: u32,
     pub split_cue: bool,
+    /// Switch a matching card (controller) to its 4-channel profile first, for the cue.
+    pub cue_profile_hints: Option<Vec<String>>,
 }
 
 pub struct AudioOut {
@@ -103,6 +105,19 @@ fn output_devices(host: &cpal::Host) -> Vec<cpal::Device> {
         .unwrap_or_default()
 }
 
+/// Output devices as (host, description, id) for the SETTINGS view. Probes hardware, so
+/// call it off the UI thread.
+pub fn output_device_list(force_alsa: bool) -> Vec<(String, String, String)> {
+    let mut v = Vec::new();
+    for host in hosts(force_alsa) {
+        for d in output_devices(&host) {
+            let (id, desc) = describe(&d);
+            v.push((host.id().name().to_string(), desc, id));
+        }
+    }
+    v
+}
+
 pub fn list_devices(force_alsa: bool) {
     for host in hosts(force_alsa) {
         println!("{}:", host.id().name());
@@ -143,6 +158,9 @@ fn pick_device(host: &cpal::Host, wanted: Option<&str>) -> Option<cpal::Device> 
 
 pub fn start(opts: &AudioOptions, engine: &SharedEngine) -> Result<AudioOut, String> {
     STREAM_LOST.store(false, Ordering::Relaxed);
+    if let (Some(h), false) = (&opts.cue_profile_hints, opts.force_alsa) {
+        crate::cardprofile::prepare(h);
+    }
     // One error per host, so a PipeWire failure isn't hidden behind the ALSA fallback's.
     let mut errors: Vec<String> = Vec::new();
     for host in hosts(opts.force_alsa) {

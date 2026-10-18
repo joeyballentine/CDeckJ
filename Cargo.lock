@@ -2642,6 +2642,7 @@ dependencies = [
  "libc",
  "midir",
  "parking_lot",
+ "pulseaudio",
  "serde",
  "serde_json",
  "symphonia",

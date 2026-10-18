@@ -125,6 +125,30 @@ fn own_column(bin: &WaveBin, mode: WaveColor) -> Column {
     }
 }
 
+/// A whole-track summary in `n` columns (browser previews), from rekordbox's waveforms if
+/// given, else Platter's own.
+pub fn summarize(rb: Option<&Waves>, own: &[WaveBin], mode: WaveColor, n: usize) -> Vec<Column> {
+    let n = n.max(1);
+    if let Some(w) = rb {
+        if let Some(m) = rb_for(w, mode) {
+            let total = match m {
+                WaveColor::Blue => w.blue.len(),
+                WaveColor::Rgb => w.rgb.len(),
+                WaveColor::ThreeBand => w.band.len(),
+            };
+            let scale = band_scale(w);
+            return (0..n).filter_map(|i| rb_column(w, m, scale, i * total / n, ((i + 1) * total / n).max(i * total / n + 1))).collect();
+        }
+    }
+    let total = own.len();
+    (0..n)
+        .filter_map(|i| {
+            let (a, b) = (i * total / n, ((i + 1) * total / n).max(i * total / n + 1).min(total));
+            own.get(a..b)?.iter().max_by_key(|x| x.peak).map(|bin| own_column(bin, mode))
+        })
+        .collect()
+}
+
 /// Scale for 3-band heights so the loudest moment of the track fills the lane.
 pub fn band_scale(w: &Waves) -> f32 {
     let mx = w.band.iter().flat_map(|e| e.iter().copied()).max().unwrap_or(0);

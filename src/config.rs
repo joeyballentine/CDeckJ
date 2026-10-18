@@ -25,6 +25,23 @@ impl Default for DeckPrefs {
     }
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct BrowseCols {
+    pub artist: bool,
+    pub preview: bool,
+    pub bpm: bool,
+    pub key: bool,
+    pub time: bool,
+    pub format: bool,
+}
+
+impl Default for BrowseCols {
+    fn default() -> Self {
+        Self { artist: true, preview: true, bpm: true, key: true, time: true, format: false }
+    }
+}
+
 /// The beat FX selection (not ON: every set starts with effects off).
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
@@ -51,6 +68,8 @@ pub struct Config {
     pub alsa: bool,
     pub buffer_frames: u32,
     pub split_cue: bool,
+    /// Switch the controller's sound card to 4 channels (headphone cue on 3/4) while running.
+    pub cue_profile: bool,
     pub midi_port: Option<String>,
     pub fullscreen: bool,
     pub quantize: bool,
@@ -94,6 +113,10 @@ pub struct Config {
     pub crossfader_curve: CrossfaderCurve,
     pub beat_fx_quantize: bool,
     pub fx: FxPrefs,
+    /// BROWSE view: visible columns, text size (0–2), INFO panel.
+    pub browse_cols: BrowseCols,
+    pub browse_text: u8,
+    pub browse_info: bool,
     pub midi: MidiMap,
 }
 
@@ -106,6 +129,7 @@ impl Default for Config {
             alsa: false,
             buffer_frames: 256,
             split_cue: false,
+            cue_profile: true,
             midi_port: None,
             fullscreen: true,
             quantize: true,
@@ -134,6 +158,9 @@ impl Default for Config {
             crossfader_curve: CrossfaderCurve::SlowCut,
             beat_fx_quantize: true,
             fx: FxPrefs::default(),
+            browse_cols: BrowseCols::default(),
+            browse_text: 1,
+            browse_info: true,
             midi: MidiMap::default(),
         }
     }

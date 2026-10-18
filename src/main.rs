@@ -4,11 +4,14 @@ mod analysis;
 mod autolaunch;
 mod art;
 mod audio;
+mod cardprofile;
 mod config;
 mod engine;
 mod history;
+mod keys;
 mod library;
 mod midi;
+mod preview;
 mod recorder;
 mod rekordbox;
 mod system;
@@ -166,6 +169,7 @@ fn main() -> eframe::Result {
         force_alsa: alsa,
         buffer_frames: args.buffer.unwrap_or(cfg.buffer_frames),
         split_cue: args.split_cue || cfg.split_cue,
+        cue_profile_hints: cfg.cue_profile.then(|| cfg.midi.port_hints.clone()),
     };
     let audio = audio::start(&audio_opts, &engine);
     match &audio {

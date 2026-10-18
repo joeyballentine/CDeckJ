@@ -26,6 +26,7 @@ pub type GamepadStatus = Arc<Mutex<Option<String>>>;
 /// | Left / right stick ← → | nudge deck 1 / 2 |
 /// | View + left stick ← → | crossfader |
 /// | Menu (≡) | record; press twice to stop |
+/// | Left / right stick click | previous / next screen view |
 pub fn spawn_gamepad(cmd: Sender<Cmd>, ui: Sender<UiAction>, repaint: Arc<dyn Fn() + Send + Sync>, view: SharedView) -> GamepadStatus {
     let status: GamepadStatus = Arc::new(Mutex::new(None));
     let st = status.clone();
@@ -83,6 +84,8 @@ pub fn spawn_gamepad(cmd: Sender<Cmd>, ui: Sender<UiAction>, repaint: Arc<dyn Fn
                             Button::West => ui_send(UiAction::Load(0)),
                             Button::East => ui_send(UiAction::Load(1)),
                             Button::Start => ui_send(UiAction::Record),
+                            Button::LeftThumb => ui_send(UiAction::CycleView(-1)),
+                            Button::RightThumb => ui_send(UiAction::CycleView(1)),
                             _ => {}
                         },
                         EventType::ButtonReleased(b, _) => match b {

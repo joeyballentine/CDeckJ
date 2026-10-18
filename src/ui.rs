@@ -1,7 +1,6 @@
 //! Steam Deck–sized (1280×800) touch UI: stacked waveforms, two CDJ-style decks, mixer, browser.
 
 use std::any::Any;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -19,12 +18,19 @@ use crate::audio::{self, AudioOptions, AudioOut};
 use crate::config::{Config, Store};
 use crate::engine::deck::{HotCue, HOT_CUES, SCRATCH_SECS_PER_TICK};
 use crate::engine::{Cmd, DeckView, EngineView, MixParam, SharedEngine, SharedView, DECKS};
-use crate::library::{self, LibEvent, LibTrack, Library, NavKind, Row, SortKey};
+use crate::library::{self, LibEvent, LibTrack, Library, NavKind, Row};
 use crate::midi::{Ctl as MidiCtl, MidiStatus, PickupLocks, UiAction};
 use crate::system::{GamepadStatus, KeepAwake};
 use crate::theme::{self as t, caption, cond, mono, semi};
 use crate::touch::Touches;
 use crate::track::{self, GridSource, SavedCue, Track};
+
+mod browse;
+mod views;
+mod waveview;
+mod settings;
+
+use views::View;
 
 const JOG_TICKS_PER_REV: f64 = 720.0;
 /// Idle redraw interval: everything that changes state (MIDI, gamepad, loaders) also
@@ -135,6 +141,14 @@ pub struct App {
     started: Instant,
     /// First tap of the two-tap stop, so a stray touch can't end a recording.
     rec_confirm: Option<Instant>,
+    view_mode: View,
+    /// The play view (PERFORM or WAVE) to return to after loading from BROWSE.
+    last_play_view: View,
+    keyboard_open: bool,
+    previews: crate::preview::PreviewCache,
+    browse_popup: Option<browse::Popup>,
+    clear_tags_confirm: Option<Instant>,
+    settings: settings::SettingsState,
     /// First press of the two-press EXIT.
     exit_confirm: Option<Instant>,
     rec_low_warned: bool,
@@ -202,6 +216,13 @@ impl App {
             started: Instant::now(),
             art: { let c = ctx.clone(); crate::art::ArtCache::new(move || c.request_repaint()) },
             rec_confirm: None,
+            view_mode: View::Perform,
+            last_play_view: View::Perform,
+            keyboard_open: false,
+            previews: { let c = ctx.clone(); crate::preview::PreviewCache::new(move || c.request_repaint()) },
+            browse_popup: None,
+            clear_tags_confirm: None,
+            settings: Default::default(),
             exit_confirm: None,
             rec_low_warned: false,
         };
@@ -302,6 +323,7 @@ impl App {
     fn load_selected(&mut self, deck: usize) {
         if let Some(Row::Track(t)) = self.lib.selected_row().cloned() {
             self.load(deck, &t);
+            self.after_load();
         }
     }
 
@@ -370,11 +392,14 @@ impl App {
         }
         while let Ok(a) = self.ui_rx.try_recv() {
             match a {
+                // In the WAVE view the browse knob zooms the waveforms, like a CDJ's rotary.
+                UiAction::Browse(d) if self.view_mode == View::Wave => self.set_zoom(-d.signum()),
                 UiAction::Browse(d) => self.browse(d),
                 UiAction::BrowsePress => self.browse_enter(),
                 UiAction::Back => self.browse_back(),
                 UiAction::Load(d) => self.load_selected(d),
                 UiAction::Record => self.record_toggle(),
+                UiAction::CycleView(d) => self.cycle_view(d),
             }
         }
     }
@@ -743,6 +768,16 @@ impl App {
                 (Key::P, true) => self.load_selected(1),
                 (Key::G, true) => self.send(Cmd::QuantizeToggle),
                 (Key::R, true) => self.record_toggle(),
+                (Key::F1, true) => self.set_view(View::Perform),
+                (Key::F2, true) => self.set_view(View::Wave),
+                (Key::F3, true) => self.set_view(View::Browse),
+                (Key::F4, true) => self.set_view(View::Tag),
+                (Key::F5, true) => self.set_view(View::Settings),
+                (Key::T, true) => {
+                    if let Some(Row::Track(t)) = self.lib.selected_row().cloned() {
+                        self.lib.toggle_tag(&t);
+                    }
+                }
                 (Key::F, true) => self.send(Cmd::Mix(MixParam::FxToggle)),
                 (Key::W, true) => self.config.waveform_color = crate::wave::next_mode(self.config.waveform_color),
                 // Same as the on-screen −/+: minus shows more time (zoom out).
@@ -777,6 +812,8 @@ impl eframe::App for App {
         self.maintain_audio();
         self.keyboard(ui);
         let v: EngineView = *self.view.lock();
+        // The controller test (SETTINGS) is the only reader of the MIDI log.
+        crate::midi::MIDI_LOG_ON.store(self.view_mode == View::Settings && self.settings.page == 3, Ordering::Relaxed);
         self.persist(&v);
         self.recording_tick(&v);
         self.history_tick(&v);
@@ -794,40 +831,27 @@ impl eframe::App for App {
             }
             None => 0.0,
         };
-        let wave_h = (full.height() * 0.15).clamp(92.0, 170.0);
-        let fx_h = 44.0;
-        let main_h = 396.0f32.min((full.height() - top_h - banner_h - wave_h - fx_h - 140.0).max(330.0));
-        let mixer_w = 340.0;
-
         let top = Rect::from_min_size(full.min, vec2(full.width(), top_h));
         let banner = Rect::from_min_size(pos2(full.min.x, top.max.y), vec2(full.width(), banner_h));
-        let waves = Rect::from_min_size(pos2(full.min.x, banner.max.y), vec2(full.width(), wave_h));
-        let main = Rect::from_min_size(pos2(full.min.x, waves.max.y), vec2(full.width(), main_h));
-        let fx_bar = Rect::from_min_size(pos2(full.min.x, main.max.y), vec2(full.width(), fx_h));
-        let browser = Rect::from_min_max(pos2(full.min.x, fx_bar.max.y), full.max);
-        let deck_w = (full.width() - mixer_w) / 2.0;
-        let deck_rects = [
-            Rect::from_min_size(main.min, vec2(deck_w, main_h)),
-            Rect::from_min_size(pos2(main.min.x + deck_w + mixer_w, main.min.y), vec2(deck_w, main_h)),
-        ];
-        let mixer = Rect::from_min_size(pos2(main.min.x + deck_w, main.min.y), vec2(mixer_w, main_h));
-
+        let body = Rect::from_min_max(pos2(full.min.x, banner.max.y), full.max);
         self.top_bar(ui, top, &v);
         if banner_h > 0.0 {
             self.banner_row(ui, banner);
         }
-        for d in 0..DECKS {
-            let h = wave_h / 2.0;
-            let r = Rect::from_min_size(pos2(waves.min.x, waves.min.y + d as f32 * h), vec2(waves.width(), h));
-            self.waveform(ui, r.shrink2(vec2(0.0, 1.0)), d, &v.decks[d]);
+        match self.view_mode {
+            View::Perform => self.perform_view(ui, body, &v),
+            View::Wave => self.wave_view(ui, body.shrink2(vec2(6.0, 4.0)), &v),
+            View::Browse | View::Tag | View::Settings => {
+                let strip = Rect::from_min_size(body.min + vec2(6.0, 4.0), vec2(body.width() - 12.0, 58.0));
+                self.now_playing(ui, strip, &v);
+                let rest = Rect::from_min_max(pos2(body.min.x + 6.0, strip.max.y + 6.0), body.max - vec2(6.0, 6.0));
+                if self.view_mode == View::Settings {
+                    self.settings_view(ui, rest, &v);
+                } else {
+                    self.browse_view(ui, rest, &v);
+                }
+            }
         }
-        self.zoom_buttons(ui, waves);
-        for d in 0..DECKS {
-            self.deck_panel(ui, deck_rects[d].shrink(6.0), d, &v.decks[d]);
-        }
-        self.mixer_panel(ui, mixer.shrink2(vec2(0.0, 6.0)), &v);
-        self.fx_bar(ui, fx_bar.shrink2(vec2(6.0, 2.0)), &v);
-        self.browser(ui, browser.shrink(6.0));
 
         let busy = v.decks.iter().any(|d| d.playing || d.previewing || d.touched || !d.complete)
             || self.decks.iter().any(|d| d.loading.is_some())
@@ -848,6 +872,9 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // Close the stream before handing the card back its old profile.
+        self.audio = None;
+        crate::cardprofile::restore_saved();
         if let Some(f) = self.recorder.stop() {
             eprintln!("recording: saved {}", f.parts.first().map(|p| p.path.display().to_string()).unwrap_or_default());
         }
@@ -1195,43 +1222,50 @@ fn caret(p: &Painter, at: Pos2, up: bool, col: Color32) {
 impl App {
     fn top_bar(&mut self, ui: &Ui, r: Rect, v: &EngineView) {
         let p = ui.painter().clone();
-        p.text(pos2(r.min.x + 14.0, r.center().y), Align2::LEFT_CENTER, "PLATTER", semi(19.0), t::INK);
+        p.text(pos2(r.min.x + 12.0, r.center().y), Align2::LEFT_CENTER, "PLATTER", semi(18.0), t::INK);
+        let right_w = 522.0;
+        // View tabs, like a CDJ's screen buttons.
+        let x = self.view_tabs(ui, r.min.x + 92.0, r) + 8.0;
+        // Compact audio and controller status; tap for the full story.
         let dot = |x: f32, ok: bool| p.circle_filled(pos2(x, r.center().y), 4.0, if ok { t::PLAY } else { t::DANGER });
-        let mut x = r.min.x + 104.0;
-        match (&self.audio, &self.audio_error) {
+        let midi = self.midi.lock().clone();
+        let pad = self.gamepad.as_ref().and_then(|g| g.lock().clone());
+        let (audio_ok, audio_short, audio_long) = match (&self.audio, &self.audio_error) {
             (Some(a), _) => {
-                dot(x, true);
                 let routing = match v.routing {
                     crate::engine::CueRouting::Channels34 => "phones on 3/4",
                     crate::engine::CueRouting::SplitMono => "split cue L/R",
                     crate::engine::CueRouting::MasterOnly => "no cue output",
                 };
-                let s = format!("{}  ·  {} Hz  ·  {routing}", a.description, v.sample_rate);
-                text_fit(&p, pos2(x + 10.0, r.center().y), Align2::LEFT_CENTER, &s, cond(15.0), t::INK_MUTED, 400.0);
+                let dev = a.description.split(" · ").last().unwrap_or(&a.description).to_string();
+                (true, format!("{dev} · {routing}"), format!("Audio: {}  ·  {} Hz  ·  {routing}", a.description, v.sample_rate))
             }
             (None, e) => {
-                dot(x, false);
                 let s = format!("No audio — {}. Retrying…", e.as_deref().unwrap_or("not started").trim_end_matches('.'));
-                text_fit(&p, pos2(x + 10.0, r.center().y), Align2::LEFT_CENTER, &s, cond(15.0), t::DANGER, 400.0);
-                // The message is usually too long for the bar: tap it to read all of it.
-                let hr = Rect::from_min_size(pos2(x - 6.0, r.min.y + 3.0), vec2(416.0, r.height() - 6.0));
-                if invisible_button(ui, &mut self.touches, hr, Id::NULL.with("audio_err"), "Audio error details", "Tap to show the whole message").clicked {
-                    self.banner = Some(s.clone());
-                }
+                (false, "No audio".to_string(), s)
             }
-        }
-        x += 430.0;
-        let midi = self.midi.lock().clone();
-        let pad = self.gamepad.as_ref().and_then(|g| g.lock().clone());
-        dot(x, midi.is_some() || pad.is_some());
-        let ctl = match (&midi, &pad) {
-            (Some(m), Some(g)) => format!("{m}  ·  {g}"),
-            (Some(m), None) => m.clone(),
-            (None, Some(g)) => format!("{g}  ·  no DJ controller"),
-            (None, None) => "No controller — touch & keyboard".into(),
         };
-        let right_w = 522.0;
-        text_fit(&p, pos2(x + 10.0, r.center().y), Align2::LEFT_CENTER, &ctl, cond(15.0), t::INK_MUTED, r.max.x - right_w - x - 20.0);
+        let ctl_long = match (&midi, &pad) {
+            (Some(m), Some(g)) => format!("Controller: {m}  ·  {g}"),
+            (Some(m), None) => format!("Controller: {m}"),
+            (None, Some(g)) => format!("Controller: {g}  ·  no DJ controller"),
+            (None, None) => "No controller connected: touch & keyboard".into(),
+        };
+        let ctl_short = match &midi {
+            Some(m) => m.split(':').next().unwrap_or(m).trim().to_string(),
+            None if pad.is_some() => "Steam Deck controls".into(),
+            None => "No controller".into(),
+        };
+        let avail = (r.max.x - right_w - x - 12.0).max(60.0);
+        let half = avail / 2.0;
+        dot(x + 4.0, audio_ok);
+        text_fit(&p, pos2(x + 14.0, r.center().y), Align2::LEFT_CENTER, &audio_short, cond(14.0), if audio_ok { t::INK_MUTED } else { t::DANGER }, half - 22.0);
+        dot(x + half + 4.0, midi.is_some() || pad.is_some());
+        text_fit(&p, pos2(x + half + 14.0, r.center().y), Align2::LEFT_CENTER, &ctl_short, cond(14.0), t::INK_MUTED, half - 22.0);
+        let sr = Rect::from_min_size(pos2(x - 4.0, r.min.y + 3.0), vec2(avail + 4.0, r.height() - 6.0));
+        if invisible_button(ui, &mut self.touches, sr, Id::NULL.with("status"), "Audio and controller status", "Tap for the full audio and controller details").clicked {
+            self.banner = Some(format!("{audio_long}\n{ctl_long}"));
+        }
 
         // Right: QUANTIZE, DSP load, master meter.
         // EXIT (press twice), at the far right like a window's close button.
@@ -1334,6 +1368,39 @@ impl App {
         if button_tip(ui, &mut self.touches, or, Id::NULL.with("fxon"), "ON", lit, semi(15.0), "Beat FX on/off  ( F )").clicked {
             self.send(Cmd::Mix(MixParam::FxToggle));
         }
+    }
+
+    /// The all-in-one view: waveforms, decks, mixer, beat FX, library.
+    fn perform_view(&mut self, ui: &mut Ui, full: Rect, v: &EngineView) {
+        let wave_h = (full.height() * 0.15).clamp(92.0, 170.0);
+        let fx_h = 44.0;
+        let main_h = 396.0f32.min((full.height() - wave_h - fx_h - 140.0).max(330.0));
+        let mixer_w = 340.0;
+
+        let waves = Rect::from_min_size(full.min, vec2(full.width(), wave_h));
+        let main = Rect::from_min_size(pos2(full.min.x, waves.max.y), vec2(full.width(), main_h));
+        let fx_bar = Rect::from_min_size(pos2(full.min.x, main.max.y), vec2(full.width(), fx_h));
+        let browser = Rect::from_min_max(pos2(full.min.x, fx_bar.max.y), full.max);
+        let deck_w = (full.width() - mixer_w) / 2.0;
+        let deck_rects = [
+            Rect::from_min_size(main.min, vec2(deck_w, main_h)),
+            Rect::from_min_size(pos2(main.min.x + deck_w + mixer_w, main.min.y), vec2(deck_w, main_h)),
+        ];
+        let mixer = Rect::from_min_size(pos2(main.min.x + deck_w, main.min.y), vec2(mixer_w, main_h));
+
+        for d in 0..DECKS {
+            let h = wave_h / 2.0;
+            let r = Rect::from_min_size(pos2(waves.min.x, waves.min.y + d as f32 * h), vec2(waves.width(), h));
+            self.waveform(ui, r.shrink2(vec2(0.0, 1.0)), d, &v.decks[d]);
+        }
+        self.zoom_buttons(ui, waves);
+        for d in 0..DECKS {
+            self.deck_panel(ui, deck_rects[d].shrink(6.0), d, &v.decks[d]);
+        }
+        self.mixer_panel(ui, mixer.shrink2(vec2(0.0, 6.0)), v);
+        self.fx_bar(ui, fx_bar.shrink2(vec2(6.0, 2.0)), v);
+        self.browser(ui, browser.shrink(6.0));
+
     }
 
     /// Quit on the second press within 3 s, so a stray tap can't end a set.
@@ -1550,8 +1617,16 @@ impl App {
             }
         }
         let key = track.as_ref().map(|t| t.key.clone()).filter(|k| !k.is_empty());
+        let key_col = waveview::key_colour(self, d);
+        // Countdown to the next cue while playing (like a CDJ's beat countdown).
+        let countdown = if dv.playing {
+            waveview::next_cue(self, d, dv).filter(|(b, _)| *b <= 64.0).map(|(b, l)| (format!("{}›{}", waveview::bars_beats(b), if l == "MEMORY" { "M".to_string() } else if l == "CUE" { "C".to_string() } else { l }), if b <= 16.0 { t::CUE } else { t::INK_MUTED }))
+        } else {
+            None
+        };
         let chips: Vec<(String, Color32)> = [
-            key.map(|k| (k, t::INK_MUTED)),
+            countdown,
+            key.map(|k| (k, key_col)),
             dv.slip.then(|| ("SLIP".to_string(), t::SYNC)),
             dv.reverse.then(|| ("REV".to_string(), t::DANGER)),
             dv.keylock.then(|| ("MT".to_string(), t::LOOP)),
@@ -2131,159 +2206,7 @@ impl App {
             return;
         }
 
-        let rows = self.lib.rows.clone();
-        let tracks_view = rows.iter().any(|r| matches!(r, Row::Track(_)));
-        let cols = |w: f32| {
-            let fixed = 40.0 + 70.0 + 54.0 + 64.0;
-            let flex = (w - fixed).max(100.0);
-            [0.0, 40.0, 40.0 + flex * 0.58, 40.0 + flex, 40.0 + flex + 70.0, 40.0 + flex + 124.0]
-        };
-        let mut top = list.min.y;
-        if tracks_view {
-            let cx = cols(list.width());
-            let heads = [(1, "TITLE", SortKey::Title), (2, "ARTIST", SortKey::Artist), (3, "BPM", SortKey::Bpm), (4, "KEY", SortKey::Key), (5, "TIME", SortKey::Time)];
-            for (i, name, key) in heads {
-                let x = list.min.x + cx[i] + 8.0;
-                let hr = Rect::from_min_size(pos2(x - 6.0, top - 3.0), vec2(62.0, 24.0));
-                let (c, resp) = control(ui, &mut self.touches, hr, Id::NULL.with(("sort", i)), || WidgetInfo::labeled(egui::Role::Button, true, format!("Sort by {name}")));
-                focus_ring(&p, hr, &resp, t::R_CONTROL);
-                let active = self.lib.sort.filter(|(k, _)| *k == key);
-                p.text(pos2(x, top + 8.0), Align2::LEFT_CENTER, name, caption(), if active.is_some() || c.hovered { t::INK_MUTED } else { t::INK_FAINT });
-                if let Some((_, asc)) = active {
-                    let w = p.layout_no_wrap(name.to_string(), caption(), t::INK).size().x;
-                    caret(&p, pos2(x + w + 8.0, top + 8.0), asc, t::INK_MUTED);
-                }
-                if c.clicked {
-                    self.lib.sort_by(key);
-                }
-            }
-            top += 18.0;
-        }
-        let rows_rect = Rect::from_min_max(pos2(list.min.x, top), list.max);
-        let row_h = 30.0;
-        let loaded: Vec<Option<PathBuf>> = self.decks.iter().map(|d| d.track.as_ref().map(|t| t.path.clone())).collect();
-        let played = &self.lib.played;
-        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rows_rect));
-        child.spacing_mut().item_spacing.y = 0.0;
-        let selected = self.lib.selected();
-        let scroll_to = std::mem::take(&mut self.scroll_to_selected);
-        let mut clicked: Option<usize> = None;
-        let mut entered: Option<usize> = None;
-        let mut load_req: Option<usize> = None;
-        let id_salt = format!("rows{:?}{}", self.lib.node(), self.lib.depth());
-        let mut area = egui::ScrollArea::vertical().id_salt(id_salt).auto_shrink([false, false]);
-        if scroll_to {
-            // Rows outside the viewport aren't laid out, so scroll by arithmetic.
-            let top = selected as f32 * row_h;
-            let vis = rows_rect.height();
-            let mut off = self.browser_offset;
-            if top < off {
-                off = top;
-            } else if top + row_h > off + vis {
-                off = top + row_h - vis;
-            }
-            area = area.vertical_scroll_offset(off.max(0.0));
-        }
-        // Covers for the rows that might be visible (only rekordbox tracks list artwork up
-        // front; local files' embedded art would mean opening every file).
-        let first = (self.browser_offset / row_h).max(0.0) as usize;
-        let vis_rows = (rows_rect.height() / row_h) as usize + 2;
-        let arts: HashMap<usize, Option<crate::art::ArtKey>> = (first..(first + vis_rows).min(rows.len()))
-            .filter_map(|i| match &rows[i] {
-                Row::Track(e) if e.rb.is_some() => Some((i, self.art_key(e))),
-                _ => None,
-            })
-            .collect();
-        let art = &mut self.art;
-        let out = area.show_rows(&mut child, row_h, rows.len(), |ui, range| {
-            for i in range {
-                let (rr, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
-                let p = ui.painter();
-                if i == selected {
-                    p.rect_filled(rr, CornerRadius::same(t::R_CONTROL), t::ACCENT.gamma_multiply(0.2));
-                    p.rect_stroke(rr, CornerRadius::same(t::R_CONTROL), Stroke::new(1.0, t::ACCENT.gamma_multiply(0.6)), StrokeKind::Inside);
-                } else if resp.hovered() {
-                    p.rect_filled(rr, CornerRadius::same(t::R_CONTROL), t::RAISED);
-                } else if i % 2 == 1 {
-                    p.rect_filled(rr, 0, t::CHROME.gamma_multiply(0.6));
-                }
-                let y = rr.center().y;
-                match &rows[i] {
-                    Row::Nav { label, detail, kind, .. } => {
-                        resp.widget_info(|| WidgetInfo::labeled(egui::Role::Button, true, label));
-                        nav_icon(p, pos2(rr.min.x + 20.0, y), *kind);
-                        text_fit(p, pos2(rr.min.x + 42.0, y), Align2::LEFT_CENTER, label, semi(16.0), t::INK, rr.width() * 0.55);
-                        text_fit(p, pos2(rr.max.x - 30.0, y), Align2::RIGHT_CENTER, detail, cond(15.0), t::INK_FAINT, rr.width() * 0.4);
-                        p.text(pos2(rr.max.x - 12.0, y), Align2::CENTER_CENTER, "›", semi(18.0), t::INK_FAINT);
-                        if resp.clicked() {
-                            entered = Some(i);
-                        }
-                    }
-                    Row::Track(e) => {
-                        resp.widget_info(|| WidgetInfo::selected(egui::Role::Button, true, i == selected, format!("{} — {}", e.title, e.artist)));
-                        let was_played = played.contains(&e.path);
-                        let mut bx = rr.min.x + 10.0;
-                        if was_played && !loaded.iter().any(|lp| lp.as_ref() == Some(&e.path)) {
-                            // Played this session: a tick, and the row in muted ink.
-                            let c = pos2(bx + 4.0, y);
-                            let st = Stroke::new(2.0, t::PLAY);
-                            p.line_segment([c + vec2(-5.0, 0.0), c + vec2(-1.5, 3.5)], st);
-                            p.line_segment([c + vec2(-1.5, 3.5), c + vec2(5.0, -4.0)], st);
-                        }
-                        for (d, lp) in loaded.iter().enumerate() {
-                            if lp.as_ref() == Some(&e.path) {
-                                p.circle_filled(pos2(bx, y), 8.0, t::DECK_TINT[d].gamma_multiply(0.25));
-                                p.text(pos2(bx, y), Align2::CENTER_CENTER, format!("{}", d + 1), semi(12.0), t::DECK_TINT[d]);
-                                bx += 18.0;
-                            }
-                        }
-                        let cx = cols(rr.width());
-                        let at = |c: usize| rr.min.x + cx[c] + 8.0;
-                        let mut title_x = at(1);
-                        if let Some(key) = arts.get(&i).cloned().flatten() {
-                            if let Some(tex) = art.get(&key) {
-                                let ar = Rect::from_center_size(pos2(title_x + 12.0, y), vec2(24.0, 24.0));
-                                p.image(tex.id(), ar, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
-                            }
-                            title_x += 32.0;
-                        }
-                        let title_ink = if was_played { t::INK_FAINT } else { t::INK };
-                        text_fit(p, pos2(title_x, y), Align2::LEFT_CENTER, &e.title, semi(16.0), title_ink, cx[2] - cx[1] - 16.0 - (title_x - at(1)));
-                        text_fit(p, pos2(at(2), y), Align2::LEFT_CENTER, &e.artist, cond(16.0), t::INK_MUTED, cx[3] - cx[2] - 16.0);
-                        let bpm = e.bpm.map(|b| format!("{b:.1}")).unwrap_or_else(|| "–".into());
-                        p.text(pos2(at(3), y), Align2::LEFT_CENTER, bpm, mono(13.0), if e.bpm.is_some() { t::INK } else { t::INK_FAINT });
-                        text_fit(p, pos2(at(4), y), Align2::LEFT_CENTER, &e.key, mono(13.0), t::INK_MUTED, 50.0);
-                        let time = e.duration.map(|d| format!("{}:{:02}", d / 60, d % 60)).unwrap_or_else(|| e.ext.clone());
-                        p.text(pos2(at(5), y), Align2::LEFT_CENTER, time, mono(13.0), t::INK_FAINT);
-                        if resp.clicked() {
-                            clicked = Some(i);
-                        }
-                        if resp.double_clicked() {
-                            load_req = Some(i);
-                        }
-                    }
-                }
-            }
-        });
-        self.browser_offset = out.state.clamped_offset().y;
-        if let Some(i) = clicked {
-            self.lib.select(i);
-        }
-        if let Some(i) = entered {
-            if self.lib.enter_row(i) {
-                self.search.clear();
-                self.scroll_to_selected = true;
-            }
-        }
-        if let Some(i) = load_req {
-            self.lib.select(i);
-            // Double-tap loads to whichever deck isn't playing.
-            let d = {
-                let v = self.view.lock();
-                if v.decks[0].playing && !v.decks[1].playing { 1 } else { 0 }
-            };
-            self.load_selected(d);
-        }
+        self.rows_list(ui, list, browse::ListOpts::compact());
     }
 }
 

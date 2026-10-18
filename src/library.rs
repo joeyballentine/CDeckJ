@@ -41,6 +41,40 @@ pub enum Node {
     History,
     HistoryCurrent,
     HistoryPast(usize),
+    /// The tag list (a crate built during the set).
+    Tag,
+}
+
+/// Narrow track lists to what mixes with the master deck (CDJ TRACK FILTER).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TrackFilter {
+    /// (BPM, ± percent). Half and double tempo count too.
+    pub bpm: Option<(f64, f64)>,
+    /// Harmonically compatible keys only.
+    pub key: Option<crate::keys::Camelot>,
+}
+
+impl TrackFilter {
+    pub fn is_active(&self) -> bool {
+        self.bpm.is_some() || self.key.is_some()
+    }
+
+    pub fn accepts(&self, t: &LibTrack) -> bool {
+        if let Some((center, pct)) = self.bpm {
+            let Some(b) = t.bpm else { return false };
+            let ok = [b, b * 2.0, b / 2.0].iter().any(|x| (x - center).abs() <= center * pct / 100.0 + 0.05);
+            if !ok {
+                return false;
+            }
+        }
+        if let Some(k) = self.key {
+            match crate::keys::parse(&t.key) {
+                Some(tk) if crate::keys::compatible(k, tk) => {}
+                _ => return false,
+            }
+        }
+        true
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,6 +118,7 @@ pub enum LibEvent {
     UsbError(PathBuf, String),
     /// Saved play history (newest first).
     History(Vec<crate::history::Session>),
+    Tags(Vec<crate::history::HistEntry>),
 }
 
 pub struct Library {
@@ -104,6 +139,8 @@ pub struct Library {
     pub current: crate::history::Session,
     /// Tracks played this session (greyed out in lists).
     pub played: HashSet<PathBuf>,
+    pub tags: Vec<crate::history::HistEntry>,
+    pub track_filter: TrackFilter,
 }
 
 fn apply_tags(t: &mut LibTrack, tags: &Tags) {
@@ -138,6 +175,8 @@ impl Library {
             sessions: Vec::new(),
             current: crate::history::Session::new(),
             played: HashSet::new(),
+            tags: Vec::new(),
+            track_filter: TrackFilter::default(),
         };
         l.refresh();
         l
@@ -186,6 +225,82 @@ impl Library {
         false
     }
 
+    /// Go straight to a list from the side bar (keeps Sources as the level above).
+    pub fn jump_to(&mut self, node: Node) {
+        self.filter.clear();
+        self.stack = if node == Node::Root { vec![(Node::Root, 0)] } else { vec![(Node::Root, 0), (node, 0)] };
+        self.refresh();
+    }
+
+    /// The side bar entry to highlight: the deepest level of where you are that has one.
+    pub fn root_node(&self) -> Node {
+        let roots: Vec<Node> = self.roots().into_iter().map(|r| r.1).collect();
+        self.stack.iter().rev().map(|s| s.0).find(|n| roots.contains(n)).unwrap_or(Node::Root)
+    }
+
+    pub fn is_tagged(&self, path: &Path) -> bool {
+        self.tags.iter().any(|e| e.path == path)
+    }
+
+    /// Add or remove a track from the tag list. Returns whether it's now tagged.
+    pub fn toggle_tag(&mut self, t: &LibTrack) -> bool {
+        let tagged = if let Some(i) = self.tags.iter().position(|e| e.path == t.path) {
+            self.tags.remove(i);
+            false
+        } else {
+            let rb = t.rb.and_then(|(u, id)| {
+                let ex = self.usbs.get(u)?;
+                Some((ex.track(id)?.file_path.clone(), ex.name.clone()))
+            });
+            self.tags.push(crate::history::HistEntry {
+                time: crate::history::clock(),
+                title: t.title.clone(),
+                artist: t.artist.clone(),
+                key: t.key.clone(),
+                bpm: t.bpm,
+                duration: t.duration,
+                path: t.path.clone(),
+                rb_path: rb.as_ref().map(|r| r.0.clone()),
+                usb: rb.map(|r| r.1),
+            });
+            true
+        };
+        crate::history::save_tags(&self.tags);
+        self.refresh();
+        tagged
+    }
+
+    pub fn clear_tags(&mut self) {
+        self.tags.clear();
+        crate::history::save_tags(&self.tags);
+        self.refresh();
+    }
+
+    pub fn set_track_filter(&mut self, f: TrackFilter) {
+        if f != self.track_filter {
+            self.track_filter = f;
+            self.select(0);
+            self.refresh();
+        }
+    }
+
+    /// Side bar entries: (label, node, indented).
+    pub fn roots(&self) -> Vec<(String, Node, bool)> {
+        let mut v = Vec::new();
+        for (u, ex) in self.usbs.iter().enumerate() {
+            v.push((ex.name.clone(), Node::Usb(u), false));
+            v.push(("All tracks".into(), Node::UsbAll(u), true));
+            v.push(("Playlists".into(), Node::UsbPlaylists(u, 0), true));
+            if !ex.db.history.is_empty() {
+                v.push(("History".into(), Node::UsbHistory(u), true));
+            }
+        }
+        v.push(("Music folder".into(), Node::Folder, false));
+        v.push(("History".into(), Node::History, false));
+        v.push((format!("Tag list ({})", self.tags.len()), Node::Tag, false));
+        v
+    }
+
     pub fn enter_row(&mut self, i: usize) -> bool {
         self.select(i);
         self.enter()
@@ -222,6 +337,7 @@ impl Library {
                 Node::UsbHistory(_) | Node::History => "History".into(),
                 Node::HistoryCurrent => "This session".into(),
                 Node::HistoryPast(i) => self.sessions.get(i).map(|s| s.label()).unwrap_or_default(),
+                Node::Tag => "Tag list".into(),
                 Node::UsbHistoryList(u, id) => self
                     .usbs
                     .get(u)
@@ -343,6 +459,7 @@ impl Library {
                     self.stack.truncate(1);
                 }
             }
+            LibEvent::Tags(t) => self.tags = t,
             LibEvent::History(s) => {
                 self.sessions = s;
                 // Don't list this session twice if it was already saved.
@@ -391,6 +508,9 @@ impl Library {
                     None => format!("{} · scanning…", self.local_root.display()),
                 };
                 rows.push(nav("Music folder".into(), detail, NavKind::Folder, Node::Folder));
+                if !self.tags.is_empty() {
+                    rows.push(nav("Tag list".into(), format!("{} tracks", self.tags.len()), NavKind::Playlist, Node::Tag));
+                }
                 let n = self.sessions.len() + usize::from(!self.current.entries.is_empty());
                 if n > 0 {
                     rows.push(nav("History".into(), format!("{n} sessions"), NavKind::Collection, Node::History));
@@ -403,6 +523,9 @@ impl Library {
                 for (i, s) in self.sessions.iter().enumerate() {
                     rows.push(nav(s.label(), format!("{} tracks", s.entries.len()), NavKind::Playlist, Node::HistoryPast(i)));
                 }
+            }
+            Node::Tag => {
+                rows.extend(self.tags.iter().map(|e| Row::Track(self.hist_track(e))));
             }
             Node::HistoryCurrent => {
                 rows.extend(self.current.entries.iter().map(|e| Row::Track(self.hist_track(e))));
@@ -465,6 +588,14 @@ impl Library {
                     rows.extend(ids.into_iter().filter_map(|t| self.rb_track(u, ex, t)).map(Row::Track));
                 }
             }
+        }
+        // The track filter narrows track lists (not the tag list: it's already chosen).
+        if self.track_filter.is_active() && node != Node::Tag {
+            let f = self.track_filter;
+            rows.retain(|r| match r {
+                Row::Track(t) => f.accepts(t),
+                _ => true,
+            });
         }
         // Search and sort apply to the current list.
         let needle: Vec<String> = self.filter.split_whitespace().map(|w| w.to_lowercase()).collect();
@@ -587,6 +718,7 @@ pub fn spawn_watchers(opts: WatchOptions, tx: Sender<LibEvent>, wake: impl Fn() 
         .name("scan".into())
         .spawn(move || {
             let _ = tx1.send(LibEvent::History(crate::history::load_all()));
+            let _ = tx1.send(LibEvent::Tags(crate::history::load_tags()));
             let mut local = scan(&local_root);
             // Apply what's cached, then fill in tags for the rest.
             let mut missing = Vec::new();

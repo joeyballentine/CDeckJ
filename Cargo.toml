@@ -12,6 +12,7 @@ crossbeam-channel = "0.5.17"
 eframe = { version = "0.37.0", default-features = false, features = ["glow", "default_fonts", "x11", "wayland", "accesskit"] }
 egui = "0.37"
 libc = "0.2"
+pulseaudio = "0.3"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 gilrs = "0.11.2"
 midir = "0.11.1"

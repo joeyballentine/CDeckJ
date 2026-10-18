@@ -152,6 +152,8 @@ pub enum UiAction {
     Load(usize),
     /// Start recording, or (pressed twice) stop.
     Record,
+    /// Next (+1) or previous (−1) screen view.
+    CycleView(i32),
 }
 
 pub enum Action {
@@ -499,6 +501,29 @@ pub fn list_ports() {
 /// Connection status for the UI: the connected port's name, if any.
 pub type MidiStatus = Arc<Mutex<Option<String>>>;
 
+/// While the SETTINGS view's controller test is open, incoming messages and what they
+/// mapped to are kept here (newest last).
+pub static MIDI_LOG_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub static MIDI_LOG: Mutex<Vec<String>> = parking_lot::const_mutex(Vec::new());
+
+fn log_midi(msg: &[u8], action: &Option<Action>) {
+    if !MIDI_LOG_ON.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let bytes: Vec<String> = msg.iter().map(|b| format!("{b:02X}")).collect();
+    let what = match action {
+        Some(Action::Engine(c)) => format!("{c:?}"),
+        Some(Action::Ui(a)) => format!("{a:?}"),
+        None => "not mapped (or held back by soft takeover)".into(),
+    };
+    let mut log = MIDI_LOG.lock();
+    log.push(format!("{}  →  {what}", bytes.join(" ")));
+    let n = log.len();
+    if n > 40 {
+        log.drain(..n - 40);
+    }
+}
+
 struct Link {
     name: String,
     _input: MidiInputConnection<()>,
@@ -530,7 +555,9 @@ fn try_connect(
             "platter-in",
             move |_, msg, _| {
                 let snapshot = vw.try_lock().map(|g| *g);
-                match mapper.decode_with(msg, snapshot.as_ref()) {
+                let action = mapper.decode_with(msg, snapshot.as_ref());
+                log_midi(msg, &action);
+                match action {
                     Some(Action::Engine(c)) => {
                         let _ = etx.try_send(c);
                         rp();

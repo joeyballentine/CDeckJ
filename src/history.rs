@@ -85,6 +85,29 @@ pub fn load_all() -> Vec<Session> {
         .collect()
 }
 
+fn tags_file() -> PathBuf {
+    crate::config::data_dir().join("taglist.json")
+}
+
+pub fn load_tags() -> Vec<HistEntry> {
+    std::fs::read(tags_file()).ok().and_then(|d| serde_json::from_slice(&d).ok()).unwrap_or_default()
+}
+
+/// Save the tag list on a short-lived thread.
+pub fn save_tags(tags: &[HistEntry]) {
+    let (path, data) = (tags_file(), serde_json::to_vec_pretty(tags));
+    std::thread::spawn(move || {
+        let Ok(data) = data else { return };
+        if let Some(d) = path.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let tmp = path.with_extension("tmp");
+        if std::fs::write(&tmp, data).is_ok() {
+            let _ = std::fs::rename(tmp, path);
+        }
+    });
+}
+
 /// "21:34" now.
 pub fn clock() -> String {
     let s = crate::recorder::local_stamp();
