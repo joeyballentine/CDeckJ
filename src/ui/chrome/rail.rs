@@ -2,15 +2,12 @@
 //! SEARCH / MENU buttons beside a CDJ's screen: always in the same place, and big enough to
 //! hit with a thumb on a 7" screen (about 11 × 9 mm on the Steam Deck).
 
+use crate::ui::prelude::*;
+use crate::ui::App;
+
 use std::time::Duration;
 
-use egui::{pos2, vec2, Align2, CornerRadius, Id, Rect, Stroke, StrokeKind, Ui, WidgetInfo};
-
-use super::views::View;
-use super::{control, focus_ring, mix, App};
 use crate::engine::EngineView;
-use crate::icons;
-use crate::theme::{self as t, cond, semi};
 
 /// Rail width for a window at least `WIDE` points wide, and below it.
 pub const RAIL_W: f32 = 84.0;
@@ -35,7 +32,7 @@ const ITEMS: [Item; 6] = [
 
 impl App {
     /// The rail in `r`: the views and SEARCH from the top, EXIT at the bottom.
-    pub(super) fn rail(&mut self, ui: &Ui, r: Rect, v: &EngineView) {
+    pub(crate) fn rail(&mut self, ui: &Ui, r: Rect, v: &EngineView) {
         let gap = 6.0;
         let exit_h = 56.0;
         let n = ITEMS.len() as f32;

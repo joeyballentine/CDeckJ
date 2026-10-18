@@ -1,21 +1,20 @@
 //! SETTINGS view (a CDJ's SHORTCUT/UTILITY screens): My Settings options, mixer curves,
 //! audio output, a live controller test, and system options.
 
-use crossbeam_channel::Receiver;
-use egui::{pos2, vec2, Align2, Id, Rect, Ui};
+use crate::ui::prelude::*;
+use crate::ui::App;
 
-use super::views::{heading, segmented};
-use super::{button, card, text_fit, App};
+use crossbeam_channel::Receiver;
+
 use crate::engine::{Cmd, EngineView, MixParam, DECKS};
 use crate::rekordbox::settings::{CrossfaderCurve, FaderCurve, WaveColor};
-use crate::theme::{self as t, cond, mono, semi};
 
 const PAGES: [(&str, &str); 5] = [
-    (crate::icons::PLAYER, "PLAYER"),
-    (crate::icons::MIXER, "MIXER & FX"),
-    (crate::icons::AUDIO, "AUDIO"),
-    (crate::icons::CONTROLLER, "CONTROLLER"),
-    (crate::icons::SYSTEM, "SYSTEM"),
+    (crate::ui::icons::PLAYER, "PLAYER"),
+    (crate::ui::icons::MIXER, "MIXER & FX"),
+    (crate::ui::icons::AUDIO, "AUDIO"),
+    (crate::ui::icons::CONTROLLER, "CONTROLLER"),
+    (crate::ui::icons::SYSTEM, "SYSTEM"),
 ];
 
 #[derive(Default)]
@@ -30,7 +29,7 @@ pub struct SettingsState {
 
 impl App {
     /// Refresh things that are slow to find out, off the UI thread.
-    pub(super) fn settings_opened(&mut self) {
+    pub(crate) fn settings_opened(&mut self) {
         let (tx, rx) = crossbeam_channel::bounded(1);
         let alsa = self.audio_opts.force_alsa;
         std::thread::spawn(move || {
@@ -50,7 +49,7 @@ impl App {
         self.last_reconnect = std::time::Instant::now() - std::time::Duration::from_secs(10);
     }
 
-    pub(super) fn settings_view(&mut self, ui: &mut Ui, r: Rect, v: &EngineView) {
+    pub(crate) fn settings_view(&mut self, ui: &mut Ui, r: Rect, v: &EngineView) {
         if let Some(rx) = &self.settings.devices_rx {
             if let Ok(d) = rx.try_recv() {
                 self.settings.devices = Some(d);
@@ -72,7 +71,7 @@ impl App {
         card(&p, side);
         for (i, (icon, name)) in PAGES.iter().enumerate() {
             let br = Rect::from_min_size(pos2(side.min.x + 6.0, side.min.y + 8.0 + i as f32 * 44.0), vec2(side.width() - 12.0, 40.0));
-            if super::nav_row(ui, &mut self.touches, br, Id::NULL.with(("spage", i)), icon, name, self.settings.page == i).clicked {
+            if nav_row(ui, &mut self.touches, br, Id::NULL.with(("spage", i)), icon, name, self.settings.page == i).clicked {
                 self.settings.page = i;
             }
         }

@@ -9,7 +9,6 @@ mod config;
 mod desktop;
 mod engine;
 mod history;
-mod icons;
 mod keys;
 mod library;
 mod midi;
@@ -17,8 +16,6 @@ mod preview;
 mod recorder;
 mod rekordbox;
 mod system;
-mod theme;
-mod touch;
 mod track;
 mod wave;
 mod ui;
@@ -219,7 +216,7 @@ fn main() -> eframe::Result {
         "cdeckj",
         native,
         Box::new(move |cc| {
-            theme::install(&cc.egui_ctx);
+            ui::theme::install(&cc.egui_ctx);
             let (ui_tx, ui_rx) = unbounded();
             let ctx = cc.egui_ctx.clone();
             let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(move || ctx.request_repaint());

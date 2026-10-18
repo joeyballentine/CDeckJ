@@ -4,16 +4,16 @@
 //! the screen can do (load, tag, waveform zoom and colour, time mode). Without a controller
 //! PERFORM shows the full touch layout instead.
 
-use egui::{pos2, vec2, Align2, Color32, CornerRadius, Id, Rect, Sense, Stroke, StrokeKind, Ui, WidgetInfo};
+use crate::ui::prelude::*;
+use crate::ui::HOT_LETTERS;
+use crate::ui::App;
 
-use super::{card, fmt_time, hot_color, invisible_button, meter, mix, text_fit, waveview, App, HOT_LETTERS};
 use crate::config::PerformLayout;
 use crate::engine::{DeckView, EngineView, DECKS};
-use crate::theme::{self as t, caption, cond, mono, semi};
 
 impl App {
     /// Whether PERFORM shows the display layout now.
-    pub(super) fn display_layout(&self) -> bool {
+    pub(crate) fn display_layout(&self) -> bool {
         match self.config.perform_layout {
             PerformLayout::Auto => self.midi.lock().is_some(),
             PerformLayout::Full => false,
@@ -21,7 +21,7 @@ impl App {
         }
     }
 
-    pub(super) fn perform_display(&mut self, ui: &mut Ui, full: Rect, v: &EngineView) {
+    pub(crate) fn perform_display(&mut self, ui: &mut Ui, full: Rect, v: &EngineView) {
         let gap = 6.0;
         let info_h = 206.0;
         let wave_h = (full.height() * 0.29).clamp(140.0, 260.0);
@@ -141,10 +141,10 @@ impl App {
         let key = track.as_ref().map(|t| t.key.clone()).filter(|k| !k.is_empty());
         let countdown = dv
             .playing
-            .then(|| waveview::next_cue(self, d, dv))
+            .then(|| next_cue(self, d, dv))
             .flatten()
             .filter(|(b, _)| *b <= 64.0)
-            .map(|(b, l)| (format!("{} › {l}", waveview::bars_beats(b)), if b <= 16.0 { t::CUE } else { t::INK_MUTED }));
+            .map(|(b, l)| (format!("{} › {l}", bars_beats(b)), if b <= 16.0 { t::CUE } else { t::INK_MUTED }));
         let state = if dv.playing {
             Some(("PLAYING".to_string(), t::PLAY))
         } else if dv.loaded && dv.at_cue {
@@ -156,7 +156,7 @@ impl App {
         };
         let chips: Vec<(String, Color32)> = [
             state,
-            key.map(|k| (k, waveview::key_colour(self, d))),
+            key.map(|k| (k, key_colour(self, d))),
             dv.loop_active.then(|| ("LOOP".to_string(), t::LOOP)),
             dv.synced.then(|| ("SYNC".to_string(), t::SYNC)),
             dv.keylock.then(|| ("MT".to_string(), t::ACCENT)),
@@ -200,7 +200,7 @@ impl App {
         let mut fr: [Option<f64>; DECKS] = [None; DECKS];
         for d in 0..DECKS {
             let y = inner.min.y + 18.0 + d as f32 * 12.0;
-            let pos = waveview::bar_position(self, d, &v.decks[d]).filter(|_| v.decks[d].loaded);
+            let pos = bar_position(self, d, &v.decks[d]).filter(|_| v.decks[d].loaded);
             for b in 0..4 {
                 let sr = Rect::from_min_size(pos2(inner.min.x + b as f32 * (seg_w + 3.0), y), vec2(seg_w, 9.0));
                 let lit = pos.is_some_and(|(k, _)| k == b);

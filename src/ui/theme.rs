@@ -103,16 +103,16 @@ fn install_fonts(ctx: &egui::Context) {
     let barlow = FontTweak { y_offset_factor: -0.05, ..Default::default() };
     fonts.font_data.insert(
         COND.into(),
-        Arc::new(FontData::from_static(include_bytes!("../assets/fonts/BarlowCondensed-Medium.ttf")).tweak(barlow.clone())),
+        Arc::new(FontData::from_static(include_bytes!("../../assets/fonts/BarlowCondensed-Medium.ttf")).tweak(barlow.clone())),
     );
     fonts.font_data.insert(
         COND_SEMI.into(),
-        Arc::new(FontData::from_static(include_bytes!("../assets/fonts/BarlowCondensed-SemiBold.ttf")).tweak(barlow)),
+        Arc::new(FontData::from_static(include_bytes!("../../assets/fonts/BarlowCondensed-SemiBold.ttf")).tweak(barlow)),
     );
     fonts.font_data.insert(
         "mono".into(),
         Arc::new(
-            FontData::from_static(include_bytes!("../assets/fonts/JetBrainsMono.ttf")).tweak(FontTweak {
+            FontData::from_static(include_bytes!("../../assets/fonts/JetBrainsMono.ttf")).tweak(FontTweak {
                 coords: VariationCoords::new([(b"wght", 560.0)]),
                 ..Default::default()
             }),
@@ -123,10 +123,10 @@ fn install_fonts(ctx: &egui::Context) {
     // Glyphs fill 0.84 em from 0.016 em above the baseline: lift and scale them so their
     // centre lands on the capitals' centre.
     let icon = FontTweak { scale: ICON_SCALE, y_offset_factor: ICON_Y, ..Default::default() };
-    fonts.font_data.insert(ICONS.into(), Arc::new(FontData::from_static(include_bytes!("../assets/fonts/Phosphor-Bold.ttf")).tweak(icon.clone())));
+    fonts.font_data.insert(ICONS.into(), Arc::new(FontData::from_static(include_bytes!("../../assets/fonts/Phosphor-Bold.ttf")).tweak(icon.clone())));
     fonts.font_data.insert(
-        crate::icons::FILL_FAMILY.into(),
-        Arc::new(FontData::from_static(include_bytes!("../assets/fonts/Phosphor-Fill.ttf")).tweak(icon)),
+        crate::ui::icons::FILL_FAMILY.into(),
+        Arc::new(FontData::from_static(include_bytes!("../../assets/fonts/Phosphor-Fill.ttf")).tweak(icon)),
     );
     let fallback: Vec<String> = fonts.families[&FontFamily::Proportional].clone();
     let with_fallback = |first: &str| {
@@ -136,7 +136,7 @@ fn install_fonts(ctx: &egui::Context) {
     };
     fonts.families.insert(FontFamily::Name(COND.into()), with_fallback(COND));
     fonts.families.insert(FontFamily::Name(COND_SEMI.into()), with_fallback(COND_SEMI));
-    fonts.families.insert(FontFamily::Name(crate::icons::FILL_FAMILY.into()), vec![crate::icons::FILL_FAMILY.to_owned()]);
+    fonts.families.insert(FontFamily::Name(crate::ui::icons::FILL_FAMILY.into()), vec![crate::ui::icons::FILL_FAMILY.to_owned()]);
     fonts.families.entry(FontFamily::Proportional).or_default().splice(0..0, [COND.to_owned(), ICONS.to_owned()]);
     fonts.families.entry(FontFamily::Monospace).or_default().splice(0..0, ["mono".to_owned(), ICONS.to_owned()]);
     ctx.set_fonts(fonts);

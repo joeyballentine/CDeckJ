@@ -2,61 +2,13 @@
 //! decks, a countdown to the next cue and big readouts — for beatmatching and phrasing on
 //! a small screen. The controller does the rest; only transport and jumps are on screen.
 
-use egui::{pos2, vec2, Align2, Color32, CornerRadius, Id, Rect, Stroke, Ui};
+use crate::ui::prelude::*;
+use crate::ui::App;
 
-use super::{button, button_tip, card, control, fmt_time, mix, round_button, text_fit, App};
 use crate::engine::{Cmd, DeckView, EngineView, DECKS};
-use crate::theme::{self as t, caption, cond, mono, semi};
-
-/// Where a deck is in the bar: (beat index in bar 0–3, fraction through the beat).
-pub(super) fn bar_position(app: &App, d: usize, dv: &DeckView) -> Option<(i64, f64)> {
-    let tr = app.decks[d].track.as_ref()?;
-    let g = tr.grid.load_full()?;
-    let b = g.beat_at(dv.pos);
-    let k = b.floor() as i64;
-    Some(((k + g.bar_phase as i64).rem_euclid(4), b - b.floor()))
-}
-
-/// Beats to the next cue (hot cue, memory cue or the CUE point) ahead of the playhead,
-/// and its label.
-pub(super) fn next_cue(app: &App, d: usize, dv: &DeckView) -> Option<(f64, String)> {
-    let tr = app.decks[d].track.as_ref()?;
-    let g = tr.grid.load_full()?;
-    let now = g.beat_at(dv.pos);
-    let mut cands: Vec<(f64, String)> = Vec::new();
-    for (i, h) in dv.hot.iter().enumerate() {
-        if let Some(h) = h {
-            cands.push((h.pos, super::HOT_LETTERS[i].to_string()));
-        }
-    }
-    for m in dv.memory.iter().flatten() {
-        cands.push((*m, "MEMORY".into()));
-    }
-    cands.push((dv.cue, "CUE".into()));
-    cands
-        .into_iter()
-        .map(|(pos, l)| (g.beat_at(pos) - now, l))
-        .filter(|(b, _)| *b > 0.05)
-        .min_by(|a, b| a.0.total_cmp(&b.0))
-}
-
-/// "4.2" = four bars and two beats to go, like a CDJ's beat countdown.
-pub(super) fn bars_beats(beats: f64) -> String {
-    let whole = beats.ceil() as i64;
-    format!("{}.{}", whole / 4, whole % 4)
-}
-
-/// The key colour: green when it mixes with the other loaded deck.
-pub(super) fn key_colour(app: &App, d: usize) -> Color32 {
-    let k = |i: usize| app.decks[i].track.as_ref().and_then(|t| crate::keys::parse(&t.key));
-    match (k(d), k(1 - d)) {
-        (Some(a), Some(b)) if crate::keys::compatible(a, b) => t::PLAY,
-        _ => t::INK_MUTED,
-    }
-}
 
 impl App {
-    pub(super) fn wave_view(&mut self, ui: &mut Ui, r: Rect, v: &EngineView) {
+    pub(crate) fn wave_view(&mut self, ui: &mut Ui, r: Rect, v: &EngineView) {
         let head_h = 50.0;
         let ov_h = 40.0;
         let ctl_h = 42.0;
@@ -165,7 +117,7 @@ impl App {
         }
         x += h + 8.0;
         let play_r = Rect::from_min_size(pos2(x, cr.min.y), vec2(h, h));
-        let pc = round_button(ui, &mut self.touches, play_r, Id::NULL.with(("wplay", d)), "PLAY", Some(crate::icons::PLAY_PAUSE), t::PLAY, dv.playing || (dv.loaded && blink));
+        let pc = round_button(ui, &mut self.touches, play_r, Id::NULL.with(("wplay", d)), "PLAY", Some(crate::ui::icons::PLAY_PAUSE), t::PLAY, dv.playing || (dv.loaded && blink));
         if (pc.down && !self.decks[d].play_held) || pc.key {
             self.send(Cmd::Play(d));
         }
@@ -174,8 +126,8 @@ impl App {
         let jump = self.config.beat_jump;
         let jb = crate::rekordbox::settings::fmt_beats(jump);
         let btns: [(String, Option<Color32>, Cmd, &str); 7] = [
-            (format!("{} {jb}", crate::icons::CARET_DOUBLE_LEFT), None, Cmd::BeatJump(d, -jump), "Jump back"),
-            (format!("{jb} {}", crate::icons::CARET_DOUBLE_RIGHT), None, Cmd::BeatJump(d, jump), "Jump forward"),
+            (format!("{} {jb}", crate::ui::icons::CARET_DOUBLE_LEFT), None, Cmd::BeatJump(d, -jump), "Jump back"),
+            (format!("{jb} {}", crate::ui::icons::CARET_DOUBLE_RIGHT), None, Cmd::BeatJump(d, jump), "Jump forward"),
             ("4 BEAT".into(), None, Cmd::AutoLoop(d, 4.0), "4-beat loop"),
             ("½×".into(), None, Cmd::LoopScale(d, 0.5), "Halve the loop"),
             ("2×".into(), None, Cmd::LoopScale(d, 2.0), "Double the loop"),
@@ -199,13 +151,13 @@ impl App {
                 break;
             }
             let set = dv.hot[i].is_some();
-            let colr = super::hot_color(i, dv.hot[i].and_then(|h| h.color));
+            let colr = hot_color(i, dv.hot[i].and_then(|h| h.color));
             let (c, _) = control(ui, &mut self.touches, pr, Id::NULL.with(("wpad", d, i)), || {
-                egui::WidgetInfo::selected(egui::Role::Button, true, set, format!("Hot cue {}", super::HOT_LETTERS[i]))
+                egui::WidgetInfo::selected(egui::Role::Button, true, set, format!("Hot cue {}", crate::ui::HOT_LETTERS[i]))
             });
             p.rect_filled(pr, CornerRadius::same(t::R_CONTROL), if set { colr.gamma_multiply(if c.down { 0.6 } else { 0.35 }) } else { t::RAISED });
             p.rect_stroke(pr, CornerRadius::same(t::R_CONTROL), Stroke::new(1.0, if set { colr } else { t::BORDER }), egui::StrokeKind::Inside);
-            p.text(pr.center(), Align2::CENTER_CENTER, super::HOT_LETTERS[i], semi(15.0), if set { t::INK } else { t::INK_FAINT });
+            p.text(pr.center(), Align2::CENTER_CENTER, crate::ui::HOT_LETTERS[i], semi(15.0), if set { t::INK } else { t::INK_FAINT });
             if c.down != self.decks[d].hot_held[i] {
                 self.decks[d].hot_held[i] = c.down;
                 self.send(Cmd::HotCue(d, i, c.down));
@@ -267,7 +219,7 @@ impl App {
         }
         // Zoom and colour at the right.
         let w = 34.0;
-        for (i, (label, dir)) in [(crate::icons::ZOOM_OUT, 1), (crate::icons::ZOOM_IN, -1)].into_iter().enumerate() {
+        for (i, (label, dir)) in [(crate::ui::icons::ZOOM_OUT, 1), (crate::ui::icons::ZOOM_IN, -1)].into_iter().enumerate() {
             let br = Rect::from_min_size(pos2(inner.max.x - 2.0 * (w + 4.0) + i as f32 * (w + 4.0), r.center().y - 15.0), vec2(w, 30.0));
             let tip = if dir > 0 { "Zoom waveforms out  ( − or the browse knob )" } else { "Zoom waveforms in  ( = or the browse knob )" };
             if button_tip(ui, &mut self.touches, br, Id::NULL.with(("wzoom", i)), label, None, semi(16.0), tip).clicked {
