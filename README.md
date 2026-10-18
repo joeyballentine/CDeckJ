@@ -54,11 +54,18 @@ This project was called Platter until 0.6. On first start CDeckJ moves `~/.confi
 
 ## Run on the Steam Deck
 
-1. Switch to Desktop Mode and copy `cdeckj` to e.g. `~/Applications/cdeckj`, then `chmod +x` it.
-2. Put music in `~/Music` (subfolders are fine). Name files `Artist - Title.ext` for nicer display.
-3. Run `./cdeckj --install-desktop` once. CDeckJ shows up in the applications menu with its icon.
-4. Plug in the DDJ-GRV6 (a powered USB-C hub helps) and start CDeckJ from the menu, or run `./cdeckj`.
-5. To use it from Game Mode, add it in Steam with *Add a Non-Steam Game* (it's in the list, icon included). Use launch options for any flags. The next time CDeckJ starts, it gives the shortcut its library artwork (portrait and wide capsules, hero banner, logo); Steam shows it after a restart. Art you've set yourself is never replaced.
+1. In Desktop Mode, extract the download and run **`install.sh`** from its folder: double-click it and choose *Execute*, or run `./install.sh` in Konsole. No password needed. It:
+   - copies CDeckJ to `~/Applications/cdeckj` (or, if CDeckJ is already a Steam shortcut, updates the file the shortcut points at),
+   - turns on auto-launch, so plugging in the controller opens CDeckJ,
+   - adds CDeckJ to the applications menu with its icon,
+   - gives the Steam shortcut its library artwork, if there is one.
+2. For Game Mode, add CDeckJ in Steam with *Games → Add a Non-Steam Game to My Library* (it's in the list, icon included). The next time CDeckJ starts, it gives the shortcut its library artwork (portrait and wide capsules, hero banner, logo); Steam shows it after a restart. Art you've set yourself is never replaced. Use launch options for any flags.
+3. Put music in `~/Music` (subfolders are fine), or just plug in a rekordbox USB stick.
+4. Plug in the DDJ-GRV6 (a powered USB-C hub helps). CDeckJ opens.
+
+To update, extract the new version and run its `install.sh` again. To remove CDeckJ, run `./install.sh --uninstall`: your settings, cues, history and recordings are kept.
+
+To do it by hand instead: `chmod +x cdeckj`, then `./cdeckj --install-autolaunch` (auto-launch, menu entry and Steam art) or just `./cdeckj --install-desktop` (menu entry and Steam art only).
 
 The prebuilt binary needs only glibc 2.35+, `libasound` and `libudev`, all present on SteamOS.
 
@@ -67,6 +74,8 @@ The prebuilt binary needs only glibc 2.35+, `libasound` and `libudev`, all prese
 Press **EXIT** at the top right twice (or Ctrl+Q twice); the second press has to come within 3 seconds, so a stray tap can't end a set. In Game Mode the Steam button → *Exit game* works too. Quitting stops playback, saves settings and cues, and finishes any recording properly.
 
 ### Start automatically when the controller is plugged in
+
+`install.sh` sets this up. To do it by hand:
 
 ```sh
 ./cdeckj --install-autolaunch
@@ -77,7 +86,7 @@ From then on, plugging in the DDJ-GRV6 opens CDeckJ. Nothing else changes, and n
 - If CDeckJ has been added to Steam (*Add a Non-Steam Game*), it opens through Steam, so it works in **Game Mode** as well as Desktop Mode. Without that, it only opens in Desktop Mode.
 - It opens when the controller *arrives*. If you quit CDeckJ with the controller still plugged in, it won't reopen until you unplug and replug it (or log in again).
 - It looks for the same names as the MIDI connection (`port_hints` in the `[midi]` settings: GRV6, DDJ, AlphaTheta, Pioneer), so other Pioneer DJ gear triggers it too. Narrow the list to `["GRV6"]` if that's not what you want.
-- If you move the `cdeckj` file, run `--install-autolaunch` again. `./cdeckj --uninstall-autolaunch` turns it off.
+- If you move the `cdeckj` file, run `install.sh` (or `--install-autolaunch`) again. `./cdeckj --uninstall-autolaunch` turns it off. The SETTINGS → SYSTEM page has a switch for it too.
 
 ### rekordbox USB sticks
 
@@ -224,7 +233,8 @@ cdeckj [OPTIONS] [TRACK1] [TRACK2]
   --midi-monitor     print incoming MIDI and how it is mapped
   --install-autolaunch / --uninstall-autolaunch
                      start CDeckJ whenever the controller is plugged in
-  --install-desktop  applications-menu entry, icon, and Steam library artwork
+  --install-desktop / --uninstall-desktop
+                     applications-menu entry, icon, and Steam library artwork
 ```
 
 Command-line options override the settings file for that run.

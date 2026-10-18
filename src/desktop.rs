@@ -92,6 +92,18 @@ pub fn install(exe: &Path) -> Result<String, String> {
     Ok(msg)
 }
 
+/// Remove the menu entry and icons that [`install`] added (Steam artwork stays with Steam).
+pub fn uninstall() -> Result<String, String> {
+    let share = data_home().ok_or("no home directory")?;
+    let icons = share.join("icons/hicolor");
+    for (size, _) in ICONS {
+        let _ = std::fs::remove_file(icons.join(format!("{size}x{size}/apps/cdeckj.png")));
+    }
+    let _ = std::fs::remove_file(icons.join("scalable/apps/cdeckj.svg"));
+    let _ = std::fs::remove_file(share.join("applications/cdeckj.desktop"));
+    Ok("Removed CDeckJ from the applications menu.".into())
+}
+
 /// Give CDeckJ's Steam shortcut its library artwork, keeping any art already set. Returns how
 /// many files were written.
 pub fn steam_art(exe: &Path) -> usize {

@@ -55,6 +55,7 @@ OPTIONS:
                          also does --install-desktop)
     --install-desktop    Add CDeckJ to the applications menu with its icon, and give its Steam
                          shortcut library artwork
+    --uninstall-desktop  Take it out of the applications menu again
     --uninstall-autolaunch
                          Turn that off again
     --watch              The watcher that --install-autolaunch runs in the background
@@ -79,6 +80,7 @@ struct Args {
     watch: bool,
     install_autolaunch: bool,
     install_desktop: bool,
+    uninstall_desktop: bool,
     uninstall_autolaunch: bool,
     tracks: Vec<PathBuf>,
 }
@@ -102,6 +104,7 @@ fn parse_args() -> Result<Args, String> {
             "--watch" => a.watch = true,
             "--install-autolaunch" => a.install_autolaunch = true,
             "--install-desktop" => a.install_desktop = true,
+            "--uninstall-desktop" => a.uninstall_desktop = true,
             "--uninstall-autolaunch" => a.uninstall_autolaunch = true,
             "-h" | "--help" => {
                 print!("{HELP}");
@@ -134,11 +137,13 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     let midi_port = args.midi.clone().or(cfg.midi_port.clone());
-    if args.install_autolaunch || args.uninstall_autolaunch || args.install_desktop {
+    if args.install_autolaunch || args.uninstall_autolaunch || args.install_desktop || args.uninstall_desktop {
         let r = if args.install_autolaunch {
             autolaunch::install()
         } else if args.uninstall_autolaunch {
             autolaunch::uninstall()
+        } else if args.uninstall_desktop {
+            desktop::uninstall()
         } else {
             std::env::current_exe().map_err(|e| e.to_string()).and_then(|exe| desktop::install(&exe))
         };

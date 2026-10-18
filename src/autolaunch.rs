@@ -249,14 +249,16 @@ pub fn install() -> Result<String, String> {
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
     std::fs::write(&path, unit_text(&exe)).map_err(|e| format!("writing {}: {e}", path.display()))?;
     systemctl(&["daemon-reload"])?;
-    systemctl(&["enable", "--now", SERVICE])?;
+    systemctl(&["enable", SERVICE])?;
+    // Restart rather than start, so a reinstall or an updated binary takes over.
+    systemctl(&["restart", SERVICE])?;
     let desktop = crate::desktop::install(&exe).map(|m| format!("{m}\n")).unwrap_or_else(|e| format!("(Couldn't add the menu entry: {e})\n"));
     let steam = if find_shortcut(&exe).is_some() {
         "CDeckJ is in Steam, so it will open in Game Mode and Desktop Mode.".to_string()
     } else {
         "CDeckJ isn't in Steam yet: it will open in Desktop Mode only. Add it with \"Add a Non-Steam Game\" for Game Mode too (no need to reinstall this).".to_string()
     };
-    Ok(format!("Auto-launch is on: CDeckJ starts when your controller is plugged in.\n{desktop}{steam}\nIf you move the cdeckj file, run --install-autolaunch again. Turn it off with --uninstall-autolaunch."))
+    Ok(format!("Auto-launch is on: CDeckJ starts when your controller is plugged in.\n{desktop}{steam}\nIf you move the cdeckj file, run install.sh (or --install-autolaunch) again. Turn it off with --uninstall-autolaunch."))
 }
 
 /// `cdeckj --uninstall-autolaunch`
