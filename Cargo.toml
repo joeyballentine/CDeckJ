@@ -6,13 +6,19 @@ license = "MIT"
 description = "Minimal CDJ-style DJ player for the Steam Deck and DDJ-GRV6"
 
 [dependencies]
+arc-swap = "1.9.2"
 cpal = { version = "0.18.2", features = ["pulseaudio"] }
 crossbeam-channel = "0.5.17"
 eframe = { version = "0.37.0", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
 egui = "0.37"
+gilrs = "0.11.2"
 midir = "0.11.1"
 parking_lot = "0.12.5"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 symphonia = { version = "0.6.1", features = ["all-codecs", "all-formats"] }
+toml = "1.1.8"
+zbus = "5"
 
 [profile.release]
 opt-level = 3

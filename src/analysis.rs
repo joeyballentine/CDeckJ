@@ -7,58 +7,91 @@ fn lp_coef(fc: f32, sr: f32) -> f32 {
     1.0 - (-2.0 * std::f32::consts::PI * fc / sr).exp()
 }
 
-/// Rekordbox-style 3-band waveform summary.
-pub fn waveform(samples: &[f32], sample_rate: u32) -> Vec<WaveBin> {
-    let sr = sample_rate as f32;
-    let frames = samples.len() / 2;
-    let bin_len = (sample_rate as f64 / WAVE_BINS_PER_SEC).max(1.0);
-    let nbins = (frames as f64 / bin_len).ceil() as usize;
+/// Streaming 3-band waveform summary, fed frame by frame while a track decodes.
+///
+/// Each bin stores the absolute peak plus the *relative* strength of low/mid/high, so no
+/// whole-track normalisation pass is needed and bins can be shown as soon as they exist.
+pub struct WaveBuilder {
+    bin_len: f64,
+    a_lo: f32,
+    a_hi: f32,
+    lo1: f32,
+    lo2: f32,
+    hi1: f32,
+    acc: [f32; 5],
+    frame: u64,
+    next_edge: f64,
+}
 
-    let a_lo = lp_coef(200.0, sr);
-    let a_hi = lp_coef(2500.0, sr);
-    let (mut lo1, mut lo2, mut hi1) = (0f32, 0f32, 0f32);
-
-    // (peak, low², mid², high², count)
-    let mut raw: Vec<[f32; 5]> = vec![[0.0; 5]; nbins];
-    for i in 0..frames {
-        let x = 0.5 * (samples[2 * i] + samples[2 * i + 1]);
-        lo1 += a_lo * (x - lo1);
-        lo2 += a_lo * (lo1 - lo2);
-        hi1 += a_hi * (x - hi1);
-        let low = lo2;
-        let high = x - hi1;
-        let mid = hi1 - lo2;
-        let b = ((i as f64 / bin_len) as usize).min(nbins - 1);
-        let r = &mut raw[b];
-        r[0] = r[0].max(samples[2 * i].abs().max(samples[2 * i + 1].abs()));
-        r[1] += low * low;
-        r[2] += mid * mid;
-        r[3] += high * high;
-        r[4] += 1.0;
-    }
-
-    let mut max_peak = 1e-6f32;
-    let mut max_band = [1e-9f32; 3];
-    for r in raw.iter_mut() {
-        let n = r[4].max(1.0);
-        for k in 0..3 {
-            r[k + 1] = (r[k + 1] / n).sqrt();
-            max_band[k] = max_band[k].max(r[k + 1]);
+impl WaveBuilder {
+    pub fn new(sample_rate: u32) -> Self {
+        let sr = sample_rate as f32;
+        let bin_len = (sample_rate as f64 / WAVE_BINS_PER_SEC).max(1.0);
+        Self {
+            bin_len,
+            a_lo: lp_coef(200.0, sr),
+            a_hi: lp_coef(2500.0, sr),
+            lo1: 0.0,
+            lo2: 0.0,
+            hi1: 0.0,
+            acc: [0.0; 5],
+            frame: 0,
+            next_edge: bin_len,
         }
-        max_peak = max_peak.max(r[0]);
     }
-    // Boost highs/mids visually so hats and vocals show up next to the kick.
-    raw.iter()
-        .map(|r| {
-            let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0) as u8;
-            WaveBin {
-                peak: q(r[0] / max_peak),
-                low: q(r[1] / max_band[0]),
-                mid: q((r[2] / max_band[1]).sqrt()),
-                high: q((r[3] / max_band[2]).sqrt()),
-            }
-        })
-        .collect()
+
+    fn bin(&mut self) -> WaveBin {
+        let r = &mut self.acc;
+        let n = r[4].max(1.0);
+        let (lo, mid, hi) = ((r[1] / n).sqrt(), (r[2] / n).sqrt(), (r[3] / n).sqrt());
+        // Highs and mids carry less energy than the kick: weight them so they still show.
+        let (lo, mid, hi) = (lo, mid * 1.6, hi * 3.0);
+        let m = lo.max(mid).max(hi).max(1e-9);
+        let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0) as u8;
+        let b = WaveBin { peak: q(r[0]), low: q(lo / m), mid: q(mid / m), high: q(hi / m) };
+        *r = [0.0; 5];
+        b
+    }
+
+    #[inline]
+    pub fn push(&mut self, l: f32, r: f32, out: &mut Vec<WaveBin>) {
+        let x = 0.5 * (l + r);
+        self.lo1 += self.a_lo * (x - self.lo1);
+        self.lo2 += self.a_lo * (self.lo1 - self.lo2);
+        self.hi1 += self.a_hi * (x - self.hi1);
+        let low = self.lo2;
+        let high = x - self.hi1;
+        let mid = self.hi1 - self.lo2;
+        let a = &mut self.acc;
+        a[0] = a[0].max(l.abs().max(r.abs()));
+        a[1] += low * low;
+        a[2] += mid * mid;
+        a[3] += high * high;
+        a[4] += 1.0;
+        self.frame += 1;
+        if self.frame as f64 >= self.next_edge {
+            self.next_edge += self.bin_len;
+            out.push(self.bin());
+        }
+    }
+
+    /// Emit the last partial bin.
+    pub fn finish(&mut self, out: &mut Vec<WaveBin>) {
+        if self.acc[4] > 0.0 {
+            out.push(self.bin());
+        }
+    }
+}
+
+/// Whole-buffer convenience wrapper (tests, small tracks).
+pub fn waveform(samples: &[f32], sample_rate: u32) -> Vec<WaveBin> {
+    let mut b = WaveBuilder::new(sample_rate);
+    let mut out = Vec::with_capacity((samples.len() / 2) / (sample_rate as usize / 150).max(1) + 1);
+    for f in samples.chunks_exact(2) {
+        b.push(f[0], f[1], &mut out);
+    }
+    b.finish(&mut out);
+    out
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -71,18 +104,17 @@ pub struct BeatGrid {
 const ENV_RATE: f64 = 200.0; // onset envelope samples per second
 
 /// Onset-strength envelope: rectified log-energy rise of a kick band and a hat band.
-fn onset_envelope(samples: &[f32], sample_rate: u32) -> (Vec<f32>, f64) {
+fn onset_envelope(mono: &[f32], sample_rate: u32) -> (Vec<f32>, f64) {
     let sr = sample_rate as f32;
     let hop = sample_rate as f64 / ENV_RATE;
-    let frames = samples.len() / 2;
+    let frames = mono.len();
     let n = (frames as f64 / hop) as usize;
     let a_lo = lp_coef(150.0, sr);
     let a_hi = lp_coef(4000.0, sr);
     let (mut l1, mut l2, mut h1) = (0f32, 0f32, 0f32);
     let mut e_lo = vec![0f32; n];
     let mut e_hi = vec![0f32; n];
-    for i in 0..frames {
-        let x = 0.5 * (samples[2 * i] + samples[2 * i + 1]);
+    for (i, &x) in mono.iter().enumerate() {
         l1 += a_lo * (x - l1);
         l2 += a_lo * (l1 - l2);
         h1 += a_hi * (x - h1);
@@ -165,9 +197,27 @@ fn comb_fold(env: &[f32], period: f64) -> (f64, f64) {
     (vmax / mean.max(1e-12), phase_bin / inv)
 }
 
-/// Estimate a constant-tempo beat grid. Returns `None` for beatless material.
+/// Estimate a constant-tempo beat grid from interleaved stereo. `None` for beatless material.
+#[allow(dead_code)]
 pub fn detect_beat_grid(samples: &[f32], sample_rate: u32) -> Option<BeatGrid> {
-    let (env, hop) = onset_envelope(samples, sample_rate);
+    let mono: Vec<f32> = samples.chunks_exact(2).map(|f| 0.5 * (f[0] + f[1])).collect();
+    detect_beat_grid_mono(&mono, sample_rate)
+}
+
+/// Fold a tempo into `[lo, hi]` by octaves (rekordbox-style BPM range), if it can be.
+pub fn fold_bpm(bpm: f64, lo: f64, hi: f64) -> f64 {
+    let mut b = bpm;
+    while b < lo && b * 2.0 <= hi {
+        b *= 2.0;
+    }
+    while b > hi && b / 2.0 >= lo {
+        b /= 2.0;
+    }
+    b
+}
+
+pub fn detect_beat_grid_mono(mono: &[f32], sample_rate: u32) -> Option<BeatGrid> {
+    let (env, hop) = onset_envelope(mono, sample_rate);
     if env.len() < (ENV_RATE * 8.0) as usize {
         return None; // need at least ~8 s
     }
@@ -290,6 +340,13 @@ mod tests {
     }
 
     #[test]
+    fn folds_into_range() {
+        assert_eq!(fold_bpm(87.0, 88.0, 176.0), 174.0);
+        assert_eq!(fold_bpm(174.0, 70.0, 140.0), 87.0);
+        assert_eq!(fold_bpm(128.0, 70.0, 180.0), 128.0);
+    }
+
+    #[test]
     fn silence_has_no_grid() {
         let s = vec![0f32; 44100 * 2 * 20];
         assert!(detect_beat_grid(&s, 44100).is_none());
@@ -299,8 +356,9 @@ mod tests {
     fn waveform_has_expected_length() {
         let s = click_track(120.0, 0.0, 10.0, 48000);
         let w = waveform(&s, 48000);
-        assert_eq!(w.len(), (10.0 * WAVE_BINS_PER_SEC) as usize);
-        assert!(w.iter().any(|b| b.peak > 200));
+        let expect = (10.0 * WAVE_BINS_PER_SEC) as usize;
+        assert!(w.len() == expect || w.len() == expect + 1, "{}", w.len());
+        assert!(w.iter().any(|b| b.peak > 150));
     }
 }
 

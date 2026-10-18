@@ -1,4 +1,4 @@
-//! The realtime engine. Owned by the audio callback; controlled through [`Cmd`]s and observed
+//! The realtime engine. Driven by the audio callback; controlled through [`Cmd`]s and observed
 //! through a published [`EngineView`] snapshot.
 
 pub mod deck;
@@ -7,16 +7,20 @@ pub mod mixer;
 pub mod stretch;
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use crossbeam_channel::{Receiver, Sender};
 use parking_lot::Mutex;
 
 use crate::track::Track;
-use deck::{Deck, HotCue, Preview, HOT_CUES, TEMPO_RANGES};
+use deck::{Deck, HotCue, Preview, HOT_CUES, MEMORY_CUES, TEMPO_RANGES};
 use mixer::{Mixer, MixerParams};
 
 pub const DECKS: usize = 2;
 const MAX_BLOCK: usize = 1024;
+/// Sync's phase lock: seconds to pull a phase error back in, and the speed limit for it.
+const PHASE_LOCK_SECS: f64 = 1.5;
+const PHASE_LOCK_MAX: f64 = 0.01;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MixParam {
@@ -33,7 +37,7 @@ pub enum MixParam {
     Master(f32),
 }
 
-/// Everything the UI, MIDI and keyboard can ask the engine to do.
+/// Everything the UI, MIDI, gamepad and keyboard can ask the engine to do.
 #[derive(Debug)]
 pub enum Cmd {
     Load { deck: usize, track: Arc<Track>, generation: u64 },
@@ -42,6 +46,9 @@ pub enum Cmd {
     ToStart(usize),
     HotCue(usize, usize, bool),
     HotCueDelete(usize, usize),
+    MemoryAdd(usize),
+    MemoryDelete(usize),
+    Call(usize, i32),
     JogTouch(usize, bool),
     JogScratch(usize, f64),
     JogBend(usize, f64),
@@ -49,9 +56,17 @@ pub enum Cmd {
     /// -1 (top) ..= +1 (bottom).
     TempoFader(usize, f64),
     TempoRangeCycle(usize),
+    TempoRange(usize, usize),
     SyncToggle(usize),
     VinylToggle(usize),
+    Vinyl(usize, bool),
     MasterTempoToggle(usize),
+    MasterTempo(usize, bool),
+    SlipToggle(usize),
+    ReverseToggle(usize),
+    Reverse(usize, bool),
+    QuantizeToggle,
+    Quantize(bool),
     LoopIn(usize),
     LoopOut(usize),
     ReloopExit(usize),
@@ -81,22 +96,31 @@ pub struct DeckView {
     pub playing: bool,
     pub previewing: bool,
     pub pos: f64,
-    pub frames: usize,
+    /// Seek length (expected length while still decoding).
+    pub length: usize,
+    pub decoded: usize,
+    pub complete: bool,
     pub sample_rate: u32,
     pub cue: f64,
     pub at_cue: bool,
     pub hot: [Option<HotCue>; HOT_CUES],
+    pub memory: [Option<f64>; MEMORY_CUES],
     pub loop_in: Option<f64>,
     pub loop_out: Option<f64>,
     pub loop_active: bool,
     pub tempo_fader: f64,
+    pub tempo_held: bool,
     pub range: f64,
+    pub range_idx: usize,
     pub rate: f64,
     pub bpm: Option<f64>,
     pub synced: bool,
     pub is_master: bool,
     pub vinyl: bool,
     pub keylock: bool,
+    pub slip: bool,
+    pub slip_pos: Option<f64>,
+    pub reverse: bool,
     pub touched: bool,
     pub platter_rev: f64,
     pub peak: f32,
@@ -110,6 +134,9 @@ pub struct EngineView {
     pub sample_rate: u32,
     pub channels: u16,
     pub routing: CueRouting,
+    pub quantize: bool,
+    /// Share of each audio period spent rendering (0..1, decaying peak).
+    pub dsp_load: f32,
 }
 
 impl EngineView {
@@ -121,16 +148,22 @@ impl EngineView {
             sample_rate,
             channels,
             routing,
+            quantize: true,
+            dsp_load: 0.0,
         }
     }
 }
 
 pub type SharedView = Arc<Mutex<EngineView>>;
+/// The engine lives behind a mutex so a new audio stream can take it over after a device
+/// drop. Only the audio callback locks it in normal operation, so the lock is uncontended.
+pub type SharedEngine = Arc<Mutex<Engine>>;
 
 pub struct Engine {
     decks: [Deck; DECKS],
     mixer: Mixer,
     params: MixerParams,
+    quantize: bool,
     cmd_rx: Receiver<Cmd>,
     garbage_tx: Sender<Arc<Track>>,
     view: SharedView,
@@ -140,6 +173,7 @@ pub struct Engine {
     deck_buf: [Vec<f32>; DECKS],
     master: Vec<f32>,
     cue: Vec<f32>,
+    dsp_load: f32,
 }
 
 impl Engine {
@@ -156,6 +190,7 @@ impl Engine {
             decks: [Deck::new(sr), Deck::new(sr)],
             mixer: Mixer::new(sample_rate as f32),
             params: MixerParams::default(),
+            quantize: true,
             cmd_rx,
             garbage_tx,
             view,
@@ -165,16 +200,29 @@ impl Engine {
             deck_buf: [vec![0.0; MAX_BLOCK * 2], vec![0.0; MAX_BLOCK * 2]],
             master: vec![0.0; MAX_BLOCK * 2],
             cue: vec![0.0; MAX_BLOCK * 2],
+            dsp_load: 0.0,
         }
+    }
+
+    /// Re-target the engine at a new output (after reconnecting audio). Deck state is kept.
+    pub fn set_output(&mut self, sample_rate: u32, channels: u16, routing: CueRouting) {
+        if sample_rate != self.sample_rate {
+            self.mixer = Mixer::new(sample_rate as f32);
+            for d in self.decks.iter_mut() {
+                d.set_output_rate(sample_rate as f64);
+            }
+        }
+        self.sample_rate = sample_rate;
+        self.channels = channels as usize;
+        self.routing = routing;
+        let mut v = self.view.lock();
+        v.sample_rate = sample_rate;
+        v.channels = channels;
+        v.routing = routing;
     }
 
     fn other(d: usize) -> usize {
         (d + 1) % DECKS
-    }
-
-    /// Effective BPM of a deck as currently playing (fader or sync applied).
-    fn effective_bpm(&self, d: usize) -> Option<f64> {
-        self.decks[d].bpm().map(|b| b * self.rate_for(d))
     }
 
     /// Which deck is the tempo master: the un-synced one, else deck 1.
@@ -182,10 +230,11 @@ impl Engine {
         (0..DECKS).find(|&d| !self.decks[d].synced).unwrap_or(0)
     }
 
-    fn rate_for(&self, d: usize) -> f64 {
+    /// Tempo multiplier without sync's phase correction.
+    fn base_rate(&self, d: usize) -> f64 {
         let deck = &self.decks[d];
-        if deck.synced && self.master_deck() != d {
-            let m = self.master_deck();
+        let m = self.master_deck();
+        if deck.synced && m != d {
             if let (Some(own), Some(mb)) = (deck.bpm(), self.decks[m].bpm()) {
                 return mb * self.decks[m].fader_rate() / own;
             }
@@ -193,40 +242,91 @@ impl Engine {
         deck.fader_rate()
     }
 
+    /// Tempo multiplier including sync's continuous phase lock.
+    fn rate_for(&self, d: usize) -> f64 {
+        let base = self.base_rate(d);
+        let m = self.master_deck();
+        let (deck, master) = (&self.decks[d], &self.decks[m]);
+        if !deck.synced || m == d || !deck.playing || !master.playing || deck.bending || master.bending {
+            return base;
+        }
+        let (Some(bm), Some(bd), Some(own)) = (master.beat_at(master.pos), deck.beat_at(deck.pos), deck.bpm()) else {
+            return base;
+        };
+        let mut e = bm.rem_euclid(1.0) - bd.rem_euclid(1.0);
+        if e > 0.5 {
+            e -= 1.0;
+        } else if e < -0.5 {
+            e += 1.0;
+        }
+        if e.abs() < 0.004 {
+            return base;
+        }
+        let corr = (e * 60.0 / own / PHASE_LOCK_SECS).clamp(-PHASE_LOCK_MAX, PHASE_LOCK_MAX);
+        base + corr
+    }
+
+    fn effective_bpm(&self, d: usize) -> Option<f64> {
+        self.decks[d].bpm().map(|b| b * self.base_rate(d))
+    }
+
     fn handle(&mut self, cmd: Cmd) {
         use Cmd::*;
         match cmd {
             Load { deck, track, generation } => {
                 if let Some(old) = self.decks[deck].load(track, generation) {
-                    // Free the old buffer off the audio thread when possible.
+                    // Free the old buffers off the audio thread when possible.
                     if let Err(e) = self.garbage_tx.try_send(old) {
                         drop(e);
                     }
                 }
+                self.decks[deck].quantize = self.quantize;
             }
             Play(d) => self.decks[d].play_pressed(),
             Cue(d, p) => self.decks[d].cue_button(p),
             ToStart(d) => self.decks[d].to_start(),
             HotCue(d, i, p) => self.decks[d].hot_cue(i, p),
             HotCueDelete(d, i) => self.decks[d].hot_cue_delete(i),
+            MemoryAdd(d) => self.decks[d].memory_add(),
+            MemoryDelete(d) => self.decks[d].memory_delete(),
+            Call(d, dir) => self.decks[d].call(dir),
             JogTouch(d, t) => self.decks[d].jog_touch(t),
             JogScratch(d, t) => self.decks[d].jog_scratch(t),
             JogBend(d, t) => self.decks[d].jog_bend(t),
             JogSearch(d, t) => self.decks[d].jog_search(t),
-            TempoFader(d, v) => self.decks[d].tempo_fader = v.clamp(-1.0, 1.0),
+            TempoFader(d, v) => self.decks[d].set_tempo_fader(v),
             TempoRangeCycle(d) => {
                 let deck = &mut self.decks[d];
                 deck.range_idx = (deck.range_idx + 1) % TEMPO_RANGES.len();
             }
+            TempoRange(d, i) => self.decks[d].range_idx = i.min(TEMPO_RANGES.len() - 1),
             SyncToggle(d) => {
                 if self.decks[d].synced {
+                    // Keep the synced tempo until the fader is moved through it.
+                    let r = self.base_rate(d);
                     self.decks[d].synced = false;
+                    if (r - self.decks[d].fader_rate()).abs() > 1e-6 {
+                        self.decks[d].tempo_hold = Some(r);
+                    }
                 } else {
                     self.enable_sync(d);
                 }
             }
             VinylToggle(d) => self.decks[d].vinyl = !self.decks[d].vinyl,
+            Vinyl(d, on) => self.decks[d].vinyl = on,
             MasterTempoToggle(d) => self.decks[d].keylock = !self.decks[d].keylock,
+            MasterTempo(d, on) => self.decks[d].keylock = on,
+            SlipToggle(d) => {
+                let on = !self.decks[d].slip;
+                self.decks[d].set_slip(on);
+            }
+            ReverseToggle(d) => {
+                let on = !self.decks[d].reverse;
+                self.decks[d].set_reverse(on);
+            }
+            Reverse(d, on) => self.decks[d].set_reverse(on),
+            QuantizeToggle => self.set_quantize(!self.quantize),
+            Quantize(on) => self.set_quantize(on),
             LoopIn(d) => self.decks[d].loop_in_pressed(),
             LoopOut(d) => self.decks[d].loop_out_pressed(),
             ReloopExit(d) => self.decks[d].reloop_exit(),
@@ -238,6 +338,13 @@ impl Engine {
         }
     }
 
+    fn set_quantize(&mut self, on: bool) {
+        self.quantize = on;
+        for d in self.decks.iter_mut() {
+            d.quantize = on;
+        }
+    }
+
     fn enable_sync(&mut self, d: usize) {
         let m = Self::other(d);
         if self.decks[d].bpm().is_none() || self.decks[m].bpm().is_none() {
@@ -246,11 +353,9 @@ impl Engine {
         // If the other deck is also synced, it becomes the master.
         self.decks[m].synced = false;
         self.decks[d].synced = true;
-        // Beat-align: match our position within the beat to the master's.
-        let (Some(tm), Some(td)) = (self.decks[m].track.clone(), self.decks[d].track.clone()) else {
-            return;
-        };
-        if let (Some(bm), Some(bd)) = (tm.beat_at(self.decks[m].pos), td.beat_at(self.decks[d].pos)) {
+        self.decks[d].tempo_hold = None;
+        // Beat-align now; the phase lock keeps it there.
+        if let (Some(bm), Some(bd)) = (self.decks[m].beat_at(self.decks[m].pos), self.decks[d].beat_at(self.decks[d].pos)) {
             let mut diff = bm.rem_euclid(1.0) - bd.rem_euclid(1.0);
             if diff > 0.5 {
                 diff -= 1.0;
@@ -283,6 +388,7 @@ impl Engine {
 
     /// Fill an interleaved f32 output buffer with `self.channels` channels.
     pub fn process(&mut self, out: &mut [f32]) {
+        let t0 = Instant::now();
         while let Ok(cmd) = self.cmd_rx.try_recv() {
             self.handle(cmd);
         }
@@ -293,6 +399,11 @@ impl Engine {
             let n = (total - done).min(MAX_BLOCK);
             self.render_block(&mut out[done * ch..(done + n) * ch], n);
             done += n;
+        }
+        let period = total as f64 / self.sample_rate.max(1) as f64;
+        if period > 0.0 {
+            let load = (t0.elapsed().as_secs_f64() / period) as f32;
+            self.dsp_load = load.max(self.dsp_load * 0.97);
         }
         self.publish();
     }
@@ -346,30 +457,40 @@ impl Engine {
                 playing: deck.playing,
                 previewing: deck.preview != Preview::None,
                 pos: deck.pos,
-                frames: t.map(|t| t.frames).unwrap_or(0),
+                length: t.map(|t| t.length()).unwrap_or(0),
+                decoded: t.map(|t| t.frames()).unwrap_or(0),
+                complete: t.map(|t| t.is_complete()).unwrap_or(true),
                 sample_rate: t.map(|t| t.sample_rate).unwrap_or(0),
                 cue: deck.cue,
                 at_cue: deck.at_cue(),
                 hot: deck.hot,
+                memory: deck.memory,
                 loop_in: deck.loop_in,
                 loop_out: deck.loop_out,
                 loop_active: deck.loop_active,
                 tempo_fader: deck.tempo_fader,
+                tempo_held: deck.tempo_hold.is_some(),
                 range: TEMPO_RANGES[deck.range_idx],
-                rate: self.rate_for(d),
+                range_idx: deck.range_idx,
+                rate: self.base_rate(d),
                 bpm: self.effective_bpm(d),
                 synced: deck.synced,
                 is_master: master == d && self.decks[Self::other(d)].synced,
                 vinyl: deck.vinyl,
                 keylock: deck.keylock,
+                slip: deck.slip,
+                slip_pos: deck.slip_pos,
+                reverse: deck.reverse,
                 touched: deck.touched,
                 platter_rev: deck.platter_rev,
                 peak: self.mixer.peak_ch[d].max(v.decks[d].peak * 0.9),
             };
         }
         v.mixer = self.params;
+        v.quantize = self.quantize;
         v.peak_master = self.mixer.peak_master.max(v.peak_master * 0.9);
         v.sample_rate = self.sample_rate;
+        v.dsp_load = self.dsp_load;
     }
 }
 
@@ -401,6 +522,13 @@ mod tests {
         all
     }
 
+    fn phase_diff(e: &Engine) -> f64 {
+        let pa = e.decks[0].beat_at(e.decks[0].pos).unwrap().rem_euclid(1.0);
+        let pb = e.decks[1].beat_at(e.decks[1].pos).unwrap().rem_euclid(1.0);
+        let d = (pa - pb).abs();
+        d.min(1.0 - d)
+    }
+
     #[test]
     fn master_and_cue_routing() {
         let (mut e, tx, _v) = engine();
@@ -410,10 +538,7 @@ mod tests {
         let master: f32 = out.chunks(4).map(|f| f[0].abs()).sum();
         let cue: f32 = out.chunks(4).map(|f| f[2].abs()).sum();
         assert!(master > 10.0);
-        // No PFL: phones follow master.
-        assert!(cue > 1.0);
-
-        // PFL deck 1, fader down: phones still hear it, master doesn't.
+        assert!(cue > 1.0, "no PFL: phones follow master");
         tx.send(Cmd::Mix(MixParam::PflToggle(0))).unwrap();
         tx.send(Cmd::Mix(MixParam::Fader(0, 0.0))).unwrap();
         run(&mut e, 0.1);
@@ -425,7 +550,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_matches_tempo_and_phase() {
+    fn sync_matches_tempo_and_holds_phase() {
         let (mut e, tx, view) = engine();
         tx.send(Cmd::Load { deck: 0, track: track(124.0, 0.1), generation: 1 }).unwrap();
         tx.send(Cmd::Load { deck: 1, track: track(128.0, 0.3), generation: 2 }).unwrap();
@@ -437,12 +562,50 @@ mod tests {
         let v = *view.lock();
         let (a, b) = (v.decks[0].bpm.unwrap(), v.decks[1].bpm.unwrap());
         assert!((a - b).abs() < 0.01, "{a} vs {b}");
-        let ta = e.decks[0].track.clone().unwrap();
-        let tb = e.decks[1].track.clone().unwrap();
-        let pa = ta.beat_at(e.decks[0].pos).unwrap().rem_euclid(1.0);
-        let pb = tb.beat_at(e.decks[1].pos).unwrap().rem_euclid(1.0);
-        let mut d = (pa - pb).abs();
-        d = d.min(1.0 - d);
-        assert!(d < 0.03, "phase diff {d} beats");
+        assert!(phase_diff(&e) < 0.02);
+        // Knock deck 2 off the beat with a jog nudge: the phase lock pulls it back.
+        for _ in 0..40 {
+            tx.send(Cmd::JogBend(1, 4.0)).unwrap();
+        }
+        run(&mut e, 0.3);
+        let knocked = phase_diff(&e);
+        run(&mut e, 10.0);
+        assert!(phase_diff(&e) < 0.01, "phase lock: {knocked} -> {}", phase_diff(&e));
+    }
+
+    #[test]
+    fn sync_off_keeps_tempo_until_fader_moves_through_it() {
+        let (mut e, tx, view) = engine();
+        tx.send(Cmd::Load { deck: 0, track: track(124.0, 0.1), generation: 1 }).unwrap();
+        tx.send(Cmd::Load { deck: 1, track: track(128.0, 0.3), generation: 2 }).unwrap();
+        tx.send(Cmd::SyncToggle(1)).unwrap();
+        run(&mut e, 0.1);
+        tx.send(Cmd::SyncToggle(1)).unwrap();
+        run(&mut e, 0.1);
+        let v = *view.lock();
+        assert!(!v.decks[1].synced && v.decks[1].tempo_held);
+        assert!((v.decks[1].bpm.unwrap() - 124.0).abs() < 0.01, "tempo kept after sync off");
+        tx.send(Cmd::TempoFader(1, -0.6)).unwrap(); // passes the held −3.1 %
+        run(&mut e, 0.1);
+        let v = *view.lock();
+        assert!(!v.decks[1].tempo_held);
+    }
+
+    #[test]
+    fn reconnect_keeps_deck_state() {
+        let (mut e, tx, view) = engine();
+        tx.send(Cmd::Load { deck: 0, track: track(124.0, 0.1), generation: 1 }).unwrap();
+        tx.send(Cmd::Play(0)).unwrap();
+        run(&mut e, 1.0);
+        e.set_output(44100, 2, CueRouting::MasterOnly);
+        let mut out = vec![0f32; 441 * 2];
+        for _ in 0..100 {
+            e.process(&mut out);
+        }
+        let v = *view.lock();
+        assert!(v.decks[0].playing);
+        // Started from the auto-cue at 0.1 s.
+        assert!((v.decks[0].pos / 44100.0 - 2.1).abs() < 0.02, "{}", v.decks[0].pos / 44100.0);
+        assert_eq!(v.sample_rate, 44100);
     }
 }

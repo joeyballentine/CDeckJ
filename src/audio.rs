@@ -1,10 +1,18 @@
 //! Audio output via cpal. Prefers PipeWire's PulseAudio interface (SteamOS), falls back to ALSA.
 
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{BufferSize, FromSample, SampleFormat, SizedSample, StreamConfig};
+use cpal::{BufferSize, ErrorKind, FromSample, SampleFormat, SizedSample, StreamConfig};
 
-use crate::engine::{CueRouting, Engine};
+use crate::engine::{CueRouting, SharedEngine};
 
+/// Buffer underruns/overruns reported by the audio backend since start.
+pub static XRUNS: AtomicU32 = AtomicU32::new(0);
+/// Set when the stream died (device unplugged, server restarted): the UI reconnects.
+pub static STREAM_LOST: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone)]
 pub struct AudioOptions {
     /// Case-insensitive substring of the device name or id.
     pub device: Option<String>,
@@ -85,10 +93,8 @@ fn pick_device(host: &cpal::Host, wanted: Option<&str>) -> Option<cpal::Device> 
     best.map(|(_, d)| d).or_else(|| host.default_output_device())
 }
 
-pub fn start(
-    opts: &AudioOptions,
-    make_engine: impl Fn(u32, u16, CueRouting) -> Engine,
-) -> Result<AudioOut, String> {
+pub fn start(opts: &AudioOptions, engine: &SharedEngine) -> Result<AudioOut, String> {
+    STREAM_LOST.store(false, Ordering::Relaxed);
     let mut last_err = String::from("no audio output device found");
     for host in hosts(opts.force_alsa) {
         let Some(device) = pick_device(&host, opts.device.as_deref()) else {
@@ -113,12 +119,13 @@ pub fn start(
         let sample_rate = def.sample_rate();
         for buffer in [BufferSize::Fixed(opts.buffer_frames), BufferSize::Default] {
             let config = StreamConfig { channels, sample_rate, buffer_size: buffer };
-            let engine = make_engine(sample_rate, channels, routing);
+            engine.lock().set_output(sample_rate, channels, routing);
+            let e = engine.clone();
             let res = match def.sample_format() {
-                SampleFormat::F32 => build::<f32>(&device, &config, engine),
-                SampleFormat::I16 => build::<i16>(&device, &config, engine),
-                SampleFormat::I32 => build::<i32>(&device, &config, engine),
-                SampleFormat::U16 => build::<u16>(&device, &config, engine),
+                SampleFormat::F32 => build::<f32>(&device, &config, e),
+                SampleFormat::I16 => build::<i16>(&device, &config, e),
+                SampleFormat::I32 => build::<i32>(&device, &config, e),
+                SampleFormat::U16 => build::<u16>(&device, &config, e),
                 f => Err(format!("unsupported sample format {f:?}")),
             };
             match res {
@@ -138,7 +145,7 @@ pub fn start(
     Err(last_err)
 }
 
-fn build<T>(device: &cpal::Device, config: &StreamConfig, mut engine: Engine) -> Result<cpal::Stream, String>
+fn build<T>(device: &cpal::Device, config: &StreamConfig, engine: SharedEngine) -> Result<cpal::Stream, String>
 where
     T: SizedSample + FromSample<f32>,
 {
@@ -147,6 +154,7 @@ where
         .build_output_stream(
             config.clone(),
             move |data: &mut [T], _| {
+                let mut engine = engine.lock();
                 if scratch.len() < data.len() {
                     // Should never happen with sane buffer sizes; render in pieces instead.
                     for chunk in data.chunks_mut(scratch.len()) {
@@ -164,7 +172,16 @@ where
                     *o = T::from_sample(v);
                 }
             },
-            |e| eprintln!("audio: {e}"),
+            |e: cpal::Error| match e.kind() {
+                ErrorKind::Xrun => {
+                    XRUNS.fetch_add(1, Ordering::Relaxed);
+                }
+                ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => eprintln!("audio: {e}"),
+                _ => {
+                    eprintln!("audio: stream lost: {e}");
+                    STREAM_LOST.store(true, Ordering::Relaxed);
+                }
+            },
             None,
         )
         .map_err(|e| e.to_string())?;

@@ -30,13 +30,10 @@ fn mono(t: &Track, pos: f64) -> f32 {
         return 0.0;
     }
     let i = pos as usize;
-    if i + 1 >= t.frames {
-        return 0.0;
-    }
     let f = (pos - i as f64) as f32;
-    let s = &t.samples;
-    let a = s[2 * i] + s[2 * i + 1];
-    let b = s[2 * i + 2] + s[2 * i + 3];
+    let (al, ar) = t.audio.frame(i);
+    let (bl, br) = t.audio.frame(i + 1);
+    let (a, b) = (al + ar, bl + br);
     0.5 * (a + (b - a) * f)
 }
 
@@ -165,13 +162,13 @@ mod tests {
 
     fn lin(t: &Track, p: f64) -> (f32, f32) {
         let i = p.floor();
-        if i < 0.0 || i as usize + 1 >= t.frames {
+        if i < 0.0 {
             return (0.0, 0.0);
         }
         let i = i as usize;
         let f = (p - i as f64) as f32;
-        let s = &t.samples;
-        (s[2 * i] + (s[2 * i + 2] - s[2 * i]) * f, s[2 * i + 1] + (s[2 * i + 3] - s[2 * i + 1]) * f)
+        let (a, b) = (t.audio.frame(i), t.audio.frame(i + 1));
+        (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f)
     }
 
     /// Estimate frequency by counting zero crossings.
@@ -211,7 +208,7 @@ mod tests {
             let (l, _) = st.next(&t, pos, 1.0, lin);
             // Output lags input by nothing: after the first grain, sample i == source i.
             if i > 2 * HOP {
-                max_err = max_err.max((l - t.samples[2 * i]).abs());
+                max_err = max_err.max((l - t.audio.frame(i).0).abs());
             }
             pos += 1.0;
         }
