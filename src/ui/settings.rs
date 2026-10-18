@@ -96,6 +96,15 @@ impl App {
             WaveColor::Rgb => 1,
             WaveColor::ThreeBand => 2,
         };
+        let pl = match c.perform_layout {
+            crate::config::PerformLayout::Auto => 0,
+            crate::config::PerformLayout::Full => 1,
+            crate::config::PerformLayout::Display => 2,
+        };
+        if let Some(i) = rows.seg(self, ui, "PERFORM screen (AUTO follows the controller)", "spl", &["AUTO", "FULL", "DISPLAY"], pl) {
+            use crate::config::PerformLayout as L;
+            self.config.perform_layout = [L::Auto, L::Full, L::Display][i];
+        }
         if let Some(i) = rows.seg(self, ui, "Waveform colour", "swc", &["BLUE", "RGB", "3-BAND"], w) {
             self.config.waveform_color = [WaveColor::Blue, WaveColor::Rgb, WaveColor::ThreeBand][i];
         }
@@ -331,9 +340,9 @@ impl Rows {
         let p = ui.painter().clone();
         self.label(&p, label);
         let w = (opts.len() as f32 * 96.0).min(self.w - self.label_w);
-        let r = Rect::from_min_size(pos2(self.x + self.label_w, self.y), vec2(w, 34.0));
+        let r = Rect::from_min_size(pos2(self.x + self.label_w, self.y - 2.0), vec2(w, 38.0));
         let out = segmented(app, ui, r, id, opts, sel, label);
-        self.y += 42.0;
+        self.y += 44.0;
         out
     }
 

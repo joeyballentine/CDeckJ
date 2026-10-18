@@ -30,13 +30,13 @@ A minimal two-deck DJ player in Rust, built to feel like a pair of CDJs and a tw
 
 ## Screens
 
-Like a CDJ's screen buttons, the tabs at the top switch between full-screen views (also F1–F5, or click the left/right stick on the Steam Deck):
+Like the SOURCE / BROWSE / TAG LIST / SEARCH / MENU buttons beside a CDJ's screen, a column of big buttons down the left switches between full-screen views: PERFORM, WAVE, BROWSE, TAG, SEARCH, SETTINGS, and EXIT at the bottom. They're thumb-sized on the Deck's 7" screen (about 11 × 9 mm). F1–F5 work too, and on the Steam Deck so do a click of the left/right stick or View + D-pad ← →.
 
 | View | What it's for |
 |---|---|
-| **PERFORM** | Everything at once: waveforms, both decks, mixer, beat FX and the library |
+| **PERFORM** | With a DJ controller connected, a **display** like a CDJ's: waveforms twice the height, big time / tempo / BPM readouts, each deck's overview, state (playing, loop, sync, Master Tempo, slip, key, countdown) and hot cues, a phase meter, channel and master levels, crossfader and Beat FX status, and the track list with big BACK / TAG / LOAD buttons. The controller has the buttons, so the screen doesn't repeat them. Without a controller it shows **everything**: both decks with their buttons, jog wheels and hot cue pads, the mixer, the Beat FX bar and the library. Choose in SETTINGS → PLAYER (`perform_layout = "auto"`, `"full"` or `"display"`). |
 | **WAVE** | Both waveforms large, with the overviews, a phase meter (where each deck is in the bar and how far apart the beats are), the countdown to the next cue, key, tempo, time and BPM. Transport, beat jump, loops, SYNC and hot cues stay on screen. The browse knob zooms the waveforms here, like a CDJ's rotary. |
-| **BROWSE** | The whole library: a side bar with each stick's collection, playlists and history, the music folder, CDeckJ's history and the tag list; about 18 rows; COLUMNS (artist, whole-track preview, BPM, key, time, file type); text size; an INFO panel with artwork, preview, key, album, genre, bitrate, comment; an on-screen keyboard (ABC) for search without a keyboard; and FILTER to show only tracks within a BPM range of the leading deck (half and double tempo count) and/or in compatible keys. Loading a track goes back to the view you play from. |
+| **BROWSE** | The whole library (SEARCH opens it with the on-screen keyboard): a side bar with each stick's collection, playlists and history, the music folder, CDeckJ's history and the tag list; about 18 rows; COLUMNS (artist, whole-track preview, BPM, key, time, file type); text size; an INFO panel with artwork, preview, key, album, genre, bitrate, comment; an on-screen keyboard (ABC) for search without a keyboard; and FILTER to show only tracks within a BPM range of the leading deck (half and double tempo count) and/or in compatible keys. Loading a track goes back to the view you play from. |
 | **TAG** | The tag list: tracks you tagged while browsing (TAG button or T), kept between sessions, for lining up the set |
 | **SETTINGS** | My Settings options, Master Tempo, mixer curves, waveform options, the audio output and buffer, a live controller test that shows each MIDI message and what it does, auto-launch, and paths |
 
@@ -71,7 +71,7 @@ The prebuilt binary needs only glibc 2.35+, `libasound` and `libudev`, all prese
 
 ### Quitting
 
-Press **EXIT** at the top right twice (or Ctrl+Q twice); the second press has to come within 3 seconds, so a stray tap can't end a set. In Game Mode the Steam button → *Exit game* works too. Quitting stops playback, saves settings and cues, and finishes any recording properly.
+Press **EXIT** at the foot of the button column twice (or Ctrl+Q twice); the second press has to come within 3 seconds, so a stray tap can't end a set. In Game Mode the Steam button → *Exit game* works too. Quitting stops playback, saves settings and cues, and finishes any recording properly.
 
 ### Start automatically when the controller is plugged in
 
@@ -194,7 +194,7 @@ Use Steam's *Gamepad* controller layout for CDeckJ.
 | Left / right stick ← → | Nudge deck 1 / 2 |
 | View + left stick ← → | Crossfader |
 | ≡ (Menu) | Record; press twice to stop |
-| Left / right stick click | Previous / next screen view |
+| Left / right stick click, or View + D-pad ← → | Previous / next screen view |
 
 Set `gamepad = false` in the settings file to turn this off.
 
@@ -215,7 +215,7 @@ Tab moves keyboard focus through every on-screen control (shown with an orange r
 
 ### Touch
 
-Everything on screen is touchable. Drag knobs up/down (double-tap to centre); drag faders; tap the track overview to seek; drag a scrolling waveform or the on-screen jog to scratch; tap SHIFT then a pad to delete a hot cue; tap the ±10 chip to change tempo range; tap the time to switch remaining/elapsed; tap − / + over the waveforms to zoom and BLUE / RGB / 3BAND to change their colour; use the BEAT FX bar under the decks (effect, beat ‹ ›, channel 1 / 2 / M, LEVEL, ON); tap a folder or playlist to open it, ‹ BACK to go up, and double-tap a track to load it on the deck that isn't playing.
+Everything on screen is touchable. Drag knobs up/down (double-tap to centre); drag faders; tap the track overview to seek; drag a scrolling waveform or the on-screen jog to scratch; tap SHIFT then a pad to delete a hot cue; tap the ±10 chip to change tempo range; tap the time to switch remaining/elapsed; tap − / + over the waveforms to zoom and BLUE / RGB / 3BAND to change their colour; use the BEAT FX bar under the decks (effect, beat ‹ ›, channel 1 / 2 / M, LEVEL, ON); tap a folder or playlist to open it, BACK to go up, and double-tap a track to load it on the deck that isn't playing.
 
 ## Options
 

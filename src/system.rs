@@ -79,6 +79,9 @@ pub fn spawn_gamepad(cmd: Sender<Cmd>, ui: Sender<UiAction>, repaint: Arc<dyn Fn
                                 ui_send(UiAction::Browse(1));
                                 held_dir = Some((1, Instant::now()));
                             }
+                            // SELECT + ◀ / ▶: previous / next screen, like the rail.
+                            Button::DPadLeft if shift => ui_send(UiAction::CycleView(-1)),
+                            Button::DPadRight if shift => ui_send(UiAction::CycleView(1)),
                             Button::DPadLeft | Button::North => ui_send(UiAction::Back),
                             Button::DPadRight | Button::South => ui_send(UiAction::BrowsePress),
                             Button::West => ui_send(UiAction::Load(0)),

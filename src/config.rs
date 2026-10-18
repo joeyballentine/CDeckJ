@@ -59,6 +59,19 @@ impl Default for FxPrefs {
     }
 }
 
+/// PERFORM screen layout.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PerformLayout {
+    /// The display layout while a DJ controller is connected, the full touch layout otherwise.
+    #[default]
+    Auto,
+    /// Everything on screen: deck buttons, jog wheels, mixer, Beat FX.
+    Full,
+    /// A display for playing from the controller: big waveforms and readouts.
+    Display,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
@@ -117,6 +130,7 @@ pub struct Config {
     pub browse_cols: BrowseCols,
     pub browse_text: u8,
     pub browse_info: bool,
+    pub perform_layout: PerformLayout,
     pub midi: MidiMap,
 }
 
@@ -161,6 +175,7 @@ impl Default for Config {
             browse_cols: BrowseCols::default(),
             browse_text: 1,
             browse_info: true,
+            perform_layout: PerformLayout::Auto,
             midi: MidiMap::default(),
         }
     }

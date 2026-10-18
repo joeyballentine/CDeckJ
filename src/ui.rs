@@ -27,6 +27,8 @@ use crate::touch::Touches;
 use crate::track::{self, GridSource, SavedCue, Track};
 
 mod browse;
+mod display;
+mod rail;
 mod views;
 mod waveview;
 mod settings;
@@ -137,6 +139,8 @@ pub struct App {
     _keep: Vec<Box<dyn Any>>,
     recorder: crate::recorder::Recorder,
     art: crate::art::ArtCache,
+    /// The app icon for the top bar, uploaded on first use.
+    logo: Option<egui::TextureHandle>,
     /// What has gone on air this session (drives history and "played" marks).
     onair: crate::recorder::Tracklist,
     started: Instant,
@@ -216,6 +220,7 @@ impl App {
             onair: Default::default(),
             started: Instant::now(),
             art: { let c = ctx.clone(); crate::art::ArtCache::new(move || c.request_repaint()) },
+            logo: None,
             rec_confirm: None,
             view_mode: View::Perform,
             last_play_view: View::Perform,
@@ -823,7 +828,7 @@ impl eframe::App for App {
         ui.painter().rect_filled(full, 0, t::CHROME);
         fit_to_window(ui.ctx(), full);
 
-        let top_h = 34.0;
+        let top_h = 40.0;
         // Banners wrap (error messages can be long) and grow to fit, up to three lines.
         let banner_h = match &self.banner {
             Some(b) => {
@@ -834,12 +839,17 @@ impl eframe::App for App {
         };
         let top = Rect::from_min_size(full.min, vec2(full.width(), top_h));
         let banner = Rect::from_min_size(pos2(full.min.x, top.max.y), vec2(full.width(), banner_h));
-        let body = Rect::from_min_max(pos2(full.min.x, banner.max.y), full.max);
-        self.top_bar(ui, top, &v);
+        // The rail of big screen buttons down the left; views get the rest.
+        let rail_w = if full.width() >= rail::WIDE { rail::RAIL_W } else { rail::RAIL_W_NARROW };
+        let rail_r = Rect::from_min_max(pos2(full.min.x + 6.0, banner.max.y + 6.0), pos2(full.min.x + 6.0 + rail_w, full.max.y - 6.0));
+        let body = Rect::from_min_max(pos2(rail_r.max.x, banner.max.y), full.max);
+        self.top_bar(ui, top, &v, body.min.x);
         if banner_h > 0.0 {
             self.banner_row(ui, banner);
         }
+        self.rail(ui, rail_r, &v);
         match self.view_mode {
+            View::Perform if self.display_layout() => self.perform_display(ui, body, &v),
             View::Perform => self.perform_view(ui, body, &v),
             View::Wave => self.wave_view(ui, body.shrink2(vec2(6.0, 4.0)), &v),
             View::Browse | View::Tag | View::Settings => {
@@ -888,9 +898,10 @@ impl eframe::App for App {
 // Drawing helpers
 // ---------------------------------------------------------------------------------------------
 
-/// The layout needs about 1100 × 700 points. On a screen that's smaller in points (e.g. a
-/// 1280 × 800 panel at 150 % scaling) shrink everything to fit instead of clipping.
-const DESIGN_MIN: Vec2 = vec2(1100.0, 700.0);
+/// The layout needs about 1200 × 720 points (the full PERFORM layout beside the rail). On a
+/// screen or window that's smaller in points (e.g. a 1280 × 800 panel at 150 % scaling) shrink
+/// everything to fit instead of squeezing it. The Steam Deck (1280 × 800) runs at 100 %.
+const DESIGN_MIN: Vec2 = vec2(1200.0, 720.0);
 
 fn fit_to_window(ctx: &egui::Context, full: Rect) {
     let native = ctx.native_pixels_per_point().unwrap_or(1.0);
@@ -1259,13 +1270,22 @@ fn caret(p: &Painter, at: Pos2, up: bool, col: Color32) {
 // ---------------------------------------------------------------------------------------------
 
 impl App {
-    fn top_bar(&mut self, ui: &Ui, r: Rect, v: &EngineView) {
+    /// The top bar: name, audio and controller status, REC, QUANTIZE, DSP load, master level.
+    /// `x0` is where the body starts (right of the rail), so the status lines up with it.
+    fn top_bar(&mut self, ui: &Ui, r: Rect, v: &EngineView, x0: f32) {
         let p = ui.painter().clone();
-        p.text(pos2(r.min.x + 12.0, r.center().y), Align2::LEFT_CENTER, "CDeckJ", semi(18.0), t::INK);
-        let right_w = 548.0;
-        // View tabs, like a CDJ's screen buttons; icons only when the window is narrow.
-        let labels = r.width() - right_w - 92.0 - views::tabs_width(ui) >= 200.0;
-        let x = self.view_tabs(ui, r.min.x + 92.0, r, labels) + 8.0;
+        // The app icon, then the name.
+        let logo = self.logo.get_or_insert_with(|| {
+            let icon = crate::desktop::window_icon();
+            let img = egui::ColorImage::from_rgba_unmultiplied([icon.width as usize, icon.height as usize], &icon.rgba);
+            ui.ctx().load_texture("cdeckj-logo", img, egui::TextureOptions::LINEAR)
+        });
+        let ls = 26.0;
+        let lr = Rect::from_min_size(pos2(r.min.x + 10.0, r.center().y - ls / 2.0), vec2(ls, ls));
+        p.image(logo.id(), lr, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+        let name = p.text(pos2(lr.max.x + 7.0, r.center().y), Align2::LEFT_CENTER, "CDeckJ", semi(18.0), t::INK);
+        let right_w = 536.0;
+        let x = (x0 + 8.0).max(name.max.x + 16.0);
         // Compact audio and controller status; tap for the full story.
         let status_icon = |x: f32, icon: &str, ok: bool| {
             p.text(pos2(x + 5.0, r.center().y), Align2::CENTER_CENTER, icon, cond(16.0), if ok { t::PLAY } else { t::DANGER });
@@ -1305,26 +1325,13 @@ impl App {
         let ctl_icon = if midi.is_none() && pad.is_some() { icons::GAMEPAD } else { icons::CONTROLLER };
         status_icon(x + half, ctl_icon, midi.is_some() || pad.is_some());
         text_fit(&p, pos2(x + half + 18.0, r.center().y), Align2::LEFT_CENTER, &ctl_short, cond(14.0), t::INK_MUTED, half - 26.0);
-        let sr = Rect::from_min_size(pos2(x - 4.0, r.min.y + 3.0), vec2(avail + 4.0, r.height() - 6.0));
+        let sr = Rect::from_min_size(pos2(x - 4.0, r.min.y + 2.0), vec2(avail + 4.0, r.height() - 4.0));
         if invisible_button(ui, &mut self.touches, sr, Id::NULL.with("status"), "Audio and controller status", "Tap for the full audio and controller details").clicked {
             self.banner = Some(format!("{audio_long}\n{ctl_long}"));
         }
 
-        // Right: QUANTIZE, DSP load, master meter.
-        // EXIT (press twice), at the far right like a window's close button.
-        let er = Rect::from_min_size(pos2(r.max.x - 76.0, r.min.y + 5.0), vec2(68.0, 24.0));
-        let confirm = self.exit_confirm.is_some_and(|t| t.elapsed() < Duration::from_secs(3));
-        let busy = self.recorder.is_recording() || v.decks.iter().any(|d| d.playing);
-        let tip = match (confirm, busy) {
-            (true, true) => "Press again to quit: playback stops and any recording is saved",
-            (true, false) => "Press again to quit",
-            (false, _) => "Quit CDeckJ. Press twice  ( Ctrl+Q )",
-        };
-        let exit = format!("{}  {}", icons::POWER, if confirm { "EXIT?" } else { "EXIT" });
-        if button_tip(ui, &mut self.touches, er, Id::NULL.with("exit"), &exit, confirm.then_some(t::DANGER), semi(13.0), tip).clicked {
-            self.exit_press(ui.ctx());
-        }
-        let m = Rect::from_min_size(pos2(r.max.x - 196.0, r.center().y - 4.0), vec2(106.0, 8.0));
+        // Right: REC, QUANTIZE, DSP load, master meter. (EXIT is at the foot of the rail.)
+        let m = Rect::from_min_size(pos2(r.max.x - 118.0, r.center().y - 4.0), vec2(106.0, 8.0));
         p.rect_filled(m, 2, t::INSET);
         let db = 20.0 * v.peak_master.max(1e-6).log10();
         let f = ((db + 42.0) / 42.0).clamp(0.0, 1.0);
@@ -1339,10 +1346,11 @@ impl App {
             (format!("DSP {load}%"), if load > 70 { t::CUE } else { t::INK_FAINT })
         };
         p.text(pos2(m.min.x - 64.0, r.center().y), Align2::RIGHT_CENTER, dsp, mono(12.0), dcol);
-        self.rec_button(ui, &p, Rect::from_min_size(pos2(r.max.x - right_w + 6.0, r.min.y + 5.0), vec2(90.0, 24.0)));
-        let qr = Rect::from_min_size(pos2(r.max.x - right_w + 102.0, r.min.y + 5.0), vec2(100.0, 24.0));
+        let bh = r.height() - 8.0;
+        self.rec_button(ui, &p, Rect::from_min_size(pos2(r.max.x - right_w + 6.0, r.min.y + 4.0), vec2(104.0, bh)));
+        let qr = Rect::from_min_size(pos2(r.max.x - right_w + 118.0, r.min.y + 4.0), vec2(118.0, bh));
         let qtip = if v.quantize { "Quantize on: cues, loops and jumps snap to the beat  ( G )" } else { "Quantize off  ( G )" };
-        if button_tip(ui, &mut self.touches, qr, Id::NULL.with("quantize"), &format!("{}  QUANTIZE", icons::MAGNET), v.quantize.then_some(t::ACCENT), semi(13.0), qtip).clicked {
+        if button_tip(ui, &mut self.touches, qr, Id::NULL.with("quantize"), &format!("{}  QUANTIZE", icons::MAGNET), v.quantize.then_some(t::ACCENT), semi(14.0), qtip).clicked {
             self.send(Cmd::QuantizeToggle);
         }
     }
@@ -1421,7 +1429,7 @@ impl App {
         let main_h = 396.0f32.min((full.height() - wave_h - fx_h - 140.0).max(330.0));
         let mixer_w = 340.0;
 
-        let waves = Rect::from_min_size(full.min, vec2(full.width(), wave_h));
+        let waves = Rect::from_min_size(full.min + vec2(6.0, 6.0), vec2(full.width() - 6.0, wave_h - 6.0));
         let main = Rect::from_min_size(pos2(full.min.x, waves.max.y), vec2(full.width(), main_h));
         let fx_bar = Rect::from_min_size(pos2(full.min.x, main.max.y), vec2(full.width(), fx_h));
         let browser = Rect::from_min_max(pos2(full.min.x, fx_bar.max.y), full.max);
@@ -1437,13 +1445,13 @@ impl App {
             let r = Rect::from_min_size(pos2(waves.min.x, waves.min.y + d as f32 * h), vec2(waves.width(), h));
             self.waveform(ui, r.shrink2(vec2(0.0, 1.0)), d, &v.decks[d]);
         }
-        self.zoom_buttons(ui, waves);
+        self.zoom_buttons(ui, waves, false);
         for d in 0..DECKS {
             self.deck_panel(ui, deck_rects[d].shrink(6.0), d, &v.decks[d]);
         }
         self.mixer_panel(ui, mixer.shrink2(vec2(0.0, 6.0)), v);
         self.fx_bar(ui, fx_bar.shrink2(vec2(6.0, 2.0)), v);
-        self.browser(ui, browser.shrink(6.0));
+        self.browser(ui, browser.shrink(6.0), false);
 
     }
 
@@ -1474,15 +1482,15 @@ impl App {
         } else {
             "Record the mix to Music/CDeckJ Recordings, with a tracklist  ( R )"
         };
-        let font = if rec && !confirm { mono(13.0) } else { semi(13.0) };
+        let font = if rec && !confirm { mono(14.0) } else { semi(14.0) };
         if button_tip(ui, &mut self.touches, r, Id::NULL.with("rec"), &label, rec.then_some(t::DANGER), font, tip).clicked {
             self.record_toggle();
         }
         if !confirm {
             // Solid while armed or on the blink, outline in between.
             let blink = (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0;
-            let c = pos2(r.min.x + 17.0, r.center().y);
-            let font = if !rec || blink { icons::fill(15.0) } else { cond(15.0) };
+            let c = pos2(r.min.x + 19.0, r.center().y);
+            let font = if !rec || blink { icons::fill(16.0) } else { cond(16.0) };
             p.text(c, Align2::CENTER_CENTER, icons::RECORD, font, t::DANGER);
         }
     }
@@ -1500,18 +1508,19 @@ impl App {
         }
     }
 
-    fn zoom_buttons(&mut self, ui: &Ui, waves: Rect) {
-        let w = 30.0;
+    /// Waveform colour and zoom over the top-right of the waveforms; `big` for touch.
+    fn zoom_buttons(&mut self, ui: &Ui, waves: Rect, big: bool) {
+        let (w, h, mw) = if big { (44.0, 36.0, 76.0) } else { (30.0, 26.0, 62.0) };
         // Waveform colour (BLUE / RGB / 3BAND), as WAVEFORM COLOR on a CDJ.
         let mode = self.config.waveform_color;
-        let mr = Rect::from_min_size(pos2(waves.max.x - 2.0 * (w + 4.0) - 6.0 - 66.0, waves.min.y + 4.0), vec2(62.0, 26.0));
-        if button_tip(ui, &mut self.touches, mr, Id::NULL.with("wavemode"), crate::wave::mode_name(mode), None, semi(13.0), "Waveform colour: Blue / RGB / 3-Band  ( W )").clicked {
+        let mr = Rect::from_min_size(pos2(waves.max.x - 2.0 * (w + 4.0) - 6.0 - mw - 4.0, waves.min.y + 4.0), vec2(mw, h));
+        if button_tip(ui, &mut self.touches, mr, Id::NULL.with("wavemode"), crate::wave::mode_name(mode), None, semi(if big { 14.0 } else { 13.0 }), "Waveform colour: Blue / RGB / 3-Band  ( W )").clicked {
             self.config.waveform_color = crate::wave::next_mode(mode);
         }
         for (i, (label, dir)) in [(icons::ZOOM_OUT, 1), (icons::ZOOM_IN, -1)].into_iter().enumerate() {
-            let r = Rect::from_min_size(pos2(waves.max.x - 2.0 * (w + 4.0) - 6.0 + i as f32 * (w + 4.0), waves.min.y + 4.0), vec2(w, 26.0));
+            let r = Rect::from_min_size(pos2(waves.max.x - 2.0 * (w + 4.0) - 6.0 + i as f32 * (w + 4.0), waves.min.y + 4.0), vec2(w, h));
             let tip = if dir > 0 { "Zoom waveforms out  ( − )" } else { "Zoom waveforms in  ( = )" };
-            if button_tip(ui, &mut self.touches, r, Id::NULL.with(("zoom", i)), label, None, semi(16.0), tip).clicked {
+            if button_tip(ui, &mut self.touches, r, Id::NULL.with(("zoom", i)), label, None, semi(if big { 20.0 } else { 16.0 }), tip).clicked {
                 self.set_zoom(dir);
             }
         }
@@ -2172,27 +2181,33 @@ impl App {
         meter(&p, Rect::from_min_max(pos2(mx, y + 4.0), pos2(mx + 8.0, r.max.y - 4.0)), v.decks[c].peak);
     }
 
-    fn browser(&mut self, ui: &mut Ui, r: Rect) {
+    /// The track list with BACK, where you are, search and LOAD. `big` sizes it for thumbs and
+    /// adds TAG (the display layout, where it's the main thing to touch).
+    fn browser(&mut self, ui: &mut Ui, r: Rect, big: bool) {
         let p = ui.painter().clone();
         card(&p, r);
         let inner = r.shrink2(vec2(t::SP_M, 8.0));
-        let head = Rect::from_min_size(inner.min, vec2(inner.width(), 32.0));
+        let bh = if big { 40.0 } else { 30.0 };
+        let head = Rect::from_min_size(inner.min, vec2(inner.width(), bh + 2.0));
+        let load_w = if big { 112.0 } else { 96.0 };
+        let tag_w = if big { 96.0 } else { 0.0 };
 
         // Back + breadcrumb.
         let mut x = head.min.x;
         if self.lib.depth() > 0 || !self.lib.filter.is_empty() {
-            let br = Rect::from_min_size(pos2(x, head.min.y + 1.0), vec2(74.0, 30.0));
-            if button_tip(ui, &mut self.touches, br, Id::NULL.with("back"), &format!("{}  BACK", icons::CARET_LEFT), None, semi(14.0), "Up one level, or clear the search  ( Backspace )").clicked {
+            let br = Rect::from_min_size(pos2(x, head.min.y + 1.0), vec2(if big { 92.0 } else { 74.0 }, bh));
+            if button_tip(ui, &mut self.touches, br, Id::NULL.with("back"), &format!("{}  BACK", icons::CARET_LEFT), None, semi(if big { 15.0 } else { 14.0 }), "Up one level, or clear the search  ( Backspace )").clicked {
                 self.browse_back();
             }
-            x += 84.0;
+            x += br.width() + 10.0;
         }
-        let right_w = 2.0 * 104.0 + 230.0;
+        let search_w = if big { 230.0 } else { 216.0 };
+        let right_w = 2.0 * (load_w + 8.0) + if big { tag_w + 8.0 } else { 0.0 } + search_w + 14.0;
         let g = p.layout_job(crumbs_job(&self.lib.crumbs(), head.max.x - x - right_w - 10.0));
         p.galley(pos2(x, head.center().y - g.size().y / 2.0), g, t::INK);
 
         // Search.
-        let sr = Rect::from_min_size(pos2(head.max.x - right_w, head.min.y + 2.0), vec2(216.0, 28.0));
+        let sr = Rect::from_min_size(pos2(head.max.x - right_w, head.min.y + 2.0), vec2(search_w, bh - 2.0));
         let resp = search_field(ui, sr, &mut self.search);
         if std::mem::take(&mut self.focus_search) {
             resp.request_focus();
@@ -2208,9 +2223,24 @@ impl App {
             resp.surrender_focus();
         }
 
-        let can_load = matches!(self.lib.selected_row(), Some(Row::Track(_)));
+        let sel = match self.lib.selected_row() {
+            Some(Row::Track(t)) => Some(t.clone()),
+            _ => None,
+        };
+        let can_load = sel.is_some();
+        if big {
+            let tagged = sel.as_ref().is_some_and(|s| self.lib.is_tagged(&s.path));
+            let tr = Rect::from_min_size(pos2(head.max.x - 2.0 * (load_w + 8.0) - tag_w, head.min.y + 1.0), vec2(tag_w, bh));
+            let tip = if tagged { "Remove from the tag list  ( T )" } else { "Add to the tag list  ( T )" };
+            let label = format!("{}  {}", icons::TAG, if tagged { "TAGGED" } else { "TAG" });
+            if button_tip(ui, &mut self.touches, tr, Id::NULL.with("ptag"), &label, tagged.then_some(t::ACCENT), semi(15.0), tip).clicked {
+                if let Some(s) = sel.clone() {
+                    self.lib.toggle_tag(&s);
+                }
+            }
+        }
         for d in 0..DECKS {
-            let br = Rect::from_min_size(pos2(head.max.x - (DECKS - d) as f32 * 104.0 + 8.0, head.min.y + 1.0), vec2(96.0, 30.0));
+            let br = Rect::from_min_size(pos2(head.max.x - (DECKS - d) as f32 * (load_w + 8.0) + 8.0, head.min.y + 1.0), vec2(load_w, bh));
             let tip = if d == 0 { "Load the selected track on deck 1  ( Q )" } else { "Load the selected track on deck 2  ( P )" };
             if button_tip(ui, &mut self.touches, br, Id::NULL.with(("load", d)), &format!("LOAD {}", d + 1), can_load.then_some(t::DECK_TINT[d]), semi(15.0), tip).clicked {
                 self.load_selected(d);
@@ -2218,6 +2248,7 @@ impl App {
         }
 
         let list = Rect::from_min_max(pos2(inner.min.x, head.max.y + 6.0), inner.max);
+        let opts = if big { browse::ListOpts { row_h: 42.0, title: 17.0, ..browse::ListOpts::compact() } } else { browse::ListOpts::compact() };
         if let Some((done, total)) = self.lib.analysis_progress {
             text_fit(&p, pos2(list.max.x, r.max.y - 2.0), Align2::RIGHT_BOTTOM, &format!("Analysing BPM {done}/{total}"), caption(), t::INK_FAINT, 200.0);
         }
@@ -2239,7 +2270,7 @@ impl App {
             return;
         }
 
-        self.rows_list(ui, list, browse::ListOpts::compact());
+        self.rows_list(ui, list, opts);
     }
 }
 

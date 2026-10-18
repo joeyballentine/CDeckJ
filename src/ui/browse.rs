@@ -14,6 +14,9 @@ use crate::engine::{EngineView, DECKS};
 use crate::library::{self, LibTrack, Node, Row, SortKey, TrackFilter};
 use crate::theme::{self as t, caption, cond, mono, semi};
 
+/// Height of the BROWSE header (BACK/search row and the tools row).
+const HEADER_H: f32 = 96.0;
+
 pub struct ListOpts {
     pub row_h: f32,
     pub title: f32,
@@ -368,7 +371,7 @@ impl App {
         card(&p, main);
         let inner = main.shrink2(vec2(t::SP_M, 8.0));
         self.browse_header(ui, inner, v);
-        let list = Rect::from_min_max(pos2(inner.min.x, inner.min.y + 80.0), inner.max);
+        let list = Rect::from_min_max(pos2(inner.min.x, inner.min.y + HEADER_H), inner.max);
         let kb_h = if self.keyboard_open { 236.0 } else { 0.0 };
         let list = Rect::from_min_max(list.min, pos2(list.max.x, list.max.y - kb_h));
         if self.lib.rows.is_empty() {
@@ -384,8 +387,9 @@ impl App {
             p.text(list.center() - vec2(0.0, 30.0), Align2::CENTER_CENTER, icon, cond(34.0), t::INK_FAINT);
             p.text(list.center() + vec2(0.0, 8.0), Align2::CENTER_CENTER, msg, t::body(), t::INK_MUTED);
         } else {
-            let row_h = [28.0, 34.0, 42.0][self.config.browse_text.min(2) as usize];
-            let title = [14.0, 16.0, 19.0][self.config.browse_text.min(2) as usize];
+            // Sized for a thumb on the Deck's 7" screen; A− / A+ trade size for rows.
+            let row_h = [34.0, 44.0, 54.0][self.config.browse_text.min(2) as usize];
+            let title = [15.0, 17.0, 20.0][self.config.browse_text.min(2) as usize];
             self.rows_list(ui, list, ListOpts { row_h, title, cols: self.config.browse_cols, art: true });
         }
         if self.keyboard_open {
@@ -404,19 +408,19 @@ impl App {
     fn browse_header(&mut self, ui: &mut Ui, inner: Rect, v: &EngineView) {
         let p = ui.painter().clone();
         // Row 1: BACK, where you are, search.
-        let row1 = Rect::from_min_size(inner.min, vec2(inner.width(), 34.0));
+        let row1 = Rect::from_min_size(inner.min, vec2(inner.width(), 40.0));
         let mut x = row1.min.x;
         if self.lib.depth() > 0 || !self.lib.filter.is_empty() {
-            let br = Rect::from_min_size(pos2(x, row1.min.y + 1.0), vec2(74.0, 32.0));
+            let br = Rect::from_min_size(pos2(x, row1.min.y + 1.0), vec2(84.0, 38.0));
             if button_tip(ui, &mut self.touches, br, Id::NULL.with("bback"), &format!("{}  BACK", icons::CARET_LEFT), None, semi(14.0), "Up one level, or clear the search  ( Backspace )").clicked {
                 self.browse_back();
             }
-            x += 84.0;
+            x += 94.0;
         }
         let search_w = 250.0;
         let g = p.layout_job(crumbs_job(&self.lib.crumbs(), row1.max.x - x - search_w - 70.0));
         p.galley(pos2(x, row1.center().y - g.size().y / 2.0), g, t::INK);
-        let sr = Rect::from_min_size(pos2(row1.max.x - search_w - 64.0, row1.min.y + 2.0), vec2(search_w, 30.0));
+        let sr = Rect::from_min_size(pos2(row1.max.x - search_w - 64.0, row1.min.y + 2.0), vec2(search_w, 36.0));
         let resp = search_field(ui, sr, &mut self.search);
         if std::mem::take(&mut self.focus_search) {
             resp.request_focus();
@@ -430,14 +434,14 @@ impl App {
         if resp.clicked() && self.touches.touch_mode() {
             self.keyboard_open = true;
         }
-        let kr = Rect::from_min_size(pos2(row1.max.x - 58.0, row1.min.y + 1.0), vec2(58.0, 32.0));
+        let kr = Rect::from_min_size(pos2(row1.max.x - 58.0, row1.min.y + 1.0), vec2(58.0, 38.0));
         if button_tip(ui, &mut self.touches, kr, Id::NULL.with("kbd"), icons::KEYBOARD, self.keyboard_open.then_some(t::ACCENT), cond(20.0), "On-screen keyboard for search").clicked {
             self.keyboard_open = !self.keyboard_open;
         }
 
         // Row 2: filter, columns, text size, info | tag, load.
         let y2 = row1.max.y + 8.0;
-        let h = 34.0;
+        let h = 40.0;
         let mut x = inner.min.x;
         let f = self.lib.track_filter;
         let ftip = match (f.bpm, f.key) {
@@ -519,7 +523,7 @@ impl App {
 
     fn browse_popup_ui(&mut self, ui: &mut Ui, inner: Rect, pop: Popup, v: &EngineView) {
         let p = ui.painter().clone();
-        let r = Rect::from_min_size(pos2(inner.min.x, inner.min.y + 80.0), vec2(470.0, if pop == Popup::Filter { 196.0 } else { 120.0 }));
+        let r = Rect::from_min_size(pos2(inner.min.x, inner.min.y + HEADER_H), vec2(470.0, if pop == Popup::Filter { 196.0 } else { 120.0 }));
         p.rect_filled(r.expand(4.0), CornerRadius::same(t::R_CARD), Color32::from_black_alpha(120));
         panel(&p, r);
         let inner = r.shrink(12.0);
@@ -586,7 +590,7 @@ impl App {
         // Tap outside the popup to close it.
         if ui.input(|i| i.pointer.any_pressed()) {
             if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-                let header_btns = Rect::from_min_size(pos2(r.min.x, r.min.y - 44.0), vec2(212.0, 40.0));
+                let header_btns = Rect::from_min_size(pos2(r.min.x, r.min.y - 50.0), vec2(212.0, 46.0));
                 if !r.expand(4.0).contains(pos) && !header_btns.contains(pos) {
                     self.browse_popup = None;
                 }
