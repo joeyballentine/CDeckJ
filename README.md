@@ -20,7 +20,10 @@ A minimal two-deck DJ player in Rust, built to feel like a pair of CDJs and a tw
 - Multi-touch: hold CUE with one finger and hit PLAY with another, or ride two faders at once.
 - Steam Deck controls work as a mini controller (see below), and the screen won't dim or sleep while Platter runs.
 - Keeps running without an audio device (silent), and reconnects when one appears.
-- Reads rekordbox USB sticks: browse playlists and the full collection, and load tracks with their rekordbox beat grid, hot cues (with colours, comments and saved loops) and memory cues.
+- Reads rekordbox USB sticks: browse playlists, history and the full collection, and load tracks with their rekordbox beat grid, hot cues (with colours, comments and saved loops), memory cues, cover art and waveforms. Plugging the stick in applies its **My Settings**, like a CDJ.
+- Waveforms in Blue, RGB or 3-Band, whole-track from the moment a track loads (rekordbox's own for stick tracks; plain files are analysed in the background and cached).
+- Beat FX: delay, echo, ping pong, reverb, flanger, phaser, trans and roll, beat-synced, on channel 1, 2 or the master, with echo and reverb tails.
+- Play history: tracks you've played are ticked and greyed in the browser, and every session is saved under **Sources → History**.
 - Records the mix to 24-bit WAV with a tracklist and CUE sheet (see *Recording*).
 - Library search (`/`), sortable columns (title, artist, BPM, key, time), tags read from the files, and BPM analysis of your music folder in the background.
 - Decodes MP3, FLAC, WAV, AIFF, OGG/Vorbis and AAC/ALAC in M4A. MP3 timing matches rekordbox, so rekordbox grids and cues line up.
@@ -48,9 +51,33 @@ What's read from the export:
 |---|---|
 | `PIONEER/rekordbox/export.pdb` | Tracks, artists, keys, BPM, durations, playlists and folders, history |
 | `PIONEER/USBANLZ/…/ANLZ0000.DAT` | Beat grid (including variable-tempo grids and bar positions), hot cues A–C, memory cues |
-| `PIONEER/USBANLZ/…/ANLZ0000.EXT` | Hot cues A–H with colours and comments, saved loops (preferred over `.DAT`) |
+| `PIONEER/USBANLZ/…/ANLZ0000.EXT` | Hot cues A–H with colours and comments, saved loops (preferred over `.DAT`), Blue and RGB waveforms |
+| `PIONEER/USBANLZ/…/ANLZ0000.2EX` | 3-Band waveform (CDJ-3000 era) |
+| `PIONEER/Artwork/…` | Cover art (the larger `_m` version when present) |
+| `PIONEER/DEVSETTING.DAT`, `MYSETTING.DAT`, `MYSETTING2.DAT`, `DJMMYSETTING.DAT` | My Settings (below) |
 
 On load, hot cues go on the pads, the first memory cue becomes the CUE point, and the rekordbox grid replaces Platter's own BPM detection. Plain-folder tracks still get detected grids.
+
+#### My Settings
+
+When a stick is plugged in, Platter takes on the settings you made in rekordbox's *My Settings* (a banner lists them). They stay until another stick changes them, and you can still change any of them on screen:
+
+| Setting | Effect in Platter |
+|---|---|
+| Waveform colour (Blue / RGB / 3Band) | Colour of the scrolling and overview waveforms |
+| Overview waveform type (half / full) | Overview drawn from the bottom or mirrored |
+| Waveform current position (centre / left) | Playhead centred or at 30 % |
+| Quantize, quantize beat value | Quantize on/off; snapping to 1, ½, ¼ or ⅛ beat |
+| Auto cue, auto cue level | CUE starts at the first memory cue, or at the first sound above the level, or at 0:00 |
+| Hot cue auto load | Whether the stick's hot cues go on the pads |
+| Time mode | Big readout shows remaining or elapsed time |
+| Jog mode | Vinyl or CDJ |
+| Master Tempo, tempo range | Both decks |
+| Beat jump beat value | The on-screen « » jump size (SHIFT: ×4) |
+| Channel fader curve, crossfader curve | Mixer curves (DJM settings) |
+| Beat FX quantize | Roll starts and Trans gates on the beat grid |
+
+Settings Platter has no equivalent for (LCD brightness, language, eject lock and so on) are ignored. Turn the whole thing off with `apply_usb_settings = false`.
 
 The stick must contain the classic **Device Library** (`export.pdb`). Most exports include it; a stick exported only in the newer Device Library Plus / OneLibrary format (`exportLibrary.db`, an encrypted SQLite database) isn't readable yet. Platter never writes to the stick.
 
@@ -93,6 +120,9 @@ Press **REC** in the top bar (or R, or ≡ on the Steam Deck) to start. The butt
 | BROWSE rotate / press | Move in the library / open a folder or playlist |
 | SHIFT + BROWSE press | Back up one level |
 | LOAD 1·2 | Load the selected track |
+| BEAT FX SELECT / BEAT ◀ ▶ | Next effect / beat value |
+| FX CH SELECT lever | Effect on channel 1, 2 or master |
+| LEVEL/DEPTH, BEAT FX ON | As labelled (ON blinks while active) |
 
 Deck 3/4 layers control decks 1/2. Mixer channels 3/4 are ignored.
 
@@ -126,13 +156,13 @@ Set `gamepad = false` in the settings file to turn this off.
 | S | J | Master Tempo |
 | Q | P | Load selected track |
 
-G toggles quantize; R records (press twice to stop); − / = zoom the waveforms out / in; `/` or Ctrl+F searches; ↑ ↓ / Page Up / Page Down move; Enter or → opens; Backspace, Esc or ← goes back; F11 toggles fullscreen.
+G toggles quantize; F turns beat FX on/off; W changes the waveform colour; R records (press twice to stop); − / = zoom the waveforms out / in; `/` or Ctrl+F searches; ↑ ↓ / Page Up / Page Down move; Enter or → opens; Backspace, Esc or ← goes back; F11 toggles fullscreen.
 
 Tab moves keyboard focus through every on-screen control (shown with an orange ring). Enter or Space presses the focused button. ← → turn a focused knob, jump a beat on a focused waveform, 16 beats on the overview, and search on the jog. Hover a button for its shortcut.
 
 ### Touch
 
-Everything on screen is touchable. Drag knobs up/down (double-tap to centre); drag faders; tap the track overview to seek; drag a scrolling waveform or the on-screen jog to scratch; tap SHIFT then a pad to delete a hot cue; tap the ±10 chip to change tempo range; tap − / + over the waveforms to zoom; tap a folder or playlist to open it, ‹ BACK to go up, and double-tap a track to load it on the deck that isn't playing.
+Everything on screen is touchable. Drag knobs up/down (double-tap to centre); drag faders; tap the track overview to seek; drag a scrolling waveform or the on-screen jog to scratch; tap SHIFT then a pad to delete a hot cue; tap the ±10 chip to change tempo range; tap the time to switch remaining/elapsed; tap − / + over the waveforms to zoom and BLUE / RGB / 3BAND to change their colour; use the BEAT FX bar under the decks (effect, beat ‹ ›, channel 1 / 2 / M, LEVEL, ON); tap a folder or playlist to open it, ‹ BACK to go up, and double-tap a track to load it on the deck that isn't playing.
 
 ## Options
 
@@ -167,6 +197,21 @@ background_analysis = true    # detect BPM of music-folder tracks while idle
 gamepad = true                # use the Steam Deck's own buttons
 keep_awake = true             # stop the screen dimming and the Deck sleeping
 recording_dir = "/home/deck/Music/Platter Recordings"
+apply_usb_settings = true     # take on a stick's My Settings when it's plugged in
+
+# My Settings (a stick's settings overwrite these):
+waveform_color = "Rgb"        # "Blue", "Rgb" or "ThreeBand"
+overview_full = true
+playhead_left = false
+time_remain = true
+beat_jump = 4.0
+quantize_beats = 1.0
+auto_cue = true
+# auto_cue_db = -60.0         # unset: cue to the first memory cue
+hotcue_autoload = true
+fader_curve = "Linear"        # "SteepTop", "Linear", "SteepBottom"
+crossfader_curve = "SlowCut"  # "ConstantPower", "SlowCut", "FastCut"
+beat_fx_quantize = true
 
 [grid_offset_ms]              # shift rekordbox grids and cues per file type, if they're off
 # mp3 = 0.0
@@ -180,6 +225,24 @@ port_hints = ["GRV6", "DDJ", "AlphaTheta", "Pioneer"]
 If the file can't be read, Platter starts with defaults and keeps the broken copy as `config.toml.broken`.
 
 `~/.local/share/platter/tracks.json` stores, per file: cues and the CUE point you set, BPM fixes, tags and analysis. An entry is ignored if the file's size or date changes. Cues are saved straight away.
+
+`~/.local/share/platter/waves/` caches waveforms of plain files (about 1 MB per hour of audio). `~/.local/share/platter/history/` holds one JSON file per session.
+
+## Beat FX
+
+The bar under the decks works like a DJM's BEAT FX section. The effect follows the tempo of the deck that's leading (the sync master if it's playing, otherwise a playing deck), and is applied after the channel fader, so an echo or reverb keeps ringing when you pull the fader down or switch the effect off.
+
+| Effect | Beat value sets | LEVEL sets |
+|---|---|---|
+| DELAY | Delay time (one repeat) | Repeat level |
+| ECHO | Echo time (repeats fading out) | Echo level |
+| PING PONG | Echo time, bouncing left and right | Echo level |
+| REVERB | Room size (shown as %) | Reverb level |
+| FLANGER, PHASER | Length of one sweep | Depth |
+| TRANS | Gate length (cuts on the beat grid) | How far it cuts |
+| ROLL | Length of the repeated slice | Roll level |
+
+Beat values run from 1/8 to 16 beats. Effects are part of the recording.
 
 ## About the MIDI mapping
 
@@ -206,9 +269,9 @@ On SteamOS itself, build inside a `distrobox` container (Arch or Ubuntu) rather 
 
 ## Not included
 
-More than two decks, beat FX, sampler, artwork, saving cues back to the stick, and rekordbox's OneLibrary format. Detected grids (non-rekordbox tracks) assume a constant tempo.
+More than two decks, sampler, mic input, building playlists in Platter, key detection for plain files, saving cues back to the stick, and rekordbox's OneLibrary format. Detected grids (non-rekordbox tracks) assume a constant tempo.
 
-Not yet tested on hardware: the DDJ-GRV6 mapping, the Steam Deck's own audio, touchscreen and controls, and the screen-sleep inhibit. Each was built against documentation and tested in software only.
+Not yet tested on hardware: the DDJ-GRV6 mapping (including the BEAT FX section), the Steam Deck's own audio, touchscreen and controls, and the screen-sleep inhibit. Each was built against documentation and tested in software only.
 
 ## Licences
 

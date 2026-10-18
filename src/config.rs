@@ -331,6 +331,9 @@ mod tests {
         let mut c = Config::default();
         c.quantize = false;
         c.grid_offset_ms.insert("mp3".into(), 26.0);
+        c.fx.target = crate::engine::fx::FxTarget::Ch(1);
+        c.waveform_color = crate::rekordbox::settings::WaveColor::ThreeBand;
+        c.auto_cue_db = Some(-60.0);
         let s = toml::to_string_pretty(&c).unwrap();
         let back: Config = toml::from_str(&s).unwrap();
         assert_eq!(back, c);

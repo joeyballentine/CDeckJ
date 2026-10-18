@@ -120,14 +120,20 @@ impl Verb {
             let y = buf[*i];
             *store = y * (1.0 - damp) + *store * damp;
             buf[*i] = x + *store * feedback;
-            *i = (*i + 1) % buf.len();
+            *i += 1;
+            if *i == buf.len() {
+                *i = 0;
+            }
             out += y;
         }
         for (buf, i) in self.alls.iter_mut() {
             let b = buf[*i];
             buf[*i] = out + b * 0.5;
             out = b - out;
-            *i = (*i + 1) % buf.len();
+            *i += 1;
+            if *i == buf.len() {
+                *i = 0;
+            }
         }
         out
     }
@@ -157,6 +163,9 @@ pub struct BeatFx {
     /// Stereo delay line for delay/echo/ping pong.
     line: Vec<f32>,
     w: usize,
+    /// Frames written since the last reset: older parts of `line` are stale and read as
+    /// silence (so switching effects never has to clear megabytes on the audio thread).
+    fresh: usize,
     /// Short stereo line for the flanger.
     fline: Vec<f32>,
     fw: usize,
@@ -184,6 +193,7 @@ impl BeatFx {
             sr,
             line: vec![0.0; frames * 2],
             w: 0,
+            fresh: 0,
             fline: vec![0.0; 2048 * 2],
             fw: 0,
             fb_prev: [0.0; 2],
@@ -203,8 +213,9 @@ impl BeatFx {
         }
     }
 
+    /// Cheap enough for the audio thread: only the small buffers are cleared.
     fn reset(&mut self) {
-        self.line.fill(0.0);
+        self.fresh = 0;
         self.fline.fill(0.0);
         self.fb_prev = [0.0; 2];
         self.ap = [[0.0; 4]; 2];
@@ -250,7 +261,7 @@ impl BeatFx {
                 for i in 0..n {
                     let g = self.feed.tick(target_feed);
                     let r = (self.w + frames - d) % frames;
-                    let (wl, wr) = (self.line[2 * r], self.line[2 * r + 1]);
+                    let (wl, wr) = if self.fresh >= d { (self.line[2 * r], self.line[2 * r + 1]) } else { (0.0, 0.0) };
                     let (xl, xr) = (io[2 * i], io[2 * i + 1]);
                     if p.kind == FxKind::PingPong {
                         let mono = 0.5 * (xl + xr) * g;
@@ -261,6 +272,7 @@ impl BeatFx {
                         self.line[2 * self.w + 1] = xr * g + wr * fb;
                     }
                     self.w = (self.w + 1) % frames;
+                    self.fresh = self.fresh.saturating_add(1);
                     io[2 * i] = xl + level * wl;
                     io[2 * i + 1] = xr + level * wr;
                     loud = loud.max(wl.abs()).max(wr.abs());
@@ -475,6 +487,17 @@ mod tests {
     }
 
     #[test]
+    fn switching_effects_never_replays_old_echoes() {
+        let mut fx = BeatFx::new(48000.0);
+        let mut p = FxParams { kind: FxKind::Echo, beat_idx: 4, level: 1.0, on: true, ..Default::default() };
+        let clk = FxClock { bpm: 120.0, beat: None };
+        run(&mut fx, &p, &clk, &vec![0.5; 24000 * 2]);
+        p.kind = FxKind::Delay;
+        let out = run(&mut fx, &p, &clk, &vec![0.0; 20000 * 2]);
+        assert!(out.iter().all(|v| v.abs() < 1e-6), "stale echo heard after switching");
+    }
+
+    #[test]
     fn everything_stays_finite() {
         for kind in FX_KINDS {
             let mut fx = BeatFx::new(44100.0);
@@ -482,6 +505,31 @@ mod tests {
             let noise: Vec<f32> = (0..44100 * 2).map(|i| ((i * 7919 % 2003) as f32 / 1001.0) - 1.0).collect();
             let out = run(&mut fx, &p, &FxClock { bpm: 174.0, beat: Some(3.5) }, &noise);
             assert!(out.iter().all(|v| v.is_finite() && v.abs() < 20.0), "{kind:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+
+    /// `cargo test --release fx_cost -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn fx_cost() {
+        let sr = 48000.0;
+        let secs = 10.0;
+        let noise: Vec<f32> = (0..(sr * secs) as usize * 2).map(|i| ((i * 7919 % 2003) as f32 / 1001.0) - 1.0).collect();
+        for kind in FX_KINDS {
+            let mut fx = BeatFx::new(sr);
+            let p = FxParams { kind, beat_idx: 4, level: 0.7, on: true, ..Default::default() };
+            let mut buf = noise.clone();
+            let t0 = std::time::Instant::now();
+            for c in buf.chunks_mut(512) {
+                fx.process(&p, &FxClock { bpm: 128.0, beat: Some(0.0) }, c);
+            }
+            let ms_per_s = t0.elapsed().as_secs_f64() * 1000.0 / secs as f64;
+            println!("{:>10}: {ms_per_s:.2} ms per second of audio ({:.2} % of a core)", kind.name(), ms_per_s / 10.0);
         }
     }
 }
