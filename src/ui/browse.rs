@@ -4,11 +4,11 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use egui::text::{LayoutJob, TextWrapping};
 use egui::{pos2, vec2, Align2, Color32, CornerRadius, Id, Key, Mesh, Rect, Sense, Stroke, StrokeKind, Ui, WidgetInfo};
 
 use super::views::{panel, segmented};
-use super::{button, button_tip, caret, card, control, focus_ring, mix, nav_icon, text_fit, App};
+use super::{button, button_tip, caret, card, control, crumbs_job, focus_ring, mix, nav_icon, search_field, text_fit, App};
+use crate::icons;
 use crate::config::BrowseCols;
 use crate::engine::{EngineView, DECKS};
 use crate::library::{self, LibTrack, Node, Row, SortKey, TrackFilter};
@@ -206,7 +206,7 @@ impl App {
                         nav_icon(p, pos2(rr.min.x + 20.0, y), *kind);
                         text_fit(p, pos2(rr.min.x + 42.0, y), Align2::LEFT_CENTER, label, semi(o.title), t::INK, rr.width() * 0.55);
                         text_fit(p, pos2(rr.max.x - 30.0, y), Align2::RIGHT_CENTER, detail, cond(small + 2.0), t::INK_FAINT, rr.width() * 0.4);
-                        p.text(pos2(rr.max.x - 12.0, y), Align2::CENTER_CENTER, "›", semi(18.0), t::INK_FAINT);
+                        p.text(pos2(rr.max.x - 12.0, y), Align2::CENTER_CENTER, icons::CARET_RIGHT, cond(15.0), t::INK_FAINT);
                         if resp.clicked() {
                             entered = Some(i);
                         }
@@ -221,10 +221,7 @@ impl App {
                         let mut used = false;
                         if was_played && !is_loaded {
                             // Played this session: a tick, and the row in muted ink.
-                            let c = pos2(bx, y);
-                            let st = Stroke::new(2.0, t::PLAY);
-                            p.line_segment([c + vec2(-5.0, 0.0), c + vec2(-1.5, 3.5)], st);
-                            p.line_segment([c + vec2(-1.5, 3.5), c + vec2(5.0, -4.0)], st);
+                            p.text(pos2(bx, y), Align2::CENTER_CENTER, icons::CHECK, cond(16.0), t::PLAY);
                             used = true;
                         }
                         for (d, lp) in loaded.iter().enumerate() {
@@ -238,8 +235,7 @@ impl App {
                         }
                         if tags.contains(&e.path) {
                             let x = if used { rr.min.x + 34.0 } else { rr.min.x + 18.0 };
-                            let pts = vec![pos2(x - 4.0, y - 7.0), pos2(x + 4.0, y - 7.0), pos2(x + 4.0, y + 7.0), pos2(x, y + 3.0), pos2(x - 4.0, y + 7.0)];
-                            p.add(egui::Shape::convex_polygon(pts, t::ACCENT, Stroke::NONE));
+                            p.text(pos2(x, y), Align2::CENTER_CENTER, icons::TAG, icons::fill(16.0), t::ACCENT);
                         }
                         let title_ink = if was_played { t::INK_FAINT } else { t::INK };
                         for &(col, x, w) in &cols {
@@ -343,7 +339,18 @@ impl App {
             focus_ring(&p, br, &resp, t::R_CONTROL);
             let font = if indent { cond(15.0) } else { semi(16.0) };
             let ink = if on { t::INK } else if indent { t::INK_MUTED } else { t::INK };
-            text_fit(&p, pos2(br.min.x + 10.0, br.center().y), Align2::LEFT_CENTER, &label, font, ink, br.width() - 16.0);
+            let (icon, icol) = match node {
+                Node::Usb(_) => (icons::USB, t::ACCENT),
+                Node::UsbAll(_) => (icons::TRACKS, t::INK_MUTED),
+                Node::UsbPlaylists(..) => (icons::PLAYLIST, t::INK_MUTED),
+                Node::UsbHistory(_) | Node::History => (icons::HISTORY, t::INK_MUTED),
+                Node::Folder => (icons::FOLDER, t::INK_MUTED),
+                Node::Tag => (icons::TAG, t::ACCENT),
+                _ => (icons::FOLDER, t::INK_MUTED),
+            };
+            let icol = if on { t::INK } else { icol };
+            p.text(pos2(br.min.x + 17.0, br.center().y), Align2::CENTER_CENTER, icon, cond(if indent { 16.0 } else { 18.0 }), icol);
+            text_fit(&p, pos2(br.min.x + 34.0, br.center().y), Align2::LEFT_CENTER, &label, font, ink, br.width() - 40.0);
             if c.clicked {
                 self.lib.jump_to(node);
                 self.search.clear();
@@ -365,16 +372,17 @@ impl App {
         let kb_h = if self.keyboard_open { 236.0 } else { 0.0 };
         let list = Rect::from_min_max(list.min, pos2(list.max.x, list.max.y - kb_h));
         if self.lib.rows.is_empty() {
-            let msg = if self.lib.track_filter.is_active() {
-                "No tracks match the filter. Tap FILTER to change or clear it."
+            let (icon, msg) = if self.lib.track_filter.is_active() {
+                (icons::FILTER, "No tracks match the filter. Tap FILTER to change or clear it.")
             } else if self.lib.node() == Node::Tag {
-                "Tag tracks with TAG (or T) while browsing; they collect here for the set."
+                (icons::TAG, "Tag tracks with TAG (or T) while browsing; they collect here for the set.")
             } else if !self.lib.filter.is_empty() {
-                "Nothing matches the search. BACK clears it."
+                (icons::SEARCH, "Nothing matches the search. BACK clears it.")
             } else {
-                "Nothing here."
+                (icons::PLAYLIST, "Nothing here.")
             };
-            p.text(list.center(), Align2::CENTER_CENTER, msg, t::body(), t::INK_MUTED);
+            p.text(list.center() - vec2(0.0, 30.0), Align2::CENTER_CENTER, icon, cond(34.0), t::INK_FAINT);
+            p.text(list.center() + vec2(0.0, 8.0), Align2::CENTER_CENTER, msg, t::body(), t::INK_MUTED);
         } else {
             let row_h = [28.0, 34.0, 42.0][self.config.browse_text.min(2) as usize];
             let title = [14.0, 16.0, 19.0][self.config.browse_text.min(2) as usize];
@@ -400,28 +408,16 @@ impl App {
         let mut x = row1.min.x;
         if self.lib.depth() > 0 || !self.lib.filter.is_empty() {
             let br = Rect::from_min_size(pos2(x, row1.min.y + 1.0), vec2(74.0, 32.0));
-            if button_tip(ui, &mut self.touches, br, Id::NULL.with("bback"), "‹ BACK", None, semi(14.0), "Up one level, or clear the search  ( Backspace )").clicked {
+            if button_tip(ui, &mut self.touches, br, Id::NULL.with("bback"), &format!("{}  BACK", icons::CARET_LEFT), None, semi(14.0), "Up one level, or clear the search  ( Backspace )").clicked {
                 self.browse_back();
             }
             x += 84.0;
         }
         let search_w = 250.0;
-        let crumbs = self.lib.crumbs();
-        let last = crumbs.len().saturating_sub(1);
-        let mut job = LayoutJob::default();
-        for (i, c) in crumbs.iter().enumerate() {
-            let (font, col) = if i == last { (semi(16.0), t::INK) } else { (cond(16.0), t::INK_FAINT) };
-            job.append(c, 0.0, egui::TextFormat::simple(font, col));
-            if i != last {
-                job.append("  ›  ", 0.0, egui::TextFormat::simple(cond(16.0), t::INK_FAINT));
-            }
-        }
-        job.wrap = TextWrapping::truncate_at_width((row1.max.x - x - search_w - 70.0).max(40.0));
-        let g = p.layout_job(job);
+        let g = p.layout_job(crumbs_job(&self.lib.crumbs(), row1.max.x - x - search_w - 70.0));
         p.galley(pos2(x, row1.center().y - g.size().y / 2.0), g, t::INK);
         let sr = Rect::from_min_size(pos2(row1.max.x - search_w - 64.0, row1.min.y + 2.0), vec2(search_w, 30.0));
-        let te = egui::TextEdit::singleline(&mut self.search).hint_text("Search  ( / )").font(cond(16.0)).desired_width(sr.width());
-        let resp = ui.put(sr, te);
+        let resp = search_field(ui, sr, &mut self.search);
         if std::mem::take(&mut self.focus_search) {
             resp.request_focus();
         }
@@ -435,7 +431,7 @@ impl App {
             self.keyboard_open = true;
         }
         let kr = Rect::from_min_size(pos2(row1.max.x - 58.0, row1.min.y + 1.0), vec2(58.0, 32.0));
-        if button_tip(ui, &mut self.touches, kr, Id::NULL.with("kbd"), "ABC", self.keyboard_open.then_some(t::ACCENT), semi(14.0), "On-screen keyboard for search").clicked {
+        if button_tip(ui, &mut self.touches, kr, Id::NULL.with("kbd"), icons::KEYBOARD, self.keyboard_open.then_some(t::ACCENT), cond(20.0), "On-screen keyboard for search").clicked {
             self.keyboard_open = !self.keyboard_open;
         }
 
@@ -458,10 +454,15 @@ impl App {
             button_tip(ui, &mut app.touches, br, Id::NULL.with(id), label, lit.then_some(t::ACCENT), semi(14.0), tip).clicked
         };
         let small = inner.width() < 700.0;
-        if tool(self, if small { 70.0 } else { 82.0 }, "bfilter", "FILTER", f.is_active() || self.browse_popup == Some(Popup::Filter), &ftip) {
+        let (filter_l, cols_l, info_l) = if small {
+            (icons::FILTER.to_string(), icons::COLUMNS.to_string(), icons::INFO.to_string())
+        } else {
+            (format!("{}  FILTER", icons::FILTER), format!("{}  COLUMNS", icons::COLUMNS), format!("{}  INFO", icons::INFO))
+        };
+        if tool(self, if small { 44.0 } else { 92.0 }, "bfilter", &filter_l, f.is_active() || self.browse_popup == Some(Popup::Filter), &ftip) {
             self.browse_popup = if self.browse_popup == Some(Popup::Filter) { None } else { Some(Popup::Filter) };
         }
-        if tool(self, if small { 52.0 } else { 90.0 }, "bcols", if small { "COLS" } else { "COLUMNS" }, self.browse_popup == Some(Popup::Columns), "Choose the columns shown") {
+        if tool(self, if small { 44.0 } else { 108.0 }, "bcols", &cols_l, self.browse_popup == Some(Popup::Columns), "Choose the columns shown") {
             self.browse_popup = if self.browse_popup == Some(Popup::Columns) { None } else { Some(Popup::Columns) };
         }
         if tool(self, 40.0, "btext-", "A−", false, "Smaller text") {
@@ -472,7 +473,7 @@ impl App {
             self.config.browse_text = (self.config.browse_text + 1).min(2);
             self.scroll_to_selected = true;
         }
-        if tool(self, if small { 52.0 } else { 64.0 }, "binfo", "INFO", self.config.browse_info, "Show details for the highlighted track") {
+        if tool(self, if small { 44.0 } else { 76.0 }, "binfo", &info_l, self.config.browse_info, "Show details for the highlighted track") {
             self.config.browse_info = !self.config.browse_info;
         }
         let _ = v;
@@ -491,20 +492,21 @@ impl App {
                 self.load_selected(d);
             }
         }
-        rx -= 72.0;
         let tagged = sel.as_ref().is_some_and(|s| self.lib.is_tagged(&s.path));
-        let br = Rect::from_min_size(pos2(rx, y2), vec2(68.0, h));
+        let tag_w = if tagged { 98.0 } else { 74.0 };
+        rx -= tag_w + 4.0;
+        let br = Rect::from_min_size(pos2(rx, y2), vec2(tag_w, h));
         let tip = if tagged { "Remove from the tag list  ( T )" } else { "Add to the tag list  ( T )" };
-        if button_tip(ui, &mut self.touches, br, Id::NULL.with("btag"), if tagged { "TAGGED" } else { "TAG" }, tagged.then_some(t::ACCENT), semi(14.0), tip).clicked {
+        if button_tip(ui, &mut self.touches, br, Id::NULL.with("btag"), &format!("{}  {}", icons::TAG, if tagged { "TAGGED" } else { "TAG" }), tagged.then_some(t::ACCENT), semi(14.0), tip).clicked {
             if let Some(s) = sel {
                 self.lib.toggle_tag(&s);
             }
         }
         if self.lib.node() == Node::Tag && !self.lib.tags.is_empty() {
-            rx -= 112.0;
-            let br = Rect::from_min_size(pos2(rx, y2), vec2(106.0, h));
+            rx -= 128.0;
+            let br = Rect::from_min_size(pos2(rx, y2), vec2(122.0, h));
             let confirm = self.clear_tags_confirm.is_some_and(|t| t.elapsed().as_secs_f32() < 3.0);
-            if button_tip(ui, &mut self.touches, br, Id::NULL.with("bclear"), if confirm { "CLEAR ALL?" } else { "CLEAR ALL" }, confirm.then_some(t::DANGER), semi(14.0), "Empty the tag list (press twice)").clicked {
+            if button_tip(ui, &mut self.touches, br, Id::NULL.with("bclear"), &format!("{}  {}", icons::TRASH, if confirm { "CLEAR ALL?" } else { "CLEAR ALL" }), confirm.then_some(t::DANGER), semi(14.0), "Empty the tag list (press twice)").clicked {
                 if confirm {
                     self.lib.clear_tags();
                     self.clear_tags_confirm = None;
@@ -584,7 +586,7 @@ impl App {
         // Tap outside the popup to close it.
         if ui.input(|i| i.pointer.any_pressed()) {
             if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-                let header_btns = Rect::from_min_size(pos2(r.min.x, r.min.y - 44.0), vec2(180.0, 40.0));
+                let header_btns = Rect::from_min_size(pos2(r.min.x, r.min.y - 44.0), vec2(212.0, 40.0));
                 if !r.expand(4.0).contains(pos) && !header_btns.contains(pos) {
                     self.browse_popup = None;
                 }
@@ -611,7 +613,8 @@ impl App {
             }
             None => {
                 p.rect_filled(ar, CornerRadius::same(4), t::INSET);
-                p.text(ar.center(), Align2::CENTER_CENTER, "NO ARTWORK", caption(), t::INK_FAINT);
+                p.text(ar.center() - vec2(0.0, 10.0), Align2::CENTER_CENTER, icons::IMAGE, cond(34.0), t::BORDER.gamma_multiply(1.6));
+                p.text(ar.center() + vec2(0.0, 22.0), Align2::CENTER_CENTER, "NO ARTWORK", caption(), t::INK_FAINT);
             }
         }
         y += art_s + 10.0;
@@ -631,6 +634,7 @@ impl App {
         y += 48.0;
         // Facts.
         let mut facts: Vec<(&str, String)> = Vec::new();
+        let mut rating = 0;
         facts.push(("BPM", e.bpm.map(|b| format!("{b:.2}")).unwrap_or_else(|| "–".into())));
         let lead_key = lead_deck(v).and_then(|d| self.decks[d].track.as_ref()).and_then(|t| crate::keys::parse(&t.key));
         let key_s = match crate::keys::parse(&e.key) {
@@ -651,9 +655,7 @@ impl App {
                     facts.push(("GENRE", g.clone()));
                 }
                 facts.push(("FORMAT", format!("{} · {} kbps · {:.1} kHz", e.ext, row.bitrate, row.sample_rate as f64 / 1000.0)));
-                if row.rating > 0 {
-                    facts.push(("RATING", "★".repeat(row.rating.min(5) as usize)));
-                }
+                rating = row.rating.min(5) as usize;
                 if !row.comment.is_empty() {
                     facts.push(("COMMENT", row.comment.clone()));
                 }
@@ -664,6 +666,10 @@ impl App {
         } else {
             facts.push(("FILE", e.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
         }
+        if rating > 0 {
+            // Drawn after the loop as stars; reserve its row here.
+            facts.push(("RATING", String::new()));
+        }
         if self.lib.played.contains(&e.path) {
             facts.push(("PLAYED", "Already played this session".into()));
         }
@@ -672,6 +678,12 @@ impl App {
                 break;
             }
             p.text(pos2(inner.min.x, y), Align2::LEFT_TOP, k, caption(), t::INK_FAINT);
+            if k == "RATING" {
+                for i in 0..5 {
+                    let (font, col) = if i < rating { (icons::fill(14.0), t::CUE) } else { (cond(14.0), t::INK_FAINT) };
+                    p.text(pos2(inner.min.x + 72.0 + i as f32 * 17.0, y + 7.0), Align2::LEFT_CENTER, icons::STAR, font, col);
+                }
+            }
             text_fit(&p, pos2(inner.min.x + 72.0, y - 1.0), Align2::LEFT_TOP, &val, cond(15.0), t::INK, inner.width() - 72.0);
             y += 22.0;
         }
@@ -700,7 +712,8 @@ impl App {
         }
         // Bottom row: CLEAR, SPACE, DEL, DONE.
         let y = inner.min.y + 4.0 * (kh + gap);
-        let specs: [(&str, f32); 4] = [("CLEAR", 2.0), ("SPACE", 4.0), ("DEL", 2.0), ("DONE", 2.0)];
+        let del = format!("{}  DEL", icons::BACKSPACE);
+        let specs: [(&str, f32); 4] = [("CLEAR", 2.0), ("SPACE", 4.0), (del.as_str(), 2.0), ("DONE", 2.0)];
         let mut x = inner.min.x;
         for (i, (label, units)) in specs.iter().enumerate() {
             let w = units * kw + (units - 1.0) * gap;

@@ -10,7 +10,13 @@ use crate::engine::{Cmd, EngineView, MixParam, DECKS};
 use crate::rekordbox::settings::{CrossfaderCurve, FaderCurve, WaveColor};
 use crate::theme::{self as t, cond, mono, semi};
 
-const PAGES: [&str; 5] = ["PLAYER", "MIXER & FX", "AUDIO", "CONTROLLER", "SYSTEM"];
+const PAGES: [(&str, &str); 5] = [
+    (crate::icons::PLAYER, "PLAYER"),
+    (crate::icons::MIXER, "MIXER & FX"),
+    (crate::icons::AUDIO, "AUDIO"),
+    (crate::icons::CONTROLLER, "CONTROLLER"),
+    (crate::icons::SYSTEM, "SYSTEM"),
+];
 
 #[derive(Default)]
 pub struct SettingsState {
@@ -64,9 +70,9 @@ impl App {
         // Page tabs down the left.
         let side = Rect::from_min_size(r.min, vec2(190.0, r.height()));
         card(&p, side);
-        for (i, name) in PAGES.iter().enumerate() {
-            let br = Rect::from_min_size(pos2(side.min.x + 8.0, side.min.y + 8.0 + i as f32 * 46.0), vec2(side.width() - 16.0, 40.0));
-            if button(ui, &mut self.touches, br, Id::NULL.with(("spage", i)), name, (self.settings.page == i).then_some(t::ACCENT), semi(15.0)).clicked {
+        for (i, (icon, name)) in PAGES.iter().enumerate() {
+            let br = Rect::from_min_size(pos2(side.min.x + 6.0, side.min.y + 8.0 + i as f32 * 44.0), vec2(side.width() - 12.0, 40.0));
+            if super::nav_row(ui, &mut self.touches, br, Id::NULL.with(("spage", i)), icon, name, self.settings.page == i).clicked {
                 self.settings.page = i;
             }
         }

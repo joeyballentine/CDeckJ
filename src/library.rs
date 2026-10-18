@@ -83,6 +83,8 @@ pub enum NavKind {
     Drive,
     Playlist,
     Collection,
+    History,
+    Tag,
 }
 
 #[derive(Clone, Debug)]
@@ -509,11 +511,11 @@ impl Library {
                 };
                 rows.push(nav("Music folder".into(), detail, NavKind::Folder, Node::Folder));
                 if !self.tags.is_empty() {
-                    rows.push(nav("Tag list".into(), format!("{} tracks", self.tags.len()), NavKind::Playlist, Node::Tag));
+                    rows.push(nav("Tag list".into(), format!("{} tracks", self.tags.len()), NavKind::Tag, Node::Tag));
                 }
                 let n = self.sessions.len() + usize::from(!self.current.entries.is_empty());
                 if n > 0 {
-                    rows.push(nav("History".into(), format!("{n} sessions"), NavKind::Collection, Node::History));
+                    rows.push(nav("History".into(), format!("{n} sessions"), NavKind::History, Node::History));
                 }
             }
             Node::History => {
@@ -544,7 +546,7 @@ impl Library {
                     let top = ex.playlist_children(0).len();
                     rows.push(nav("Playlists".into(), format!("{top} items"), NavKind::Folder, Node::UsbPlaylists(u, 0)));
                     if !ex.db.history.is_empty() {
-                        rows.push(nav("History".into(), format!("{} sessions", ex.db.history.len()), NavKind::Folder, Node::UsbHistory(u)));
+                        rows.push(nav("History".into(), format!("{} sessions", ex.db.history.len()), NavKind::History, Node::UsbHistory(u)));
                     }
                 }
             }

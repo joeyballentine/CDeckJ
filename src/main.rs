@@ -8,6 +8,7 @@ mod cardprofile;
 mod config;
 mod engine;
 mod history;
+mod icons;
 mod keys;
 mod library;
 mod midi;

@@ -155,7 +155,7 @@ impl App {
         let mut x = cr.min.x;
         let cue_r = Rect::from_min_size(pos2(x, cr.min.y), vec2(h, h));
         let blink = (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0;
-        let cc = round_button(ui, &mut self.touches, cue_r, Id::NULL.with(("wcue", d)), "CUE", t::CUE, dv.loaded && (dv.playing || dv.at_cue || blink));
+        let cc = round_button(ui, &mut self.touches, cue_r, Id::NULL.with(("wcue", d)), "CUE", None, t::CUE, dv.loaded && (dv.playing || dv.at_cue || blink));
         if cc.down != self.decks[d].cue_held {
             self.decks[d].cue_held = cc.down;
             self.send(Cmd::Cue(d, cc.down));
@@ -165,7 +165,7 @@ impl App {
         }
         x += h + 8.0;
         let play_r = Rect::from_min_size(pos2(x, cr.min.y), vec2(h, h));
-        let pc = round_button(ui, &mut self.touches, play_r, Id::NULL.with(("wplay", d)), "PLAY", t::PLAY, dv.playing || (dv.loaded && blink));
+        let pc = round_button(ui, &mut self.touches, play_r, Id::NULL.with(("wplay", d)), "PLAY", Some(crate::icons::PLAY_PAUSE), t::PLAY, dv.playing || (dv.loaded && blink));
         if (pc.down && !self.decks[d].play_held) || pc.key {
             self.send(Cmd::Play(d));
         }
@@ -174,8 +174,8 @@ impl App {
         let jump = self.config.beat_jump;
         let jb = crate::rekordbox::settings::fmt_beats(jump);
         let btns: [(String, Option<Color32>, Cmd, &str); 7] = [
-            (format!("« {jb}"), None, Cmd::BeatJump(d, -jump), "Jump back"),
-            (format!("{jb} »"), None, Cmd::BeatJump(d, jump), "Jump forward"),
+            (format!("{} {jb}", crate::icons::CARET_DOUBLE_LEFT), None, Cmd::BeatJump(d, -jump), "Jump back"),
+            (format!("{jb} {}", crate::icons::CARET_DOUBLE_RIGHT), None, Cmd::BeatJump(d, jump), "Jump forward"),
             ("4 BEAT".into(), None, Cmd::AutoLoop(d, 4.0), "4-beat loop"),
             ("½×".into(), None, Cmd::LoopScale(d, 0.5), "Halve the loop"),
             ("2×".into(), None, Cmd::LoopScale(d, 2.0), "Double the loop"),
@@ -267,7 +267,7 @@ impl App {
         }
         // Zoom and colour at the right.
         let w = 34.0;
-        for (i, (label, dir)) in [("−", 1), ("+", -1)].into_iter().enumerate() {
+        for (i, (label, dir)) in [(crate::icons::ZOOM_OUT, 1), (crate::icons::ZOOM_IN, -1)].into_iter().enumerate() {
             let br = Rect::from_min_size(pos2(inner.max.x - 2.0 * (w + 4.0) + i as f32 * (w + 4.0), r.center().y - 15.0), vec2(w, 30.0));
             let tip = if dir > 0 { "Zoom waveforms out  ( − or the browse knob )" } else { "Zoom waveforms in  ( = or the browse knob )" };
             if button_tip(ui, &mut self.touches, br, Id::NULL.with(("wzoom", i)), label, None, semi(16.0), tip).clicked {

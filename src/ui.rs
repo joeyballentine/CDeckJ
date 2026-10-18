@@ -18,6 +18,7 @@ use crate::audio::{self, AudioOptions, AudioOut};
 use crate::config::{Config, Store};
 use crate::engine::deck::{HotCue, HOT_CUES, SCRATCH_SECS_PER_TICK};
 use crate::engine::{Cmd, DeckView, EngineView, MixParam, SharedEngine, SharedView, DECKS};
+use crate::icons;
 use crate::library::{self, LibEvent, LibTrack, Library, NavKind, Row};
 use crate::midi::{Ctl as MidiCtl, MidiStatus, PickupLocks, UiAction};
 use crate::system::{GamepadStatus, KeepAwake};
@@ -959,6 +960,11 @@ fn focused_arrow(ui: &Ui, resp: &egui::Response) -> f64 {
 #[allow(clippy::too_many_arguments)]
 fn button_tip(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str, lit: Option<Color32>, font: FontId, tip: &str) -> crate::touch::Ctl {
     let (c, resp) = button_resp(ui, tc, r, id, label, lit, font);
+    if crate::icons::strip(label).is_empty() {
+        // Icon-only: the tooltip names it for screen readers.
+        let (name, sel) = (tip.split("  (").next().unwrap_or(tip).to_string(), lit.is_some());
+        resp.widget_info(|| WidgetInfo::selected(egui::Role::Button, true, sel, &name));
+    }
     if !tc.touch_mode() {
         resp.on_hover_text(tip);
     }
@@ -977,7 +983,7 @@ fn button(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str, lit: Option<C
 }
 
 fn button_resp(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str, lit: Option<Color32>, font: FontId) -> (crate::touch::Ctl, egui::Response) {
-    let l = label.to_string();
+    let l = crate::icons::strip(label);
     let selected = lit.is_some();
     let (c, resp) = control(ui, tc, r, id, || WidgetInfo::selected(egui::Role::Button, true, selected, &l));
     let p = ui.painter();
@@ -996,7 +1002,9 @@ fn button_resp(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str, lit: Opt
     (c, resp)
 }
 
-fn round_button(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str, col: Color32, lit: bool) -> crate::touch::Ctl {
+/// A round transport button. With `icon`, the icon (solid) is drawn and `label` only names it.
+#[allow(clippy::too_many_arguments)]
+fn round_button(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str, icon: Option<&str>, col: Color32, lit: bool) -> crate::touch::Ctl {
     let l = label.to_string();
     let (c, resp) = control(ui, tc, r, id, || WidgetInfo::labeled(egui::Role::Button, true, &l));
     let p = ui.painter();
@@ -1004,7 +1012,11 @@ fn round_button(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str, col: Co
     let rad = r.width().min(r.height()) / 2.0;
     p.circle_filled(center, rad, if c.down { t::HOVER } else { t::RAISED });
     p.circle_stroke(center, rad - 1.5, Stroke::new(3.0, if lit { col } else { col.gamma_multiply(0.25) }));
-    p.text(center, Align2::CENTER_CENTER, label, semi(15.0), if lit { col } else { t::INK_MUTED });
+    let ink = if lit { col } else { t::INK_MUTED };
+    match icon {
+        Some(i) => p.text(center, Align2::CENTER_CENTER, i, icons::fill(rad * 0.78), ink),
+        None => p.text(center, Align2::CENTER_CENTER, label, semi(15.0), ink),
+    };
     if resp.has_focus() {
         p.circle_stroke(center, rad + 3.0, Stroke::new(2.0, t::ACCENT));
     }
@@ -1180,33 +1192,60 @@ mod tests {
 
 /// Small painted glyphs for browser rows (folder, drive, playlist, collection).
 fn nav_icon(p: &Painter, c: Pos2, kind: NavKind) {
-    let ink = t::INK_MUTED;
-    let st = Stroke::new(1.5, ink);
-    match kind {
-        NavKind::Folder => {
-            let body = Rect::from_center_size(c + vec2(0.0, 1.5), vec2(16.0, 11.0));
-            p.rect_stroke(body, CornerRadius::same(2), st, StrokeKind::Middle);
-            p.line_segment([pos2(body.min.x, body.min.y), pos2(body.min.x + 6.0, body.min.y - 3.0)], st);
-            p.line_segment([pos2(body.min.x + 6.0, body.min.y - 3.0), pos2(body.min.x + 8.0, body.min.y)], st);
-        }
-        NavKind::Drive => {
-            let body = Rect::from_center_size(c + vec2(0.0, 2.0), vec2(10.0, 13.0));
-            p.rect_stroke(body, CornerRadius::same(2), Stroke::new(1.5, t::CUE), StrokeKind::Middle);
-            let plug = Rect::from_min_max(pos2(c.x - 3.0, body.min.y - 5.0), pos2(c.x + 3.0, body.min.y));
-            p.rect_stroke(plug, CornerRadius::ZERO, Stroke::new(1.5, t::CUE), StrokeKind::Middle);
-        }
-        NavKind::Playlist => {
-            for k in 0..3 {
-                let y = c.y - 5.0 + k as f32 * 5.0;
-                p.circle_filled(pos2(c.x - 7.0, y), 1.5, ink);
-                p.line_segment([pos2(c.x - 3.0, y), pos2(c.x + 8.0, y)], st);
-            }
-        }
-        NavKind::Collection => {
-            p.circle_stroke(c, 7.5, st);
-            p.circle_filled(c, 2.0, ink);
+    let (icon, col) = match kind {
+        NavKind::Folder => (icons::FOLDER, t::INK_MUTED),
+        NavKind::Drive => (icons::USB, t::ACCENT),
+        NavKind::Playlist => (icons::PLAYLIST, t::INK_MUTED),
+        NavKind::Collection => (icons::TRACKS, t::INK_MUTED),
+        NavKind::History => (icons::HISTORY, t::INK_MUTED),
+        NavKind::Tag => (icons::TAG, t::ACCENT),
+    };
+    p.text(c, Align2::CENTER_CENTER, icon, cond(18.0), col);
+}
+
+/// A full-width navigation row (side bars): icon, label, accent tint when selected.
+fn nav_row(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, icon: &str, label: &str, on: bool) -> crate::touch::Ctl {
+    let l = label.to_string();
+    let (c, resp) = control(ui, tc, r, id, || WidgetInfo::selected(egui::Role::Button, true, on, &l));
+    let p = ui.painter();
+    if on {
+        p.rect_filled(r, CornerRadius::same(t::R_CONTROL), t::ACCENT.gamma_multiply(0.2));
+    } else if c.hovered || c.down {
+        p.rect_filled(r, CornerRadius::same(t::R_CONTROL), t::RAISED);
+    }
+    focus_ring(p, r, &resp, t::R_CONTROL);
+    let ink = if on { t::INK } else { t::INK_MUTED };
+    p.text(pos2(r.min.x + 18.0, r.center().y), Align2::CENTER_CENTER, icon, cond(18.0), if on { t::ACCENT } else { t::INK_FAINT });
+    text_fit(p, pos2(r.min.x + 38.0, r.center().y), Align2::LEFT_CENTER, label, semi(15.0), ink, r.width() - 44.0);
+    c
+}
+
+/// The magnifier inside a search field (the field gets a matching left margin).
+fn search_field(ui: &mut Ui, r: Rect, text: &mut String) -> egui::Response {
+    let te = egui::TextEdit::singleline(text)
+        .hint_text("Search  ( / )")
+        .font(cond(16.0))
+        .margin(egui::Margin { left: 30, right: 6, top: 3, bottom: 3 })
+        .desired_width(r.width());
+    let resp = ui.put(r, te);
+    let col = if resp.has_focus() { t::INK_MUTED } else { t::INK_FAINT };
+    ui.painter().text(pos2(r.min.x + 15.0, r.center().y), Align2::CENTER_CENTER, icons::SEARCH, cond(16.0), col);
+    resp
+}
+
+/// Breadcrumbs: earlier levels faint, the current one bright, carets between.
+fn crumbs_job(crumbs: &[String], max_w: f32) -> LayoutJob {
+    let last = crumbs.len().saturating_sub(1);
+    let mut job = LayoutJob::default();
+    for (i, c) in crumbs.iter().enumerate() {
+        let (font, col) = if i == last { (semi(16.0), t::INK) } else { (cond(16.0), t::INK_FAINT) };
+        job.append(c, 0.0, egui::TextFormat::simple(font, col));
+        if i != last {
+            job.append(&format!("  {}  ", icons::CARET_RIGHT), 0.0, egui::TextFormat::simple(cond(13.0), t::INK_FAINT));
         }
     }
+    job.wrap = TextWrapping::truncate_at_width(max_w.max(40.0));
+    job
 }
 
 /// Sort-direction caret drawn next to a column header.
@@ -1223,11 +1262,14 @@ impl App {
     fn top_bar(&mut self, ui: &Ui, r: Rect, v: &EngineView) {
         let p = ui.painter().clone();
         p.text(pos2(r.min.x + 12.0, r.center().y), Align2::LEFT_CENTER, "CDeckJ", semi(18.0), t::INK);
-        let right_w = 522.0;
-        // View tabs, like a CDJ's screen buttons.
-        let x = self.view_tabs(ui, r.min.x + 92.0, r) + 8.0;
+        let right_w = 548.0;
+        // View tabs, like a CDJ's screen buttons; icons only when the window is narrow.
+        let labels = r.width() - right_w - 92.0 - views::tabs_width(ui) >= 200.0;
+        let x = self.view_tabs(ui, r.min.x + 92.0, r, labels) + 8.0;
         // Compact audio and controller status; tap for the full story.
-        let dot = |x: f32, ok: bool| p.circle_filled(pos2(x, r.center().y), 4.0, if ok { t::PLAY } else { t::DANGER });
+        let status_icon = |x: f32, icon: &str, ok: bool| {
+            p.text(pos2(x + 5.0, r.center().y), Align2::CENTER_CENTER, icon, cond(16.0), if ok { t::PLAY } else { t::DANGER });
+        };
         let midi = self.midi.lock().clone();
         let pad = self.gamepad.as_ref().and_then(|g| g.lock().clone());
         let (audio_ok, audio_short, audio_long) = match (&self.audio, &self.audio_error) {
@@ -1258,10 +1300,11 @@ impl App {
         };
         let avail = (r.max.x - right_w - x - 12.0).max(60.0);
         let half = avail / 2.0;
-        dot(x + 4.0, audio_ok);
-        text_fit(&p, pos2(x + 14.0, r.center().y), Align2::LEFT_CENTER, &audio_short, cond(14.0), if audio_ok { t::INK_MUTED } else { t::DANGER }, half - 22.0);
-        dot(x + half + 4.0, midi.is_some() || pad.is_some());
-        text_fit(&p, pos2(x + half + 14.0, r.center().y), Align2::LEFT_CENTER, &ctl_short, cond(14.0), t::INK_MUTED, half - 22.0);
+        status_icon(x, if audio_ok { icons::SPEAKER } else { icons::SPEAKER_OFF }, audio_ok);
+        text_fit(&p, pos2(x + 18.0, r.center().y), Align2::LEFT_CENTER, &audio_short, cond(14.0), if audio_ok { t::INK_MUTED } else { t::DANGER }, half - 26.0);
+        let ctl_icon = if midi.is_none() && pad.is_some() { icons::GAMEPAD } else { icons::CONTROLLER };
+        status_icon(x + half, ctl_icon, midi.is_some() || pad.is_some());
+        text_fit(&p, pos2(x + half + 18.0, r.center().y), Align2::LEFT_CENTER, &ctl_short, cond(14.0), t::INK_MUTED, half - 26.0);
         let sr = Rect::from_min_size(pos2(x - 4.0, r.min.y + 3.0), vec2(avail + 4.0, r.height() - 6.0));
         if invisible_button(ui, &mut self.touches, sr, Id::NULL.with("status"), "Audio and controller status", "Tap for the full audio and controller details").clicked {
             self.banner = Some(format!("{audio_long}\n{ctl_long}"));
@@ -1269,7 +1312,7 @@ impl App {
 
         // Right: QUANTIZE, DSP load, master meter.
         // EXIT (press twice), at the far right like a window's close button.
-        let er = Rect::from_min_size(pos2(r.max.x - 66.0, r.min.y + 5.0), vec2(58.0, 24.0));
+        let er = Rect::from_min_size(pos2(r.max.x - 76.0, r.min.y + 5.0), vec2(68.0, 24.0));
         let confirm = self.exit_confirm.is_some_and(|t| t.elapsed() < Duration::from_secs(3));
         let busy = self.recorder.is_recording() || v.decks.iter().any(|d| d.playing);
         let tip = match (confirm, busy) {
@@ -1277,10 +1320,11 @@ impl App {
             (true, false) => "Press again to quit",
             (false, _) => "Quit CDeckJ. Press twice  ( Ctrl+Q )",
         };
-        if button_tip(ui, &mut self.touches, er, Id::NULL.with("exit"), if confirm { "EXIT?" } else { "EXIT" }, confirm.then_some(t::DANGER), semi(13.0), tip).clicked {
+        let exit = format!("{}  {}", icons::POWER, if confirm { "EXIT?" } else { "EXIT" });
+        if button_tip(ui, &mut self.touches, er, Id::NULL.with("exit"), &exit, confirm.then_some(t::DANGER), semi(13.0), tip).clicked {
             self.exit_press(ui.ctx());
         }
-        let m = Rect::from_min_size(pos2(r.max.x - 186.0, r.center().y - 4.0), vec2(106.0, 8.0));
+        let m = Rect::from_min_size(pos2(r.max.x - 196.0, r.center().y - 4.0), vec2(106.0, 8.0));
         p.rect_filled(m, 2, t::INSET);
         let db = 20.0 * v.peak_master.max(1e-6).log10();
         let f = ((db + 42.0) / 42.0).clamp(0.0, 1.0);
@@ -1296,9 +1340,9 @@ impl App {
         };
         p.text(pos2(m.min.x - 64.0, r.center().y), Align2::RIGHT_CENTER, dsp, mono(12.0), dcol);
         self.rec_button(ui, &p, Rect::from_min_size(pos2(r.max.x - right_w + 6.0, r.min.y + 5.0), vec2(90.0, 24.0)));
-        let qr = Rect::from_min_size(pos2(r.max.x - right_w + 102.0, r.min.y + 5.0), vec2(84.0, 24.0));
+        let qr = Rect::from_min_size(pos2(r.max.x - right_w + 102.0, r.min.y + 5.0), vec2(100.0, 24.0));
         let qtip = if v.quantize { "Quantize on: cues, loops and jumps snap to the beat  ( G )" } else { "Quantize off  ( G )" };
-        if button_tip(ui, &mut self.touches, qr, Id::NULL.with("quantize"), "QUANTIZE", v.quantize.then_some(t::ACCENT), semi(13.0), qtip).clicked {
+        if button_tip(ui, &mut self.touches, qr, Id::NULL.with("quantize"), &format!("{}  QUANTIZE", icons::MAGNET), v.quantize.then_some(t::ACCENT), semi(13.0), qtip).clicked {
             self.send(Cmd::QuantizeToggle);
         }
     }
@@ -1329,13 +1373,13 @@ impl App {
         x += 10.0;
         // Beat ◀ value ▶
         let l = Rect::from_min_size(pos2(x, y), vec2(32.0, h));
-        if button_tip(ui, &mut self.touches, l, Id::NULL.with("fxb-"), "‹", None, semi(18.0), "Shorter beat value").clicked {
+        if button_tip(ui, &mut self.touches, l, Id::NULL.with("fxb-"), icons::CARET_LEFT, None, semi(16.0), "Shorter beat value").clicked {
             self.send(Cmd::Mix(MixParam::FxBeat(-1)));
         }
         let label = if fx.kind == crate::engine::fx::FxKind::Reverb { format!("{}%", 10 + fx.beat_idx * 11) } else { beats_label(fx.beats()) };
         p.text(pos2(x + 32.0 + 26.0, r.center().y), Align2::CENTER_CENTER, label, mono(15.0), t::INK);
         let rr = Rect::from_min_size(pos2(x + 32.0 + 52.0, y), vec2(32.0, h));
-        if button_tip(ui, &mut self.touches, rr, Id::NULL.with("fxb+"), "›", None, semi(18.0), "Longer beat value").clicked {
+        if button_tip(ui, &mut self.touches, rr, Id::NULL.with("fxb+"), icons::CARET_RIGHT, None, semi(16.0), "Longer beat value").clicked {
             self.send(Cmd::Mix(MixParam::FxBeat(1)));
         }
         x += beat_w + 14.0;
@@ -1435,14 +1479,11 @@ impl App {
             self.record_toggle();
         }
         if !confirm {
+            // Solid while armed or on the blink, outline in between.
             let blink = (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0;
-            let lit = !rec || blink;
-            let c = pos2(r.min.x + 16.0, r.center().y);
-            if lit {
-                p.circle_filled(c, 4.5, t::DANGER);
-            } else {
-                p.circle_stroke(c, 4.0, Stroke::new(1.2, t::DANGER));
-            }
+            let c = pos2(r.min.x + 17.0, r.center().y);
+            let font = if !rec || blink { icons::fill(15.0) } else { cond(15.0) };
+            p.text(c, Align2::CENTER_CENTER, icons::RECORD, font, t::DANGER);
         }
     }
 
@@ -1454,7 +1495,7 @@ impl App {
             p.galley(pos2(r.min.x + 14.0, r.center().y - g.size().y / 2.0), g, t::INK);
         }
         let br = Rect::from_min_size(pos2(r.max.x - 104.0, r.min.y + 3.0), vec2(96.0, 24.0));
-        if button(ui, &mut self.touches, br, Id::NULL.with("banner"), "DISMISS", None, semi(13.0)).clicked {
+        if button(ui, &mut self.touches, br, Id::NULL.with("banner"), &format!("{}  DISMISS", icons::X), None, semi(13.0)).clicked {
             self.banner = None;
         }
     }
@@ -1467,7 +1508,7 @@ impl App {
         if button_tip(ui, &mut self.touches, mr, Id::NULL.with("wavemode"), crate::wave::mode_name(mode), None, semi(13.0), "Waveform colour: Blue / RGB / 3-Band  ( W )").clicked {
             self.config.waveform_color = crate::wave::next_mode(mode);
         }
-        for (i, (label, dir)) in [("−", 1), ("+", -1)].into_iter().enumerate() {
+        for (i, (label, dir)) in [(icons::ZOOM_OUT, 1), (icons::ZOOM_IN, -1)].into_iter().enumerate() {
             let r = Rect::from_min_size(pos2(waves.max.x - 2.0 * (w + 4.0) - 6.0 + i as f32 * (w + 4.0), waves.min.y + 4.0), vec2(w, 26.0));
             let tip = if dir > 0 { "Zoom waveforms out  ( − )" } else { "Zoom waveforms in  ( = )" };
             if button_tip(ui, &mut self.touches, r, Id::NULL.with(("zoom", i)), label, None, semi(16.0), tip).clicked {
@@ -1736,7 +1777,8 @@ impl App {
         // Two button rows: loops & jumps, then deck functions.
         let jump = self.config.beat_jump * if shift { 4.0 } else { 1.0 };
         let jb = crate::rekordbox::settings::fmt_beats(jump);
-        let (jump_l, jump_r) = (format!("« {jb}"), format!("{jb} »"));
+        let (jump_l, jump_r) = (format!("{} {jb}", icons::CARET_DOUBLE_LEFT), format!("{jb} {}", icons::CARET_DOUBLE_RIGHT));
+        let (call_l, call_r) = (format!("{} CALL", icons::CARET_LEFT), format!("CALL {}", icons::CARET_RIGHT));
         let rows: [[(&str, Option<Color32>, u8); 8]; 2] = [
             [
                 ("IN", (dv.loop_in.is_some() && !dv.loop_active).then_some(t::LOOP), 0),
@@ -1754,8 +1796,8 @@ impl App {
                 ("MT", dv.keylock.then_some(t::ACCENT), 12),
                 ("SLIP", dv.slip.then_some(t::SYNC), 13),
                 ("REV", dv.reverse.then_some(t::DANGER), 14),
-                ("« CALL", None, 15),
-                ("CALL »", None, 16),
+                (call_l.as_str(), None, 15),
+                (call_r.as_str(), None, 16),
                 (if shift { "DELETE" } else { "MEMORY" }, shift.then_some(t::MEMORY_CUE), 17),
             ],
         ];
@@ -1828,7 +1870,7 @@ impl App {
         let blink = (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0;
         let cue_lit = dv.loaded && (dv.playing || dv.at_cue || blink);
         let play_lit = dv.playing || dv.previewing || (dv.loaded && blink);
-        let cc = round_button(ui, &mut self.touches, cue_r, Id::NULL.with(("cue", d)), "CUE", t::CUE, cue_lit);
+        let cc = round_button(ui, &mut self.touches, cue_r, Id::NULL.with(("cue", d)), "CUE", None, t::CUE, cue_lit);
         if cc.down != self.decks[d].cue_held {
             self.decks[d].cue_held = cc.down;
             self.send(Cmd::Cue(d, cc.down));
@@ -1836,7 +1878,7 @@ impl App {
             self.send(Cmd::Cue(d, true));
             self.send(Cmd::Cue(d, false));
         }
-        let pc = round_button(ui, &mut self.touches, play_r, Id::NULL.with(("play", d)), "PLAY", t::PLAY, play_lit);
+        let pc = round_button(ui, &mut self.touches, play_r, Id::NULL.with(("play", d)), "PLAY", Some(icons::PLAY_PAUSE), t::PLAY, play_lit);
         if (pc.down && !self.decks[d].play_held) || pc.key {
             self.send(Cmd::Play(d));
         }
@@ -2118,7 +2160,7 @@ impl App {
         p.text(free.center(), Align2::CENTER_CENTER, format!("CH {}", c + 1), semi(15.0), tint);
         let mut y = r.min.y + 3.0 * kh + 6.0;
         let pfl = Rect::from_min_size(pos2(r.min.x + 6.0, y), vec2(r.width() - 12.0, 28.0));
-        if button(ui, &mut self.touches, pfl, Id::NULL.with(("pfl", c)), "CUE", cp.pfl.then_some(t::CUE), semi(14.0)).clicked {
+        if button(ui, &mut self.touches, pfl, Id::NULL.with(("pfl", c)), &format!("{}  CUE", icons::AUDIO), cp.pfl.then_some(t::CUE), semi(14.0)).clicked {
             self.send(Cmd::Mix(MixParam::PflToggle(c)));
         }
         y += 28.0 + 6.0;
@@ -2140,30 +2182,18 @@ impl App {
         let mut x = head.min.x;
         if self.lib.depth() > 0 || !self.lib.filter.is_empty() {
             let br = Rect::from_min_size(pos2(x, head.min.y + 1.0), vec2(74.0, 30.0));
-            if button_tip(ui, &mut self.touches, br, Id::NULL.with("back"), "‹ BACK", None, semi(14.0), "Up one level, or clear the search  ( Backspace )").clicked {
+            if button_tip(ui, &mut self.touches, br, Id::NULL.with("back"), &format!("{}  BACK", icons::CARET_LEFT), None, semi(14.0), "Up one level, or clear the search  ( Backspace )").clicked {
                 self.browse_back();
             }
             x += 84.0;
         }
         let right_w = 2.0 * 104.0 + 230.0;
-        let crumbs = self.lib.crumbs();
-        let last = crumbs.len() - 1;
-        let mut job = LayoutJob::default();
-        for (i, c) in crumbs.iter().enumerate() {
-            let (font, col) = if i == last { (semi(16.0), t::INK) } else { (cond(16.0), t::INK_FAINT) };
-            job.append(c, 0.0, egui::TextFormat::simple(font, col));
-            if i != last {
-                job.append("  ›  ", 0.0, egui::TextFormat::simple(cond(16.0), t::INK_FAINT));
-            }
-        }
-        job.wrap = TextWrapping::truncate_at_width((head.max.x - x - right_w - 10.0).max(40.0));
-        let g = p.layout_job(job);
+        let g = p.layout_job(crumbs_job(&self.lib.crumbs(), head.max.x - x - right_w - 10.0));
         p.galley(pos2(x, head.center().y - g.size().y / 2.0), g, t::INK);
 
         // Search.
         let sr = Rect::from_min_size(pos2(head.max.x - right_w, head.min.y + 2.0), vec2(216.0, 28.0));
-        let te = egui::TextEdit::singleline(&mut self.search).hint_text("Search  ( / )").font(cond(16.0)).desired_width(sr.width());
-        let resp = ui.put(sr, te);
+        let resp = search_field(ui, sr, &mut self.search);
         if std::mem::take(&mut self.focus_search) {
             resp.request_focus();
         }
@@ -2192,15 +2222,18 @@ impl App {
             text_fit(&p, pos2(list.max.x, r.max.y - 2.0), Align2::RIGHT_BOTTOM, &format!("Analysing BPM {done}/{total}"), caption(), t::INK_FAINT, 200.0);
         }
         if self.lib.rows.is_empty() {
-            let (title, line) = match self.lib.node() {
-                _ if !self.lib.filter.is_empty() => ("No matches".to_string(), format!("Nothing here matches \u{201c}{}\u{201d}. BACK clears the search.", self.lib.filter)),
-                library::Node::Folder if self.lib.local.is_none() => ("Scanning your music folder…".to_string(), String::new()),
+            let (icon, title, line) = match self.lib.node() {
+                _ if !self.lib.filter.is_empty() => (icons::SEARCH, "No matches".to_string(), format!("Nothing here matches \u{201c}{}\u{201d}. BACK clears the search.", self.lib.filter)),
+                library::Node::Folder if self.lib.local.is_none() => (icons::FOLDER, "Scanning your music folder…".to_string(), String::new()),
                 library::Node::Folder => (
+                    icons::FOLDER,
                     "No tracks in this folder".to_string(),
                     format!("Add MP3, FLAC, WAV, OGG or M4A files to {} or start with --music <folder>", self.lib.local_root.display()),
                 ),
-                _ => ("Nothing here".to_string(), "This list is empty on the drive.".to_string()),
+                _ => (icons::PLAYLIST, "Nothing here".to_string(), "This list is empty on the drive.".to_string()),
             };
+            let tw = p.layout_no_wrap(title.clone(), t::title(), t::INK).size().x;
+            p.text(list.center() - vec2(tw / 2.0 + 10.0, 12.0), Align2::RIGHT_CENTER, icon, cond(24.0), t::INK_FAINT);
             p.text(list.center() - vec2(0.0, 12.0), Align2::CENTER_CENTER, title, t::title(), t::INK);
             p.text(list.center() + vec2(0.0, 14.0), Align2::CENTER_CENTER, line, t::body(), t::INK_MUTED);
             return;

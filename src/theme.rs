@@ -68,6 +68,9 @@ pub const R_CARD: u8 = 10;
 
 pub const COND: &str = "cond";
 pub const COND_SEMI: &str = "cond-semi";
+const ICONS: &str = "icons";
+const ICON_SCALE: f32 = 1.0;
+const ICON_Y: f32 = -0.06;
 
 pub fn cond(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(COND.into()))
@@ -115,16 +118,27 @@ fn install_fonts(ctx: &egui::Context) {
             }),
         ),
     );
+    // Phosphor icons. Bold sits right after the text font in every family, so icon
+    // codepoints render inline in any label; Fill is its own family for solid glyphs.
+    // Glyphs fill 0.84 em from 0.016 em above the baseline: lift and scale them so their
+    // centre lands on the capitals' centre.
+    let icon = FontTweak { scale: ICON_SCALE, y_offset_factor: ICON_Y, ..Default::default() };
+    fonts.font_data.insert(ICONS.into(), Arc::new(FontData::from_static(include_bytes!("../assets/fonts/Phosphor-Bold.ttf")).tweak(icon.clone())));
+    fonts.font_data.insert(
+        crate::icons::FILL_FAMILY.into(),
+        Arc::new(FontData::from_static(include_bytes!("../assets/fonts/Phosphor-Fill.ttf")).tweak(icon)),
+    );
     let fallback: Vec<String> = fonts.families[&FontFamily::Proportional].clone();
     let with_fallback = |first: &str| {
-        let mut v = vec![first.to_owned()];
+        let mut v = vec![first.to_owned(), ICONS.to_owned()];
         v.extend(fallback.iter().cloned());
         v
     };
     fonts.families.insert(FontFamily::Name(COND.into()), with_fallback(COND));
     fonts.families.insert(FontFamily::Name(COND_SEMI.into()), with_fallback(COND_SEMI));
-    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, COND.into());
-    fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "mono".into());
+    fonts.families.insert(FontFamily::Name(crate::icons::FILL_FAMILY.into()), vec![crate::icons::FILL_FAMILY.to_owned()]);
+    fonts.families.entry(FontFamily::Proportional).or_default().splice(0..0, [COND.to_owned(), ICONS.to_owned()]);
+    fonts.families.entry(FontFamily::Monospace).or_default().splice(0..0, ["mono".to_owned(), ICONS.to_owned()]);
     ctx.set_fonts(fonts);
 }
 

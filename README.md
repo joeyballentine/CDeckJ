@@ -321,4 +321,4 @@ Not yet tested on hardware: the DDJ-GRV6 mapping (including the BEAT FX section)
 
 ## Licences
 
-Code: MIT. Test fixtures in `tests/fixtures/rekordbox` come from the rekordcrate project (MPL-2.0). Fonts in `assets/fonts` (Barlow Condensed, JetBrains Mono): SIL Open Font License 1.1, see the `OFL-*.txt` files.
+Code: MIT. Test fixtures in `tests/fixtures/rekordbox` come from the rekordcrate project (MPL-2.0). Fonts in `assets/fonts` (Barlow Condensed, JetBrains Mono): SIL Open Font License 1.1, see the `OFL-*.txt` files. Icons: [Phosphor](https://phosphoricons.com) (MIT, `LICENSE-Phosphor.txt`), embedded as font subsets; after adding an icon to `src/icons.rs`, run `tools/subset-icons.sh`.

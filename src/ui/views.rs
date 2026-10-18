@@ -29,6 +29,17 @@ impl View {
         }
     }
 
+    pub fn icon(self) -> &'static str {
+        use crate::icons as i;
+        match self {
+            View::Perform => i::PERFORM,
+            View::Wave => i::WAVE,
+            View::Browse => i::BROWSE,
+            View::Tag => i::TAG,
+            View::Settings => i::SETTINGS,
+        }
+    }
+
     fn tip(self) -> &'static str {
         match self {
             View::Perform => "Decks, mixer and library together  ( F1 )",
@@ -80,13 +91,16 @@ impl App {
     }
 
     /// The view tabs, drawn in the top bar. Returns the x where they end.
-    pub(super) fn view_tabs(&mut self, ui: &Ui, x0: f32, r: Rect) -> f32 {
+    /// With `labels` off (narrow windows) the tabs are icons only.
+    pub(super) fn view_tabs(&mut self, ui: &Ui, x0: f32, r: Rect, labels: bool) -> f32 {
         let mut x = x0;
         for v in VIEWS {
-            let w = if v == View::Settings { 78.0 } else { 70.0 };
+            let label = if labels { format!("{}  {}", v.icon(), v.name()) } else { v.icon().to_string() };
+            let w = if labels { tab_width(ui, v) } else { 40.0 };
             let br = Rect::from_min_size(pos2(x, r.min.y + 4.0), vec2(w, 26.0));
             let lit = (self.view_mode == v).then_some(t::ACCENT);
-            if button_tip(ui, &mut self.touches, br, Id::NULL.with(("view", v.name())), v.name(), lit, semi(13.0), v.tip()).clicked {
+            let tip = if labels { v.tip().to_string() } else { format!("{}: {}", v.name(), v.tip()) };
+            if button_tip(ui, &mut self.touches, br, Id::NULL.with(("view", v.name())), &label, lit, semi(13.0), &tip).clicked {
                 self.set_view(v);
             }
             x += w + 4.0;
@@ -153,6 +167,17 @@ impl App {
             }
         }
     }
+}
+
+/// A labelled tab's width: icon, gap, label and padding.
+pub(super) fn tab_width(ui: &Ui, v: View) -> f32 {
+    let w = ui.painter().layout_no_wrap(format!("{}  {}", v.icon(), v.name()), semi(13.0), t::INK).size().x;
+    (w + 22.0).round()
+}
+
+/// All tabs with labels, gaps included.
+pub(super) fn tabs_width(ui: &Ui) -> f32 {
+    VIEWS.iter().map(|&v| tab_width(ui, v) + 4.0).sum()
 }
 
 /// Small helper for pages: a section heading.
