@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use super::dsp::hermite;
+use super::stretch::Stretcher;
 use crate::track::Track;
 
 pub const HOT_CUES: usize = 8;
@@ -29,6 +30,14 @@ pub enum Preview {
     Hot(usize),
 }
 
+/// A hot cue: a point, or a saved loop when `loop_end` is set.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HotCue {
+    pub pos: f64,
+    pub loop_end: Option<f64>,
+    pub color: Option<[u8; 3]>,
+}
+
 pub struct Deck {
     pub track: Option<Arc<Track>>,
     pub track_gen: u64,
@@ -36,7 +45,7 @@ pub struct Deck {
     pub pos: f64,
     pub playing: bool,
     pub cue: f64,
-    pub hot: [Option<f64>; HOT_CUES],
+    pub hot: [Option<HotCue>; HOT_CUES],
     pub preview: Preview,
     pub loop_in: Option<f64>,
     pub loop_out: Option<f64>,
@@ -46,6 +55,8 @@ pub struct Deck {
     pub range_idx: usize,
     pub synced: bool,
     pub vinyl: bool,
+    /// Master Tempo: keep the key when the tempo changes.
+    pub keylock: bool,
     pub touched: bool,
     /// Rate actually applied last block (1.0 = original speed), for display.
     pub applied_rate: f64,
@@ -59,6 +70,8 @@ pub struct Deck {
     fade_from: f64,
     fade_left: u32,
     out_sr: f64,
+    stretcher: Box<Stretcher>,
+    stretch_active: bool,
 }
 
 impl Deck {
@@ -78,6 +91,7 @@ impl Deck {
             range_idx: DEFAULT_RANGE,
             synced: false,
             vinyl: true,
+            keylock: false,
             touched: false,
             applied_rate: 1.0,
             platter_rev: 0.0,
@@ -88,6 +102,8 @@ impl Deck {
             fade_from: 0.0,
             fade_left: 0,
             out_sr,
+            stretcher: Box::new(Stretcher::new()),
+            stretch_active: false,
         }
     }
 
@@ -99,12 +115,17 @@ impl Deck {
         self.track.as_ref().map(|t| t.frames as f64).unwrap_or(0.0)
     }
 
+    /// Original tempo of the track at the playhead.
     pub fn bpm(&self) -> Option<f64> {
-        self.track.as_ref().and_then(|t| t.bpm)
+        self.track.as_ref().and_then(|t| t.bpm_at(self.pos))
     }
 
-    pub fn beat_len(&self) -> Option<f64> {
-        self.track.as_ref().and_then(|t| t.beat_len_frames())
+    pub fn beat_at(&self, pos: f64) -> Option<f64> {
+        self.track.as_ref().and_then(|t| t.beat_at(pos))
+    }
+
+    pub fn pos_of_beat(&self, beat: f64) -> Option<f64> {
+        self.track.as_ref().and_then(|t| t.pos_of_beat(beat))
     }
 
     /// Tempo multiplier from the fader alone.
@@ -128,18 +149,31 @@ impl Deck {
             .chunks_exact(2)
             .position(|f| f[0].abs().max(f[1].abs()) > 0.003)
             .unwrap_or(0) as f64;
+        // rekordbox exports: hot cues go on the pads, the first memory cue becomes the cue point.
+        let mut hot = [None; HOT_CUES];
+        let mut cue = first;
+        for c in &track.cues {
+            match c.hot {
+                Some(i) if i < HOT_CUES => {
+                    hot[i] = Some(HotCue { pos: c.pos, loop_end: c.loop_end, color: c.color });
+                }
+                Some(_) => {}
+                None if cue == first => cue = c.pos,
+                None => {}
+            }
+        }
         let old = self.track.replace(track);
         self.track_gen = generation;
         self.playing = false;
         self.preview = Preview::None;
-        self.hot = [None; HOT_CUES];
+        self.hot = hot;
         self.loop_in = None;
         self.loop_out = None;
         self.loop_active = false;
         self.synced = false;
         self.bend = 0.0;
-        self.cue = first;
-        self.jump(first);
+        self.cue = cue;
+        self.stop_at(cue);
         old
     }
 
@@ -211,8 +245,18 @@ impl Deck {
         }
         if pressed {
             match self.hot[i] {
-                None => self.hot[i] = Some(self.pos),
-                Some(p) => {
+                None => self.hot[i] = Some(HotCue { pos: self.pos, loop_end: None, color: None }),
+                Some(HotCue { pos: p, loop_end: Some(e), .. }) => {
+                    // Saved loop: engage it from its start.
+                    self.loop_in = Some(p);
+                    self.loop_out = Some(e);
+                    self.loop_active = true;
+                    self.jump(p);
+                    if !self.playing {
+                        self.preview = Preview::Hot(i);
+                    }
+                }
+                Some(HotCue { pos: p, .. }) => {
                     if self.loop_active
                         && !matches!((self.loop_in, self.loop_out), (Some(a), Some(b)) if p >= a && p < b)
                     {
@@ -226,8 +270,8 @@ impl Deck {
             }
         } else if self.preview == Preview::Hot(i) {
             self.preview = Preview::None;
-            if let Some(p) = self.hot[i] {
-                self.stop_at(p);
+            if let Some(h) = self.hot[i] {
+                self.stop_at(h.pos);
             }
         }
     }
@@ -276,19 +320,16 @@ impl Deck {
     }
 
     pub fn auto_loop(&mut self, beats: f64) {
-        let Some(bl) = self.beat_len() else { return };
-        let first = self.track.as_ref().map(|t| t.first_beat).unwrap_or(0.0);
+        let Some(b) = self.beat_at(self.pos) else { return };
         // Snap to the nearest grid line if we're close to one.
-        let b = (self.pos - first) / bl;
-        let start = if (b - b.round()).abs() < 0.25 {
-            first + b.round() * bl
-        } else {
-            self.pos
+        let start_beat = if (b - b.round()).abs() < 0.25 { b.round() } else { b };
+        let (Some(start), Some(end)) = (self.pos_of_beat(start_beat), self.pos_of_beat(start_beat + beats)) else {
+            return;
         };
         self.loop_in = Some(start);
-        self.loop_out = Some(start + beats * bl);
+        self.loop_out = Some(end);
         self.loop_active = true;
-        if self.pos >= start + beats * bl {
+        if self.pos >= end {
             self.jump(start);
         }
     }
@@ -301,8 +342,9 @@ impl Deck {
     }
 
     pub fn beat_jump(&mut self, beats: f64) {
-        let Some(bl) = self.beat_len() else { return };
-        let d = beats * bl;
+        let Some(b) = self.beat_at(self.pos) else { return };
+        let Some(to) = self.pos_of_beat(b + beats) else { return };
+        let d = to - self.pos;
         if self.loop_active {
             self.loop_in = self.loop_in.map(|v| v + d);
             self.loop_out = self.loop_out.map(|v| v + d);
@@ -352,8 +394,8 @@ impl Deck {
 
     /// Shift the playhead by a fraction of a beat (used by sync's phase alignment).
     pub fn nudge_beats(&mut self, beats: f64) {
-        if let Some(bl) = self.beat_len() {
-            self.jump(self.pos + beats * bl);
+        if let Some(to) = self.beat_at(self.pos).and_then(|b| self.pos_of_beat(b + beats)) {
+            self.jump(to);
         }
     }
 
@@ -404,13 +446,25 @@ impl Deck {
             self.bend = 0.0;
         }
 
+        let stretch = self.keylock && !(self.touched && self.vinyl) && v_target > 0.0;
+        if stretch && !self.stretch_active {
+            self.stretcher.reset();
+        }
+        self.stretch_active = stretch;
+
         let amp_coef = 1.0 - (-1.0 / (0.004 * self.out_sr as f32)).exp();
         let v0 = self.v_prev;
         for i in 0..n {
             let t = (i + 1) as f64 / n as f64;
             let v = v0 + (v_target - v0) * t;
 
-            let (mut l, mut r) = Self::read(&track, self.pos);
+            let (mut l, mut r) = if stretch {
+                // The stretcher's overlap-add already crossfades jumps and loop wraps.
+                self.fade_left = 0;
+                self.stretcher.next(&track, self.pos, ratio, Self::read)
+            } else {
+                Self::read(&track, self.pos)
+            };
             if self.fade_left > 0 {
                 let (fl, fr) = Self::read(&track, self.fade_from);
                 let w = self.fade_left as f32 / FADE_FRAMES as f32;
@@ -539,12 +593,58 @@ mod tests {
         run(&mut d, 1.0);
         d.hot_cue(0, true);
         d.hot_cue(0, false);
-        let h = d.hot[0].unwrap();
+        let h = d.hot[0].unwrap().pos;
         run(&mut d, 1.0);
         d.hot_cue(0, true);
         d.hot_cue(0, false);
         assert!(d.playing);
         assert!((d.pos - h).abs() < 1.0);
+    }
+
+    #[test]
+    fn master_tempo_keeps_time_moving() {
+        let mut d = deck_with_ramp(10.0);
+        d.keylock = true;
+        d.tempo_fader = -1.0; // -10 %
+        d.play_pressed();
+        run(&mut d, 1.0);
+        assert!((d.pos / 48000.0 - 0.9).abs() < 0.02, "{}", d.pos / 48000.0);
+    }
+
+    #[test]
+    fn rekordbox_cues_and_grid_are_applied() {
+        use crate::rekordbox::anlz::{Analysis, Beat, Cue};
+        use crate::track::TrackMeta;
+        let sr = 48000u32;
+        let s = vec![0.1f32; sr as usize * 2 * 20];
+        let mut a = Analysis::default();
+        // 120 BPM grid starting on beat 2 of the bar, at 250 ms.
+        a.beats = (0..36).map(|k| Beat { number: ((k + 1) % 4 + 1) as u16, tempo: 12000, time_ms: 250 + k * 500 }).collect();
+        a.memory_cues = vec![Cue { hot: 0, time_ms: 750, loop_end_ms: None, color: None, comment: String::new() }];
+        a.hot_cues = vec![Cue { hot: 2, time_ms: 2250, loop_end_ms: Some(4250), color: Some([1, 2, 3]), comment: String::new() }];
+        let meta = TrackMeta { analysis: Some(a), ..Default::default() };
+        let t = Track::from_parts(PathBuf::from("rb.wav"), sr, s, meta);
+        assert_eq!(t.bpm, Some(120.0));
+        assert_eq!(t.bar_phase, 1);
+        assert!(t.is_downbeat(3));
+        let mut d = Deck::new(sr as f64);
+        d.load(Arc::new(t), 1);
+        assert!((d.cue - 0.75 * 48000.0).abs() < 1.0, "cue at first memory cue");
+        assert!((d.pos - d.cue).abs() < 1.0);
+        let h = d.hot[1].unwrap();
+        assert_eq!(h.color, Some([1, 2, 3]));
+        // Pressing the loop hot cue engages the saved loop.
+        d.play_pressed();
+        d.hot_cue(1, true);
+        d.hot_cue(1, false);
+        run(&mut d, 5.0);
+        assert!(d.loop_active);
+        assert!(d.pos >= 2.25 * 48000.0 - 1.0 && d.pos <= 4.25 * 48000.0 + 1.0, "{}", d.pos);
+        // Beat jump follows the grid: 4 beats = 2 s.
+        d.reloop_exit();
+        let before = d.pos;
+        d.beat_jump(4.0);
+        assert!((d.pos - before - 2.0 * 48000.0).abs() < 2.0);
     }
 
     #[test]

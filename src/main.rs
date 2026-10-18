@@ -5,6 +5,7 @@ mod audio;
 mod engine;
 mod library;
 mod midi;
+mod rekordbox;
 mod theme;
 mod track;
 mod ui;
@@ -30,6 +31,8 @@ OPTIONS:
     --alsa               Use ALSA directly instead of PipeWire/PulseAudio
     --buffer <FRAMES>    Audio buffer size (default: 256)
     --split-cue          On a stereo device, send master to the left ear and cue to the right
+    --usb <DIR>          Also look for a rekordbox export here (repeatable; drives under
+                         /run/media and /media are found automatically)
     --midi <NAME>        MIDI port to use (default: first port matching GRV6/DDJ/Pioneer)
     --windowed           Don't start fullscreen
     --list               List audio devices and MIDI ports, then exit
@@ -39,6 +42,7 @@ OPTIONS:
 
 struct Args {
     music: PathBuf,
+    usb: Vec<PathBuf>,
     audio: Option<String>,
     alsa: bool,
     buffer: u32,
@@ -53,6 +57,7 @@ struct Args {
 fn parse_args() -> Result<Args, String> {
     let mut a = Args {
         music: library::default_root(),
+        usb: Vec::new(),
         audio: None,
         alsa: false,
         buffer: 256,
@@ -68,6 +73,7 @@ fn parse_args() -> Result<Args, String> {
         let mut val = |name: &str| it.next().ok_or_else(|| format!("{name} needs a value"));
         match arg.as_str() {
             "--music" => a.music = PathBuf::from(val("--music")?),
+            "--usb" => a.usb.push(PathBuf::from(val("--usb")?)),
             "--audio" => a.audio = Some(val("--audio")?),
             "--alsa" => a.alsa = true,
             "--buffer" => {
@@ -179,6 +185,7 @@ fn main() -> eframe::Result {
                     view,
                     ui_rx,
                     music_root: args.music,
+                    usb_paths: args.usb,
                     audio_status,
                     midi_status,
                     fullscreen: !args.windowed,

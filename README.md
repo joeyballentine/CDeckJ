@@ -11,6 +11,8 @@ A minimal two-deck DJ player in Rust, built to feel like a pair of CDJs and a tw
 - Loops: IN / OUT / RELOOP-EXIT, 4-beat auto loop, halve/double, beat-loop and beat-jump pads.
 - Mixer: trim, 3-band isolator EQ with full kill, colour filter (LPF ↔ HPF), channel faders, crossfader, headphone CUE with cue/master mix.
 - Headphone cueing on the controller's 4-channel sound card (master 1/2, phones 3/4), or split-cue on a stereo output.
+- Master Tempo (key lock) per deck.
+- Reads rekordbox USB sticks: browse playlists and the full collection, and load tracks with their rekordbox beat grid, hot cues (with colours, comments and saved loops) and memory cues.
 - Decodes MP3, FLAC, WAV, AIFF, OGG/Vorbis and AAC/ALAC in M4A.
 
 ## Run on the Steam Deck
@@ -21,6 +23,22 @@ A minimal two-deck DJ player in Rust, built to feel like a pair of CDJs and a tw
 4. To use it from Game Mode, add it in Steam with *Add a Non-Steam Game*. Use launch options for any flags.
 
 The prebuilt binary needs only glibc 2.35+ and `libasound`, both present on SteamOS.
+
+### rekordbox USB sticks
+
+Plug in a stick exported from rekordbox. Platter watches `/run/media/$USER` (where SteamOS mounts drives in Desktop Mode) and `/media`, so it shows up under **Sources** within a couple of seconds. Use `--usb <folder>` for a drive mounted elsewhere, or for a copy of an export on disk.
+
+What's read from the export:
+
+| From | Used for |
+|---|---|
+| `PIONEER/rekordbox/export.pdb` | Tracks, artists, keys, BPM, durations, playlists and folders, history |
+| `PIONEER/USBANLZ/…/ANLZ0000.DAT` | Beat grid (including variable-tempo grids and bar positions), hot cues A–C, memory cues |
+| `PIONEER/USBANLZ/…/ANLZ0000.EXT` | Hot cues A–H with colours and comments, saved loops (preferred over `.DAT`) |
+
+On load, hot cues go on the pads, the first memory cue becomes the CUE point, and the rekordbox grid replaces Platter's own BPM detection. Plain-folder tracks still get detected grids.
+
+The stick must contain the classic **Device Library** (`export.pdb`). Most exports include it; a stick exported only in the newer Device Library Plus / OneLibrary format (`exportLibrary.db`, an encrypted SQLite database) isn't readable yet. Platter never writes to the stick.
 
 ### Audio routing
 
@@ -45,7 +63,9 @@ No controller sound card? Use `--split-cue` with a stereo output and a splitter 
 | Pads: BEAT LOOP / BEAT JUMP | Loop ¼–32 beats / jump ±1–8 beats |
 | Mixer ch 1–2 | Trim, EQ, CFX (filter), fader, CUE |
 | Crossfader, headphone MIX | As labelled |
-| BROWSE rotate / LOAD 1·2 | Move in the library / load the selection |
+| BROWSE rotate / press | Move in the library / open a folder or playlist |
+| SHIFT + BROWSE press | Back up one level |
+| LOAD 1·2 | Load the selected track |
 
 Deck 3/4 layers control decks 1/2. Mixer channels 3/4 are ignored.
 
@@ -57,19 +77,21 @@ Deck 3/4 layers control decks 1/2. Mixer channels 3/4 are ignored.
 | X (hold) | N (hold) | Cue |
 | A | K | Sync |
 | 1–4 | 7–0 | Hot cues A–D |
+| S | J | Master Tempo |
 | Q | P | Load selected track |
 
-↑ ↓ / Page Up / Page Down browse; F11 toggles fullscreen.
+↑ ↓ / Page Up / Page Down move; Enter or → opens; Backspace or ← goes back; F11 toggles fullscreen.
 
 ### Touch
 
-Everything on screen is touchable. Drag knobs up/down (double-tap to centre); drag faders; tap the track overview to seek; drag a scrolling waveform or the on-screen jog to scratch; tap SHIFT then a pad to delete a hot cue; double-tap a library row to load it on the deck that isn't playing.
+Everything on screen is touchable. Drag knobs up/down (double-tap to centre); drag faders; tap the track overview to seek; drag a scrolling waveform or the on-screen jog to scratch; tap SHIFT then a pad to delete a hot cue; tap the ±10 chip to change tempo range; tap a folder or playlist to open it, ‹ BACK to go up, and double-tap a track to load it on the deck that isn't playing.
 
 ## Options
 
 ```
 platter [OPTIONS] [TRACK1] [TRACK2]
   --music <DIR>      music folder (default ~/Music)
+  --usb <DIR>        extra place to look for a rekordbox export (repeatable)
   --audio <NAME>     output device by name/id substring
   --alsa             bypass PipeWire and use ALSA directly
   --buffer <FRAMES>  audio buffer size (default 256)
@@ -98,8 +120,8 @@ On SteamOS itself, build inside a `distrobox` container (Arch or Ubuntu) rather 
 
 ## Not included
 
-Key lock (master tempo), more than two decks, beat FX, sampler, recording, tag/artwork reading and saved cue points. The beat grid assumes a constant tempo.
+More than two decks, beat FX, sampler, recording, artwork, ID3 tag reading for plain files, saving cues back to the stick, and rekordbox's OneLibrary format. Detected grids (non-rekordbox tracks) assume a constant tempo.
 
 ## Licences
 
-Code: MIT. Fonts in `assets/fonts` (Barlow Condensed, JetBrains Mono): SIL Open Font License 1.1, see the `OFL-*.txt` files.
+Code: MIT. Test fixtures in `tests/fixtures/rekordbox` come from the rekordcrate project (MPL-2.0). Fonts in `assets/fonts` (Barlow Condensed, JetBrains Mono): SIL Open Font License 1.1, see the `OFL-*.txt` files.

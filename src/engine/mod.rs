@@ -4,6 +4,7 @@
 pub mod deck;
 pub mod dsp;
 pub mod mixer;
+pub mod stretch;
 
 use std::sync::Arc;
 
@@ -11,7 +12,7 @@ use crossbeam_channel::{Receiver, Sender};
 use parking_lot::Mutex;
 
 use crate::track::Track;
-use deck::{Deck, Preview, HOT_CUES, TEMPO_RANGES};
+use deck::{Deck, HotCue, Preview, HOT_CUES, TEMPO_RANGES};
 use mixer::{Mixer, MixerParams};
 
 pub const DECKS: usize = 2;
@@ -50,6 +51,7 @@ pub enum Cmd {
     TempoRangeCycle(usize),
     SyncToggle(usize),
     VinylToggle(usize),
+    MasterTempoToggle(usize),
     LoopIn(usize),
     LoopOut(usize),
     ReloopExit(usize),
@@ -83,7 +85,7 @@ pub struct DeckView {
     pub sample_rate: u32,
     pub cue: f64,
     pub at_cue: bool,
-    pub hot: [Option<f64>; HOT_CUES],
+    pub hot: [Option<HotCue>; HOT_CUES],
     pub loop_in: Option<f64>,
     pub loop_out: Option<f64>,
     pub loop_active: bool,
@@ -94,6 +96,7 @@ pub struct DeckView {
     pub synced: bool,
     pub is_master: bool,
     pub vinyl: bool,
+    pub keylock: bool,
     pub touched: bool,
     pub platter_rev: f64,
     pub peak: f32,
@@ -223,6 +226,7 @@ impl Engine {
                 }
             }
             VinylToggle(d) => self.decks[d].vinyl = !self.decks[d].vinyl,
+            MasterTempoToggle(d) => self.decks[d].keylock = !self.decks[d].keylock,
             LoopIn(d) => self.decks[d].loop_in_pressed(),
             LoopOut(d) => self.decks[d].loop_out_pressed(),
             ReloopExit(d) => self.decks[d].reloop_exit(),
@@ -357,6 +361,7 @@ impl Engine {
                 synced: deck.synced,
                 is_master: master == d && self.decks[Self::other(d)].synced,
                 vinyl: deck.vinyl,
+                keylock: deck.keylock,
                 touched: deck.touched,
                 platter_rev: deck.platter_rev,
                 peak: self.mixer.peak_ch[d].max(v.decks[d].peak * 0.9),

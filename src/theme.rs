@@ -34,6 +34,8 @@ pub const CUE: Color32 = c(0xF2A13B);
 pub const SYNC: Color32 = c(0x5FB8F0);
 pub const LOOP: Color32 = c(0xE9D25A);
 pub const DANGER: Color32 = c(0xF0675F);
+/// Memory cues (rekordbox): red, as on the players.
+pub const MEMORY_CUE: Color32 = c(0xE5484D);
 /// Selection / focus accent.
 pub const ACCENT: Color32 = CUE;
 

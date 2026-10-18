@@ -14,10 +14,10 @@ use egui::{
 
 use crate::engine::deck::{HOT_CUES, SCRATCH_SECS_PER_TICK};
 use crate::engine::{Cmd, DeckView, EngineView, MixParam, SharedView, DECKS};
-use crate::library::{self, Entry};
+use crate::library::{self, LibEvent, LibTrack, Library, NavKind, Row};
 use crate::midi::UiAction;
 use crate::theme::{self as t, caption, cond, mono, semi};
-use crate::track::{self, Track, WAVE_BINS_PER_SEC};
+use crate::track::{self, GridSource, Track, WAVE_BINS_PER_SEC};
 
 /// Seconds visible in the scrolling waveforms.
 const WAVE_SECONDS: f64 = 8.0;
@@ -50,11 +50,10 @@ pub struct App {
     ui_rx: Receiver<UiAction>,
     load_tx: Sender<LoadResult>,
     load_rx: Receiver<LoadResult>,
-    lib_rx: Receiver<Vec<Entry>>,
-    library: Option<Vec<Entry>>,
-    music_root: PathBuf,
-    selected: usize,
+    lib_rx: Receiver<LibEvent>,
+    lib: Library,
     scroll_to_selected: bool,
+    browser_offset: f32,
     decks: [DeckUi; DECKS],
     next_gen: u64,
     audio_status: Result<String, String>,
@@ -71,6 +70,7 @@ pub struct AppInit {
     pub view: SharedView,
     pub ui_rx: Receiver<UiAction>,
     pub music_root: PathBuf,
+    pub usb_paths: Vec<PathBuf>,
     pub audio_status: Result<String, String>,
     pub midi_status: Option<String>,
     pub fullscreen: bool,
@@ -82,12 +82,8 @@ impl App {
     pub fn new(ctx: &egui::Context, init: AppInit) -> Self {
         let (load_tx, load_rx) = unbounded();
         let (lib_tx, lib_rx) = unbounded();
-        let root = init.music_root.clone();
         let c2 = ctx.clone();
-        std::thread::spawn(move || {
-            let _ = lib_tx.send(library::scan(&root));
-            c2.request_repaint();
-        });
+        library::spawn_watchers(init.music_root.clone(), init.usb_paths, lib_tx, move || c2.request_repaint());
         let mut app = Self {
             cmd: init.cmd,
             view: init.view,
@@ -95,10 +91,9 @@ impl App {
             load_tx,
             load_rx,
             lib_rx,
-            library: None,
-            music_root: init.music_root,
-            selected: 0,
+            lib: Library::new(init.music_root),
             scroll_to_selected: false,
+            browser_offset: 0.0,
             decks: Default::default(),
             next_gen: 1,
             audio_status: init.audio_status,
@@ -109,7 +104,9 @@ impl App {
             _keep: init.keep,
         };
         for (d, p) in init.preload.into_iter().take(DECKS).enumerate() {
-            app.load(d, p);
+            let (title, artist) = track::names_from_path(&p);
+            let lt = LibTrack { path: p, title, artist, key: String::new(), bpm: None, duration: None, ext: String::new(), rb: None };
+            app.load(d, &lt);
         }
         app
     }
@@ -118,19 +115,23 @@ impl App {
         let _ = self.cmd.send(c);
     }
 
-    fn load(&mut self, deck: usize, path: PathBuf) {
+    fn load(&mut self, deck: usize, lt: &LibTrack) {
         let generation = self.next_gen;
         self.next_gen += 1;
         let du = &mut self.decks[deck];
         du.generation = generation;
         du.error = None;
-        du.loading = Some(track::names_from_path(&path).0);
+        du.loading = Some(lt.title.clone());
+        let (path, mut meta, rb) = self.lib.load_request(lt);
         let tx = self.load_tx.clone();
         let ctx = self.ctx.clone();
         std::thread::Builder::new()
             .name("loader".into())
             .spawn(move || {
-                let result = track::load(&path).map(Arc::new);
+                if let Some((ex, id)) = rb {
+                    meta.analysis = ex.track(id).and_then(|t| ex.analysis(t));
+                }
+                let result = track::load(&path, meta).map(Arc::new);
                 let _ = tx.send(LoadResult { deck, generation, result });
                 ctx.request_repaint();
             })
@@ -138,23 +139,30 @@ impl App {
     }
 
     fn load_selected(&mut self, deck: usize) {
-        let Some(e) = self.library.as_ref().and_then(|l| l.get(self.selected)) else { return };
-        let path = e.path.clone();
-        self.load(deck, path);
+        if let Some(Row::Track(t)) = self.lib.selected_row().cloned() {
+            self.load(deck, &t);
+        }
     }
 
     fn browse(&mut self, delta: i32) {
-        let n = self.library.as_ref().map(|l| l.len()).unwrap_or(0);
-        if n == 0 {
-            return;
+        self.lib.move_by(delta);
+        self.scroll_to_selected = true;
+    }
+
+    fn browse_enter(&mut self) {
+        if self.lib.enter() {
+            self.scroll_to_selected = true;
         }
-        self.selected = (self.selected as i64 + delta as i64).clamp(0, n as i64 - 1) as usize;
+    }
+
+    fn browse_back(&mut self) {
+        self.lib.back();
         self.scroll_to_selected = true;
     }
 
     fn poll(&mut self) {
-        while let Ok(lib) = self.lib_rx.try_recv() {
-            self.library = Some(lib);
+        while let Ok(ev) = self.lib_rx.try_recv() {
+            self.lib.handle(ev);
         }
         while let Ok(r) = self.load_rx.try_recv() {
             let du = &mut self.decks[r.deck];
@@ -167,6 +175,7 @@ impl App {
                     du.track = Some(track.clone());
                     du.cue_held = false;
                     du.hot_held = [false; HOT_CUES];
+                    self.lib.learn(&track.path, track.bpm, &track.key);
                     let _ = self.cmd.send(Cmd::Load { deck: r.deck, track, generation: r.generation });
                 }
                 Err(e) => du.error = Some(e),
@@ -175,7 +184,8 @@ impl App {
         while let Ok(a) = self.ui_rx.try_recv() {
             match a {
                 UiAction::Browse(d) => self.browse(d),
-                UiAction::BrowsePress => self.scroll_to_selected = true,
+                UiAction::BrowsePress => self.browse_enter(),
+                UiAction::Back => self.browse_back(),
                 UiAction::Load(d) => self.load_selected(d),
             }
         }
@@ -235,12 +245,16 @@ impl App {
                 (Key::M, true) => self.send(Cmd::Play(1)),
                 (Key::A, true) => self.send(Cmd::SyncToggle(0)),
                 (Key::K, true) => self.send(Cmd::SyncToggle(1)),
+                (Key::S, true) => self.send(Cmd::MasterTempoToggle(0)),
+                (Key::J, true) => self.send(Cmd::MasterTempoToggle(1)),
                 (Key::Q, true) => self.load_selected(0),
                 (Key::P, true) => self.load_selected(1),
                 (Key::ArrowUp, true) => self.browse(-1),
                 (Key::ArrowDown, true) => self.browse(1),
                 (Key::PageUp, true) => self.browse(-10),
                 (Key::PageDown, true) => self.browse(10),
+                (Key::Enter | Key::ArrowRight, true) => self.browse_enter(),
+                (Key::Backspace | Key::ArrowLeft, true) => self.browse_back(),
                 (Key::F11, true) => {
                     self.fullscreen = !self.fullscreen;
                     ui.ctx().send_viewport_cmd(ViewportCommand::Fullscreen(self.fullscreen));
@@ -414,6 +428,17 @@ fn meter(p: &Painter, r: Rect, level: f32) {
     }
 }
 
+const HOT_LETTERS: [&str; 8] = ["A", "B", "C", "D", "E", "F", "G", "H"];
+
+/// rekordbox colour if the export assigned one, else the default pad colour.
+fn hot_color(i: usize, rgb: Option<[u8; 3]>) -> Color32 {
+    rgb.map(|[r, g, b]| Color32::from_rgb(r, g, b)).unwrap_or(t::HOT_CUE[i % 8])
+}
+
+fn du_grid(du: &DeckUi) -> Option<GridSource> {
+    du.track.as_ref().map(|t| t.grid_source)
+}
+
 fn fmt_time(secs: f64) -> String {
     let s = secs.max(0.0);
     let m = (s / 60.0).floor();
@@ -486,20 +511,18 @@ impl App {
             p.rect_filled(lr, 0, t::LOOP.gamma_multiply(if dv.loop_active { 0.16 } else { 0.06 }));
         }
         // Beat grid.
-        if let Some(bl) = track.beat_len_frames() {
-            let bl_s = bl / sr;
-            let first = track.first_beat / sr;
-            let k0 = ((t_at(r.min.x) - first) / bl_s).floor() as i64;
-            let k1 = ((t_at(r.max.x) - first) / bl_s).ceil() as i64;
-            let dur = track.frames as f64 / sr;
-            for k in k0..=k1 {
-                let ts = first + k as f64 * bl_s;
-                if ts < 0.0 || ts > dur {
-                    continue;
+        {
+            let g = &track.grid;
+            let lo = g.partition_point(|&b| b < t_at(r.min.x) * sr);
+            let hi = g.partition_point(|&b| b <= t_at(r.max.x) * sr);
+            for k in lo..hi {
+                let x = x_at(g[k] / sr);
+                let bar = track.is_downbeat(k as i64);
+                let col = if bar { t::INK_FAINT.gamma_multiply(0.75) } else { t::BORDER };
+                p.vline(x, r.y_range(), Stroke::new(1.0, col));
+                if bar {
+                    p.rect_filled(Rect::from_min_size(pos2(x - 1.0, r.max.y - 5.0), vec2(3.0, 5.0)), 0, t::INK_FAINT);
                 }
-                let x = x_at(ts);
-                let bar = k.rem_euclid(4) == 0;
-                p.vline(x, r.y_range(), Stroke::new(1.0, if bar { t::INK_FAINT.gamma_multiply(0.7) } else { t::BORDER }));
             }
         }
         // Three-band waveform, one column per pixel.
@@ -535,12 +558,20 @@ impl App {
             ));
             p.vline(x, r.y_range(), Stroke::new(1.0, col.gamma_multiply(0.5)));
         };
+        for c in track.cues.iter().filter(|c| c.hot.is_none()) {
+            marker(x_at(c.pos / sr), t::MEMORY_CUE, false);
+        }
         marker(x_at(dv.cue / sr), t::CUE, false);
         for (i, h) in dv.hot.iter().enumerate() {
             if let Some(h) = h {
-                let x = x_at(h / sr);
-                marker(x, t::HOT_CUE[i], true);
-                p.text(pos2(x + 4.0, r.min.y + 1.0), Align2::LEFT_TOP, ["A", "B", "C", "D", "E", "F", "G", "H"][i], semi(12.0), t::HOT_CUE[i]);
+                let col = hot_color(i, h.color);
+                let x = x_at(h.pos / sr);
+                if let Some(e) = h.loop_end {
+                    let lr = Rect::from_x_y_ranges(x..=x_at(e / sr), r.min.y..=r.min.y + 4.0);
+                    p.rect_filled(lr, 0, col.gamma_multiply(0.6));
+                }
+                marker(x, col, true);
+                p.text(pos2(x + 4.0, r.min.y + 1.0), Align2::LEFT_TOP, HOT_LETTERS[i], semi(12.0), col);
             }
         }
         // Playhead.
@@ -575,7 +606,9 @@ impl App {
         p.text(badge_c, Align2::CENTER_CENTER, format!("{}", d + 1), semi(17.0), tint);
         let tx = inner.min.x + 38.0;
         let du = &self.decks[d];
-        let chips_w = 120.0;
+        let has_key = du.track.as_ref().is_some_and(|t| dv.loaded && !t.key.is_empty());
+        let n_chips = [dv.synced, dv.is_master, dv.keylock, has_key].iter().filter(|b| **b).count();
+        let chips_w = (n_chips as f32 * 64.0).max(8.0);
         let title_w = inner.max.x - tx - chips_w;
         if let Some(name) = &du.loading {
             text_fit(&p, pos2(tx, y + 2.0), Align2::LEFT_TOP, &format!("Loading {name}…"), t::title(), t::INK_MUTED, title_w);
@@ -602,6 +635,12 @@ impl App {
         if dv.synced {
             chip("SYNC", t::SYNC);
         }
+        if dv.keylock {
+            chip("MT", t::LOOP);
+        }
+        if let Some(k) = du.track.as_ref().filter(|_| dv.loaded).map(|t| t.key.clone()).filter(|k| !k.is_empty()) {
+            chip(&k, t::INK_MUTED);
+        }
         if dv.is_master {
             chip("MASTER", t::CUE);
         }
@@ -624,9 +663,18 @@ impl App {
         let pct = (dv.rate - 1.0) * 100.0;
         let range = if dv.range >= 1.0 { "WIDE".to_string() } else { format!("±{:.0}", dv.range * 100.0) };
         p.text(pos2(tc, val_y + 3.0), Align2::LEFT_TOP, format!("{pct:+.2}%"), mono(19.0), if pct.abs() < 0.005 { t::INK_MUTED } else { t::INK });
-        p.text(pos2(tc + 92.0, val_y + 8.0), Align2::LEFT_TOP, range, caption(), t::INK_FAINT);
+        // Tap the range chip to cycle ±6 / ±10 / ±16 / WIDE.
+        let rr = Rect::from_min_size(pos2(tc + 88.0, val_y + 3.0), vec2(44.0, 22.0));
+        if button(ui, rr, Id::NULL.with(("range", d)), &range, None, caption()).clicked() {
+            self.send(Cmd::TempoRangeCycle(d));
+        }
 
-        p.text(pos2(inner.max.x, cap_y), Align2::RIGHT_TOP, "BPM", caption(), t::INK_FAINT);
+        let bpm_cap = match du_grid(&self.decks[d]) {
+            Some(GridSource::Rekordbox) => "BPM · REKORDBOX GRID",
+            _ => "BPM",
+        };
+        p.text(pos2(inner.max.x, cap_y), Align2::RIGHT_TOP, bpm_cap, caption(), t::INK_FAINT);
+
         let bpm = dv.bpm.map(|b| format!("{b:.2}")).unwrap_or_else(|| "--.--".into());
         p.text(pos2(inner.max.x, val_y - 3.0), Align2::RIGHT_TOP, bpm, mono(28.0), if dv.synced { t::SYNC } else { t::INK });
         y += 52.0 + 6.0;
@@ -646,7 +694,7 @@ impl App {
             ("« 4", None),
             ("4 »", None),
             ("SYNC", dv.synced.then_some(t::SYNC)),
-            ("RANGE", None),
+            ("MT", dv.keylock.then_some(t::LOOP)),
         ];
         let bw = (inner.width() - 8.0 * 5.0) / 9.0;
         for (i, (label, lit)) in labels.iter().enumerate() {
@@ -668,7 +716,7 @@ impl App {
                     (5, s) => Some(Cmd::BeatJump(d, if s { -16.0 } else { -4.0 })),
                     (6, s) => Some(Cmd::BeatJump(d, if s { 16.0 } else { 4.0 })),
                     (7, _) => Some(Cmd::SyncToggle(d)),
-                    (8, _) => Some(Cmd::TempoRangeCycle(d)),
+                    (8, _) => Some(Cmd::MasterTempoToggle(d)),
                     _ => None,
                 };
                 if let Some(c) = cmd {
@@ -729,14 +777,28 @@ impl App {
             let (row, col) = (i / 4, i % 4);
             let pr = Rect::from_min_size(pos2(gx + col as f32 * (pw + gap), gy + row as f32 * (pw + gap)), vec2(pw, pw));
             let set = dv.hot[i].is_some();
-            let colr = t::HOT_CUE[i];
+            let colr = hot_color(i, dv.hot[i].and_then(|h| h.color));
             let resp = ui.interact(pr, Id::NULL.with(("pad", d, i)), Sense::click_and_drag());
             let pdown = resp.is_pointer_button_down_on();
             let fill = if set { colr.gamma_multiply(if pdown { 0.65 } else { 0.4 }) } else if pdown { t::HOVER } else { t::RAISED };
             p.rect_filled(pr, CornerRadius::same(t::R_CONTROL), fill);
             p.rect_stroke(pr, CornerRadius::same(t::R_CONTROL), Stroke::new(1.0, if set { colr } else { t::BORDER }), StrokeKind::Inside);
-            let letter = ["A", "B", "C", "D", "E", "F", "G", "H"][i];
-            p.text(pr.center(), Align2::CENTER_CENTER, letter, semi(17.0), if set { t::INK } else { t::INK_FAINT });
+            // Label: rekordbox comment if the pad still holds the exported cue, else LOOP / letter.
+            let comment = dv.hot[i].and_then(|h| {
+                self.decks[d].track.as_ref()?.cues.iter().find(|c| c.hot == Some(i) && c.pos == h.pos).map(|c| c.comment.clone())
+            });
+            let sub = match (comment.filter(|c| !c.is_empty()), dv.hot[i].and_then(|h| h.loop_end)) {
+                (Some(c), _) => Some(c),
+                (None, Some(_)) => Some("LOOP".to_string()),
+                _ => None,
+            };
+            let ink = if set { t::INK } else { t::INK_FAINT };
+            if let Some(sub) = sub {
+                p.text(pr.center() - vec2(0.0, 7.0), Align2::CENTER_CENTER, HOT_LETTERS[i], semi(16.0), ink);
+                text_fit(&p, pr.center() + vec2(0.0, 10.0), Align2::CENTER_CENTER, &sub, cond(12.0), t::INK_MUTED, pw - 6.0);
+            } else {
+                p.text(pr.center(), Align2::CENTER_CENTER, HOT_LETTERS[i], semi(17.0), ink);
+            }
             let shift = self.decks[d].shift;
             if shift || resp.secondary_clicked() {
                 if resp.clicked() || resp.secondary_clicked() {
@@ -787,7 +849,7 @@ impl App {
         }
         for (i, h) in dv.hot.iter().enumerate() {
             if let Some(h) = h {
-                p.vline(x_of(*h), r.y_range(), Stroke::new(2.0, t::HOT_CUE[i]));
+                p.vline(x_of(h.pos), r.y_range(), Stroke::new(2.0, hot_color(i, h.color)));
             }
         }
         p.vline(x_of(dv.cue), r.y_range(), Stroke::new(2.0, t::CUE));
@@ -952,105 +1014,194 @@ impl App {
         card(&p, r);
         let inner = r.shrink2(vec2(t::SP_M, 8.0));
         let head = Rect::from_min_size(inner.min, vec2(inner.width(), 32.0));
-        p.text(pos2(head.min.x, head.center().y), Align2::LEFT_CENTER, "LIBRARY", caption(), t::INK_FAINT);
-        let count = match &self.library {
-            Some(l) => format!("{}  ·  {} tracks", self.music_root.display(), l.len()),
-            None => format!("{}  ·  scanning…", self.music_root.display()),
-        };
-        text_fit(&p, pos2(head.min.x + 66.0, head.center().y), Align2::LEFT_CENTER, &count, cond(15.0), t::INK_MUTED, head.width() - 300.0);
+
+        // Back + breadcrumb.
+        let mut x = head.min.x;
+        if self.lib.depth() > 0 {
+            let br = Rect::from_min_size(pos2(x, head.min.y + 1.0), vec2(74.0, 30.0));
+            if button(ui, br, Id::NULL.with("back"), "‹ BACK", None, semi(14.0)).clicked() {
+                self.browse_back();
+            }
+            x += 84.0;
+        }
+        let crumbs = self.lib.crumbs();
+        let last = crumbs.len() - 1;
+        let mut job = LayoutJob::default();
+        for (i, c) in crumbs.iter().enumerate() {
+            let (font, col) = if i == last { (semi(16.0), t::INK) } else { (cond(16.0), t::INK_FAINT) };
+            job.append(c, 0.0, egui::TextFormat::simple(font, col));
+            if i != last {
+                job.append("  ›  ", 0.0, egui::TextFormat::simple(cond(16.0), t::INK_FAINT));
+            }
+        }
+        job.wrap = TextWrapping::truncate_at_width(head.max.x - x - 230.0);
+        let g = p.layout_job(job);
+        p.galley(pos2(x, head.center().y - g.size().y / 2.0), g, t::INK);
+
+        let can_load = matches!(self.lib.selected_row(), Some(Row::Track(_)));
         for d in 0..DECKS {
             let br = Rect::from_min_size(pos2(head.max.x - (DECKS - d) as f32 * 104.0, head.min.y + 1.0), vec2(96.0, 30.0));
-            let has = self.library.as_ref().is_some_and(|l| !l.is_empty());
-            let resp = button(ui, br, Id::NULL.with(("load", d)), &format!("LOAD {}", d + 1), has.then_some(t::DECK_TINT[d]), semi(15.0));
+            let resp = button(ui, br, Id::NULL.with(("load", d)), &format!("LOAD {}", d + 1), can_load.then_some(t::DECK_TINT[d]), semi(15.0));
             if resp.clicked() {
                 self.load_selected(d);
             }
         }
+
         let list = Rect::from_min_max(pos2(inner.min.x, head.max.y + 6.0), inner.max);
-        let lib = match &self.library {
-            None => {
-                p.text(list.center(), Align2::CENTER_CENTER, "Scanning your music folder…", t::body(), t::INK_MUTED);
-                return;
-            }
-            Some(l) if l.is_empty() => {
-                p.text(list.center() - vec2(0.0, 12.0), Align2::CENTER_CENTER, "No tracks found", t::title(), t::INK);
-                p.text(
-                    list.center() + vec2(0.0, 14.0),
-                    Align2::CENTER_CENTER,
-                    format!("Put MP3, FLAC, WAV, OGG or M4A files in {} or start with --music <folder>", self.music_root.display()),
-                    t::body(),
-                    t::INK_MUTED,
-                );
-                return;
-            }
-            Some(l) => l.clone(),
-        };
-        // Column header.
-        let cols = |w: f32| [0.0, 40.0, 40.0 + (w - 140.0) * 0.48, 40.0 + (w - 140.0) * 0.78, w - 56.0];
-        let cx = cols(list.width());
-        let hy = list.min.y;
-        for (i, name) in ["", "TITLE", "ARTIST", "FOLDER", "TYPE"].iter().enumerate() {
-            p.text(pos2(list.min.x + cx[i] + 8.0, hy + 8.0), Align2::LEFT_CENTER, *name, caption(), t::INK_FAINT);
+        if self.lib.rows.is_empty() {
+            let (title, line) = match self.lib.node() {
+                library::Node::Folder if self.lib.local.is_none() => ("Scanning your music folder…".to_string(), String::new()),
+                library::Node::Folder => (
+                    "No tracks in this folder".to_string(),
+                    format!("Add MP3, FLAC, WAV, OGG or M4A files to {} or start with --music <folder>", self.lib.local_root.display()),
+                ),
+                _ => ("Nothing here".to_string(), "This list is empty on the drive.".to_string()),
+            };
+            p.text(list.center() - vec2(0.0, 12.0), Align2::CENTER_CENTER, title, t::title(), t::INK);
+            p.text(list.center() + vec2(0.0, 14.0), Align2::CENTER_CENTER, line, t::body(), t::INK_MUTED);
+            return;
         }
-        let rows = Rect::from_min_max(pos2(list.min.x, hy + 18.0), list.max);
+
+        let rows = self.lib.rows.clone();
+        let tracks_view = rows.iter().any(|r| matches!(r, Row::Track(_)));
+        // Columns for track lists: badges | title | artist | bpm | key | time.
+        let cols = |w: f32| {
+            let fixed = 40.0 + 70.0 + 54.0 + 64.0;
+            let flex = (w - fixed).max(100.0);
+            [0.0, 40.0, 40.0 + flex * 0.58, 40.0 + flex, 40.0 + flex + 70.0, 40.0 + flex + 124.0]
+        };
+        let mut top = list.min.y;
+        if tracks_view {
+            let cx = cols(list.width());
+            for (i, name) in ["", "TITLE", "ARTIST", "BPM", "KEY", "TIME"].iter().enumerate() {
+                let x = list.min.x + cx[i] + 8.0;
+                p.text(pos2(x, top + 8.0), Align2::LEFT_CENTER, *name, caption(), t::INK_FAINT);
+            }
+            top += 18.0;
+        }
+        let rows_rect = Rect::from_min_max(pos2(list.min.x, top), list.max);
         let row_h = 30.0;
         let loaded: Vec<Option<PathBuf>> = self.decks.iter().map(|d| d.track.as_ref().map(|t| t.path.clone())).collect();
-        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rows));
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rows_rect));
         child.spacing_mut().item_spacing.y = 0.0;
-        let selected = self.selected;
+        let selected = self.lib.selected();
         let scroll_to = std::mem::take(&mut self.scroll_to_selected);
         let mut clicked: Option<usize> = None;
-        let mut load_req: Option<(usize, usize)> = None;
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(&mut child, row_h, lib.len(), |ui, range| {
-            for i in range {
-                let e = &lib[i];
-                let (rr, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
-                let p = ui.painter();
-                if i == selected {
-                    p.rect_filled(rr, CornerRadius::same(t::R_CONTROL), t::ACCENT.gamma_multiply(0.2));
-                    p.rect_stroke(rr, CornerRadius::same(t::R_CONTROL), Stroke::new(1.0, t::ACCENT.gamma_multiply(0.6)), StrokeKind::Inside);
-                    if scroll_to {
-                        ui.scroll_to_rect(rr, None);
-                    }
-                } else if resp.hovered() {
-                    p.rect_filled(rr, CornerRadius::same(t::R_CONTROL), t::RAISED);
-                } else if i % 2 == 1 {
-                    p.rect_filled(rr, 0, t::CHROME.gamma_multiply(0.6));
-                }
-                // Deck badges for tracks currently loaded.
-                let mut bx = rr.min.x + 10.0;
-                for (d, lp) in loaded.iter().enumerate() {
-                    if lp.as_ref() == Some(&e.path) {
-                        p.circle_filled(pos2(bx, rr.center().y), 8.0, t::DECK_TINT[d].gamma_multiply(0.25));
-                        p.text(pos2(bx, rr.center().y), Align2::CENTER_CENTER, format!("{}", d + 1), semi(12.0), t::DECK_TINT[d]);
-                        bx += 18.0;
-                    }
-                }
-                let y = rr.center().y;
-                let w = rr.width();
-                let cx = cols(w);
-                let ink = if i == selected { t::INK } else { t::INK };
-                text_fit(p, pos2(rr.min.x + cx[1] + 8.0, y), Align2::LEFT_CENTER, &e.title, semi(16.0), ink, cx[2] - cx[1] - 16.0);
-                text_fit(p, pos2(rr.min.x + cx[2] + 8.0, y), Align2::LEFT_CENTER, &e.artist, cond(16.0), t::INK_MUTED, cx[3] - cx[2] - 16.0);
-                text_fit(p, pos2(rr.min.x + cx[3] + 8.0, y), Align2::LEFT_CENTER, &e.folder, cond(15.0), t::INK_FAINT, cx[4] - cx[3] - 16.0);
-                p.text(pos2(rr.min.x + cx[4] + 8.0, y), Align2::LEFT_CENTER, &e.ext, mono(12.0), t::INK_FAINT);
-                if resp.clicked() {
-                    clicked = Some(i);
-                }
-                if resp.double_clicked() {
-                    // Double-tap loads to whichever deck isn't playing.
-                    let v = self.view.lock();
-                    let d = if v.decks[0].playing && !v.decks[1].playing { 1 } else { 0 };
-                    load_req = Some((d, i));
-                }
+        let mut entered: Option<usize> = None;
+        let mut load_req: Option<usize> = None;
+        let id_salt = format!("rows{:?}{}", self.lib.node(), self.lib.depth());
+        let mut area = egui::ScrollArea::vertical().id_salt(id_salt).auto_shrink([false, false]);
+        if scroll_to {
+            // Rows outside the viewport aren't laid out, so scroll by arithmetic.
+            let top = selected as f32 * row_h;
+            let vis = rows_rect.height();
+            let mut off = self.browser_offset;
+            if top < off {
+                off = top;
+            } else if top + row_h > off + vis {
+                off = top + row_h - vis;
             }
-        });
-        if let Some(i) = clicked {
-            self.selected = i;
+            area = area.vertical_scroll_offset(off.max(0.0));
         }
-        if let Some((d, i)) = load_req {
-            self.selected = i;
+        let out = area.show_rows(&mut child, row_h, rows.len(), |ui, range| {
+                for i in range {
+                    let (rr, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
+                    let p = ui.painter();
+                    if i == selected {
+                        p.rect_filled(rr, CornerRadius::same(t::R_CONTROL), t::ACCENT.gamma_multiply(0.2));
+                        p.rect_stroke(rr, CornerRadius::same(t::R_CONTROL), Stroke::new(1.0, t::ACCENT.gamma_multiply(0.6)), StrokeKind::Inside);
+                    } else if resp.hovered() {
+                        p.rect_filled(rr, CornerRadius::same(t::R_CONTROL), t::RAISED);
+                    } else if i % 2 == 1 {
+                        p.rect_filled(rr, 0, t::CHROME.gamma_multiply(0.6));
+                    }
+                    let y = rr.center().y;
+                    match &rows[i] {
+                        Row::Nav { label, detail, kind, .. } => {
+                            nav_icon(p, pos2(rr.min.x + 20.0, y), *kind);
+                            text_fit(p, pos2(rr.min.x + 42.0, y), Align2::LEFT_CENTER, label, semi(16.0), t::INK, rr.width() * 0.55);
+                            text_fit(p, pos2(rr.max.x - 30.0, y), Align2::RIGHT_CENTER, detail, cond(15.0), t::INK_FAINT, rr.width() * 0.4);
+                            p.text(pos2(rr.max.x - 12.0, y), Align2::CENTER_CENTER, "›", semi(18.0), t::INK_FAINT);
+                            if resp.clicked() {
+                                entered = Some(i);
+                            }
+                        }
+                        Row::Track(e) => {
+                            let mut bx = rr.min.x + 10.0;
+                            for (d, lp) in loaded.iter().enumerate() {
+                                if lp.as_ref() == Some(&e.path) {
+                                    p.circle_filled(pos2(bx, y), 8.0, t::DECK_TINT[d].gamma_multiply(0.25));
+                                    p.text(pos2(bx, y), Align2::CENTER_CENTER, format!("{}", d + 1), semi(12.0), t::DECK_TINT[d]);
+                                    bx += 18.0;
+                                }
+                            }
+                            let cx = cols(rr.width());
+                            let at = |c: usize| rr.min.x + cx[c] + 8.0;
+                            text_fit(p, pos2(at(1), y), Align2::LEFT_CENTER, &e.title, semi(16.0), t::INK, cx[2] - cx[1] - 16.0);
+                            text_fit(p, pos2(at(2), y), Align2::LEFT_CENTER, &e.artist, cond(16.0), t::INK_MUTED, cx[3] - cx[2] - 16.0);
+                            let bpm = e.bpm.map(|b| format!("{b:.1}")).unwrap_or_else(|| "–".into());
+                            p.text(pos2(at(3), y), Align2::LEFT_CENTER, bpm, mono(13.0), if e.bpm.is_some() { t::INK } else { t::INK_FAINT });
+                            p.text(pos2(at(4), y), Align2::LEFT_CENTER, &e.key, mono(13.0), t::INK_MUTED);
+                            let time = e.duration.map(|d| format!("{}:{:02}", d / 60, d % 60)).unwrap_or_else(|| e.ext.clone());
+                            p.text(pos2(at(5), y), Align2::LEFT_CENTER, time, mono(13.0), t::INK_FAINT);
+                            if resp.clicked() {
+                                clicked = Some(i);
+                            }
+                            if resp.double_clicked() {
+                                load_req = Some(i);
+                            }
+                        }
+                    }
+                }
+            });
+        self.browser_offset = out.state.clamped_offset().y;
+        if let Some(i) = clicked {
+            self.lib.select(i);
+        }
+        if let Some(i) = entered {
+            if self.lib.enter_row(i) {
+                self.scroll_to_selected = true;
+            }
+        }
+        if let Some(i) = load_req {
+            self.lib.select(i);
+            // Double-tap loads to whichever deck isn't playing.
+            let d = {
+                let v = self.view.lock();
+                if v.decks[0].playing && !v.decks[1].playing { 1 } else { 0 }
+            };
             self.load_selected(d);
+        }
+    }
+}
+
+/// Small painted glyphs for browser rows (folder, drive, playlist, collection).
+fn nav_icon(p: &Painter, c: Pos2, kind: NavKind) {
+    let ink = t::INK_MUTED;
+    let st = Stroke::new(1.5, ink);
+    match kind {
+        NavKind::Folder => {
+            let body = Rect::from_center_size(c + vec2(0.0, 1.5), vec2(16.0, 11.0));
+            p.rect_stroke(body, CornerRadius::same(2), st, StrokeKind::Middle);
+            p.line_segment([pos2(body.min.x, body.min.y), pos2(body.min.x + 6.0, body.min.y - 3.0)], st);
+            p.line_segment([pos2(body.min.x + 6.0, body.min.y - 3.0), pos2(body.min.x + 8.0, body.min.y)], st);
+        }
+        NavKind::Drive => {
+            let body = Rect::from_center_size(c + vec2(0.0, 2.0), vec2(10.0, 13.0));
+            p.rect_stroke(body, CornerRadius::same(2), Stroke::new(1.5, t::CUE), StrokeKind::Middle);
+            let plug = Rect::from_min_max(pos2(c.x - 3.0, body.min.y - 5.0), pos2(c.x + 3.0, body.min.y));
+            p.rect_stroke(plug, CornerRadius::ZERO, Stroke::new(1.5, t::CUE), StrokeKind::Middle);
+        }
+        NavKind::Playlist => {
+            for k in 0..3 {
+                let y = c.y - 5.0 + k as f32 * 5.0;
+                p.circle_filled(pos2(c.x - 7.0, y), 1.5, ink);
+                p.line_segment([pos2(c.x - 3.0, y), pos2(c.x + 8.0, y)], st);
+            }
+        }
+        NavKind::Collection => {
+            p.circle_stroke(c, 7.5, st);
+            p.circle_filled(c, 2.0, ink);
         }
     }
 }

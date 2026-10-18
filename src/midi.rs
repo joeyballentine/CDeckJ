@@ -50,6 +50,7 @@ const CC_JOG_SEARCH: [u8; 2] = [0x26, 0x29]; // SHIFT + jog
 // Global channel 7 (0x96 / 0xB6).
 const GLOBAL_CH: u8 = 6;
 const N_BROWSE_PRESS: u8 = 0x41;
+const N_SHIFT_BROWSE_PRESS: u8 = 0x42;
 const N_LOAD_BASE: u8 = 0x46; // +deck
 const CC_BROWSE: u8 = 0x40;
 const CC_CROSSFADER: u8 = 0x1F;
@@ -70,6 +71,7 @@ const BEAT_LOOPS: [f64; 8] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
 pub enum UiAction {
     Browse(i32),
     BrowsePress,
+    Back,
     Load(usize),
 }
 
@@ -148,6 +150,7 @@ impl Mapper {
                 }
                 return match d1 {
                     N_BROWSE_PRESS => Some(U(UiAction::BrowsePress)),
+                    N_SHIFT_BROWSE_PRESS => Some(U(UiAction::Back)),
                     n if (N_LOAD_BASE..N_LOAD_BASE + 4).contains(&n) => {
                         Some(U(UiAction::Load((n - N_LOAD_BASE) as usize % DECKS)))
                     }
