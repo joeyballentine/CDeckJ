@@ -46,6 +46,8 @@ pub struct TrackRow {
     pub analyze_path: String,
     pub comment: String,
     pub date_added: String,
+    /// Row in the artwork table (0 = none).
+    pub artwork_id: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -70,6 +72,8 @@ pub struct Database {
     pub playlist_entries: HashMap<u32, Vec<(u32, u32)>>,
     pub history: Vec<(u32, String)>,
     pub history_entries: HashMap<u32, Vec<(u32, u32)>>,
+    /// artwork id → path on the stick (e.g. `/PIONEER/Artwork/00001/a1.jpg`).
+    pub artwork: HashMap<u32, String>,
 }
 
 struct Reader<'a> {
@@ -180,6 +184,7 @@ fn track_row(page: &[u8], row: usize) -> Option<TrackRow> {
     Some(TrackRow {
         sample_rate: u32_at(page, row + 0x08)?,
         key_id: u32_at(page, row + 0x20)?,
+        artwork_id: u32_at(page, row + 0x1C)?,
         bitrate: u32_at(page, row + 0x30)?,
         tempo: u32_at(page, row + 0x38)?,
         genre_id: u32_at(page, row + 0x3C)?,
@@ -282,6 +287,11 @@ impl Database {
                     self.history.push((id, n));
                 }
             }),
+            k if k == Table::Artwork as u32 => rd.for_each_row(first, last, kind, |p, r| {
+                if let Some((id, path)) = id_name(p, r, 4) {
+                    self.artwork.insert(id, path);
+                }
+            }),
             k if k == Table::HistoryEntries as u32 => rd.for_each_row(first, last, kind, |p, r| {
                 if let (Some(t), Some(pl), Some(i)) = (u32_at(p, r), u32_at(p, r + 4), u32_at(p, r + 8)) {
                     self.history_entries.entry(pl).or_default().push((i, t));
@@ -338,6 +348,13 @@ mod tests {
         assert_eq!(db.playlist_entries.values().map(|v| v.len()).sum::<usize>(), 7440);
         assert_eq!(db.history_entries.values().map(|v| v.len()).sum::<usize>(), 73);
         assert!(db.tracks.iter().all(|t| !t.file_path.is_empty()));
+        // Every artwork reference resolves to a path in the artwork table.
+        let with_art: Vec<_> = db.tracks.iter().filter(|t| t.artwork_id != 0).collect();
+        assert!(!with_art.is_empty());
+        for t in with_art {
+            let p = db.artwork.get(&t.artwork_id).unwrap_or_else(|| panic!("artwork {} missing", t.artwork_id));
+            assert!(p.starts_with("/PIONEER/Artwork/") && p.ends_with(".jpg"), "{p}");
+        }
     }
 
     #[test]

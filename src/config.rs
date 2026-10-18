@@ -8,6 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::midi::MidiMap;
+use crate::rekordbox::settings::{CrossfaderCurve, FaderCurve, WaveColor};
 use crate::track::{SavedCue, Tags};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -54,6 +55,27 @@ pub struct Config {
     pub keep_awake: bool,
     /// Where recordings go (default: Music/Platter Recordings).
     pub recording_dir: Option<PathBuf>,
+    /// Apply a rekordbox stick's My Settings when it's plugged in, like a CDJ.
+    pub apply_usb_settings: bool,
+    // Player and mixer preferences (My Settings). A stick's settings overwrite these.
+    pub waveform_color: WaveColor,
+    /// Overview mirrored (true) or drawn from the bottom like a CDJ's "half" view.
+    pub overview_full: bool,
+    /// Playhead at 30 % of the scrolling waveform instead of the centre.
+    pub playhead_left: bool,
+    /// Big time readout shows remaining (true) or elapsed time.
+    pub time_remain: bool,
+    /// Beats per BEAT JUMP press on screen (SHIFT: ×4).
+    pub beat_jump: f64,
+    /// Quantize resolution in beats: 1, 0.5, 0.25 or 0.125.
+    pub quantize_beats: f64,
+    pub auto_cue: bool,
+    /// Auto cue to the first sound above this level (dB); unset = to the first memory cue.
+    pub auto_cue_db: Option<f32>,
+    pub hotcue_autoload: bool,
+    pub fader_curve: FaderCurve,
+    pub crossfader_curve: CrossfaderCurve,
+    pub beat_fx_quantize: bool,
     pub midi: MidiMap,
 }
 
@@ -80,6 +102,19 @@ impl Default for Config {
             gamepad: true,
             keep_awake: true,
             recording_dir: None,
+            apply_usb_settings: true,
+            waveform_color: WaveColor::Rgb,
+            overview_full: true,
+            playhead_left: false,
+            time_remain: true,
+            beat_jump: 4.0,
+            quantize_beats: 1.0,
+            auto_cue: true,
+            auto_cue_db: None,
+            hotcue_autoload: true,
+            fader_curve: FaderCurve::Linear,
+            crossfader_curve: CrossfaderCurve::SlowCut,
+            beat_fx_quantize: true,
             midi: MidiMap::default(),
         }
     }
@@ -163,6 +198,8 @@ pub struct Record {
     pub grid_fixed: bool,
     pub cues: Option<Vec<SavedCue>>,
     pub cue_point: Option<f64>,
+    /// A waveform for this file is in the cache.
+    pub wave: bool,
 }
 
 fn stamp(path: &Path) -> (u64, u64) {
@@ -237,6 +274,15 @@ impl Store {
                 self.dirty = false;
                 self.last_save = Instant::now();
             }
+        }
+    }
+}
+
+/// Write a [`Store::snapshot`] now (from a background thread).
+pub fn write_now(job: Option<(PathBuf, Vec<u8>)>) {
+    if let Some((path, data)) = job {
+        if let Err(e) = write_atomic(&path, &data) {
+            eprintln!("store: couldn't save {}: {e}", path.display());
         }
     }
 }

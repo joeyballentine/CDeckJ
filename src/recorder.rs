@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
-use crate::engine::mixer::{fader_gain, xfade_gains};
+use crate::engine::mixer::{fader_gain_curve, xfade_gains_curve};
 use crate::engine::{EngineView, DECKS};
 
 /// Default folder name for recordings (inside the music folder); the library skips it.
@@ -331,8 +331,8 @@ pub struct Tracklist {
 
 /// How much of a deck reaches the master (fader × crossfader), 0..1.
 pub fn deck_level(v: &EngineView, d: usize) -> f32 {
-    let (a, b) = xfade_gains(v.mixer.crossfader);
-    fader_gain(v.mixer.ch[d].fader) * if d == 0 { a } else { b }
+    let (a, b) = xfade_gains_curve(v.mixer.crossfader, v.mixer.crossfader_curve);
+    fader_gain_curve(v.mixer.ch[d].fader, v.mixer.fader_curve) * if d == 0 { a } else { b }
 }
 
 impl Tracklist {

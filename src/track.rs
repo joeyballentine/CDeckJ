@@ -269,6 +269,26 @@ pub struct TrackMeta {
     pub bpm_range: (f64, f64),
     /// Added to rekordbox grid/cue times for this file type.
     pub offset_ms: f64,
+    /// Where the CUE point starts (the stick's AUTO CUE setting).
+    pub auto_cue: AutoCue,
+    /// Put the export's hot cues on the pads (HOT CUE AUTO LOAD).
+    pub hotcue_autoload: bool,
+    /// A waveform computed earlier: shown whole from the start instead of filling in.
+    pub cached_wave: Option<Vec<WaveBin>>,
+}
+
+/// Where a freshly loaded track's CUE point goes when no cue point was saved.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AutoCue {
+    Off,
+    /// First sound louder than this many dBFS.
+    Level(f32),
+    /// First memory cue, else the first sound.
+    Memory,
+}
+
+impl AutoCue {
+    pub const DEFAULT_DB: f32 = -50.0;
 }
 
 impl Default for TrackMeta {
@@ -284,6 +304,9 @@ impl Default for TrackMeta {
             saved_cue_point: None,
             bpm_range: (70.0, 180.0),
             offset_ms: 0.0,
+            auto_cue: AutoCue::Memory,
+            hotcue_autoload: true,
+            cached_wave: None,
         }
     }
 }
@@ -302,6 +325,12 @@ pub struct Track {
     /// Cue point to start on (saved), else the first memory cue, else auto-cue.
     pub initial_cue: Option<f64>,
     pub wave: RwLock<Vec<WaveBin>>,
+    /// rekordbox's own waveforms, when the track came from an export.
+    pub rb_waves: Option<Arc<crate::rekordbox::anlz::Waves>>,
+    pub band_scale: f32,
+    /// Grid offset applied to the rekordbox waveforms too (seconds).
+    pub rb_offset_s: f64,
+    pub auto_cue: AutoCue,
     /// A decode error after the track became playable (the decoded part stays usable).
     pub error: Mutex<Option<String>>,
 }
@@ -322,7 +351,8 @@ impl Track {
         let mut grid = None;
         if let Some(a) = &meta.analysis {
             grid = Grid::from_rekordbox(a, sample_rate, meta.offset_ms);
-            for c in a.hot_cues.iter().chain(a.memory_cues.iter()) {
+            let hot = a.hot_cues.iter().filter(|_| meta.hotcue_autoload);
+            for c in hot.chain(a.memory_cues.iter()) {
                 cues.push(PresetCue {
                     hot: (c.hot > 0 && c.hot <= 8).then(|| c.hot as usize - 1),
                     pos: ms(c.time_ms),
@@ -347,9 +377,15 @@ impl Track {
         cues.sort_by(|a, b| a.pos.total_cmp(&b.pos));
         if let Some(c) = meta.saved_cue_point {
             initial_cue = Some(c * sr);
-        } else if let Some(m) = cues.iter().find(|c| c.hot.is_none()) {
-            initial_cue = Some(m.pos);
+        } else {
+            match meta.auto_cue {
+                AutoCue::Off => initial_cue = Some(0.0),
+                AutoCue::Memory => initial_cue = cues.iter().find(|c| c.hot.is_none()).map(|c| c.pos),
+                // Found from the audio when the deck loads it.
+                AutoCue::Level(_) => {}
+            }
         }
+        let rb_waves = meta.analysis.as_ref().map(|a| &a.waves).filter(|w| !w.is_empty()).map(|w| Arc::new(w.clone()));
         if let Some((bpm, first)) = meta.saved_grid.filter(|g| g.0 > 0.0) {
             // A saved grid is a user fix (e.g. ×2): it wins over detection and the export.
             grid = Some(Grid::constant(bpm, first * sr, sample_rate, expected, GridSource::Saved));
@@ -365,9 +401,22 @@ impl Track {
             grid: ArcSwapOption::from(grid.map(Arc::new)),
             cues,
             initial_cue,
-            wave: RwLock::new(Vec::new()),
+            wave: RwLock::new(meta.cached_wave.clone().unwrap_or_default()),
+            band_scale: rb_waves.as_deref().map(crate::wave::band_scale).unwrap_or(1.0),
+            rb_waves,
+            rb_offset_s: meta.offset_ms / 1000.0,
+            auto_cue: meta.auto_cue,
             error: Mutex::new(None),
         }
+    }
+
+    /// Level (linear) for finding the first sound when auto-cueing.
+    pub fn auto_cue_threshold(&self) -> f32 {
+        let db = match self.auto_cue {
+            AutoCue::Level(db) => db,
+            _ => AutoCue::DEFAULT_DB,
+        };
+        10f32.powf(db / 20.0)
     }
 
     /// Build a complete track from interleaved stereo in memory (tests, generated audio).
@@ -440,8 +489,15 @@ impl Track {
     }
 
     /// Nearest beat position to `pos` (quantize), or `pos` without a grid.
+    #[allow(dead_code)]
     pub fn snap(&self, pos: f64) -> f64 {
-        self.beat_at(pos).and_then(|b| self.pos_of_beat(b.round())).unwrap_or(pos)
+        self.snap_to(pos, 1.0)
+    }
+
+    /// Nearest multiple of `beats` (e.g. ½ beat) to `pos`.
+    pub fn snap_to(&self, pos: f64, beats: f64) -> f64 {
+        let div = if beats > 0.0 { beats } else { 1.0 };
+        self.beat_at(pos).and_then(|b| self.pos_of_beat((b / div).round() * div)).unwrap_or(pos)
     }
 }
 
@@ -480,6 +536,11 @@ pub struct Tags {
     pub key: Option<String>,
     pub bpm: Option<f64>,
     pub duration: Option<f64>,
+}
+
+/// Open an audio file for reading packets and metadata.
+pub fn open_format(path: &Path) -> Result<Box<dyn FormatReader>, String> {
+    open(path)
 }
 
 fn open(path: &Path) -> Result<Box<dyn FormatReader>, String> {
@@ -630,8 +691,8 @@ pub fn load_progressive(path: &Path, mut meta: TrackMeta, ready: impl FnOnce(Arc
             }
         }
         t.audio.push(&stereo);
-        // Publish waveform progress in modest batches.
-        if bins.len() - flushed_bins >= 30 {
+        // Publish waveform progress in modest batches (unless a cached one is already shown).
+        if meta.cached_wave.is_none() && bins.len() - flushed_bins >= 30 {
             t.wave.write().extend_from_slice(&bins[flushed_bins..]);
             flushed_bins = bins.len();
         }
@@ -645,7 +706,9 @@ pub fn load_progressive(path: &Path, mut meta: TrackMeta, ready: impl FnOnce(Arc
     if let Some(wb) = wave.as_mut() {
         wb.finish(&mut bins);
     }
-    t.wave.write().extend_from_slice(&bins[flushed_bins..]);
+    if meta.cached_wave.is_none() {
+        t.wave.write().extend_from_slice(&bins[flushed_bins..]);
+    }
     t.audio.finish();
     if let Some(f) = ready.take() {
         f(t.clone());
@@ -658,7 +721,7 @@ pub fn load_progressive(path: &Path, mut meta: TrackMeta, ready: impl FnOnce(Arc
 
 /// Background library analysis: tags plus a detected grid (bpm, first beat in seconds),
 /// decoding to mono only. Much lighter than a full load.
-pub fn analyze_file(path: &Path, bpm_range: (f64, f64)) -> Result<(Tags, Option<(f64, f64)>), String> {
+pub fn analyze_file(path: &Path, bpm_range: (f64, f64)) -> Result<(Tags, Option<(f64, f64)>, Vec<WaveBin>), String> {
     let mut format = open(path)?;
     let mut tags = tags_of(&mut format);
     let track = format.default_track(TrackType::Audio).ok_or("no audio track")?;
@@ -670,6 +733,8 @@ pub fn analyze_file(path: &Path, bpm_range: (f64, f64)) -> Result<(Tags, Option<
     let mut mono: Vec<f32> = Vec::new();
     let mut tmp: Vec<f32> = Vec::new();
     let mut sr = 0;
+    let mut wave: Option<WaveBuilder> = None;
+    let mut bins = Vec::new();
     loop {
         let mut packet = match format.next_packet() {
             Ok(Some(p)) => p,
@@ -685,7 +750,15 @@ pub fn analyze_file(path: &Path, bpm_range: (f64, f64)) -> Result<(Tags, Option<
         sr = buf.spec().rate();
         tmp.resize(buf.samples_interleaved(), 0.0);
         buf.copy_to_slice_interleaved(&mut tmp);
-        mono.extend(tmp.chunks_exact(ch).map(|f| if ch > 1 { 0.5 * (f[0] + f[1]) } else { f[0] }));
+        let wb = wave.get_or_insert_with(|| WaveBuilder::new(sr));
+        for f in tmp.chunks_exact(ch) {
+            let (l, r) = (f[0], if ch > 1 { f[1] } else { f[0] });
+            wb.push(l, r, &mut bins);
+            mono.push(0.5 * (l + r));
+        }
+    }
+    if let Some(wb) = wave.as_mut() {
+        wb.finish(&mut bins);
     }
     if sr == 0 || mono.is_empty() {
         return Err("no audio".into());
@@ -693,7 +766,7 @@ pub fn analyze_file(path: &Path, bpm_range: (f64, f64)) -> Result<(Tags, Option<
     tags.duration = Some(mono.len() as f64 / sr as f64);
     let grid = analysis::detect_beat_grid_mono(&mono, sr)
         .map(|g| (analysis::fold_bpm(g.bpm, bpm_range.0, bpm_range.1), g.first_beat / sr as f64));
-    Ok((tags, grid))
+    Ok((tags, grid, bins))
 }
 
 /// Blocking load (tests and tools).
@@ -774,7 +847,8 @@ pub mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("x.wav");
         write_wav(&p, 20.0, 44100, 87.0);
-        let (tags, grid) = analyze_file(&p, (88.0, 176.0)).unwrap();
+        let (tags, grid, bins) = analyze_file(&p, (88.0, 176.0)).unwrap();
+        assert!(bins.len() > 100);
         assert!((tags.duration.unwrap() - 20.0).abs() < 0.01);
         assert!((grid.unwrap().0 - 174.0).abs() < 0.1, "folded into range: {:?}", grid);
         std::fs::remove_dir_all(&dir).ok();

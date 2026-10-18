@@ -55,9 +55,6 @@ pub const HOT_CUE: [Color32; 8] = [
 ];
 
 // Waveform bands.
-pub const WAVE_LOW: Color32 = c(0x1F64FF);
-pub const WAVE_MID: Color32 = c(0xF29B38);
-pub const WAVE_HIGH: Color32 = c(0xF4EEE2);
 
 #[allow(dead_code)]
 pub const SP_XS: f32 = 4.0;

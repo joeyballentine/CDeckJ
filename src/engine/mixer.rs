@@ -1,6 +1,7 @@
 //! Two-channel DJ mixer: trim, 3-band isolator EQ, colour filter, fader, crossfader, PFL.
 
 use super::dsp::{db_to_gain, Isolator, Smooth, Svf};
+pub use crate::rekordbox::settings::{CrossfaderCurve, FaderCurve};
 
 /// Knob/fader positions as the hardware reports them (all 0..=1, knobs centred at 0.5).
 #[derive(Clone, Copy, Debug)]
@@ -37,6 +38,8 @@ pub struct MixerParams {
     pub head_mix: f32,
     pub head_level: f32,
     pub master: f32,
+    pub fader_curve: FaderCurve,
+    pub crossfader_curve: CrossfaderCurve,
 }
 
 impl Default for MixerParams {
@@ -47,6 +50,8 @@ impl Default for MixerParams {
             head_mix: 0.0,
             head_level: 0.8,
             master: 0.8,
+            fader_curve: FaderCurve::Linear,
+            crossfader_curve: CrossfaderCurve::SlowCut,
         }
     }
 }
@@ -73,6 +78,32 @@ pub fn eq_gain(v: f32) -> f32 {
 pub fn fader_gain(v: f32) -> f32 {
     let v = v.clamp(0.0, 1.0);
     v * v * (1.5 - 0.5 * v)
+}
+
+/// Channel fader with a DJM-style curve choice.
+pub fn fader_gain_curve(v: f32, c: FaderCurve) -> f32 {
+    let v = v.clamp(0.0, 1.0);
+    match c {
+        FaderCurve::Linear => fader_gain(v),
+        // Most of the level arrives near the top / bottom of the throw.
+        FaderCurve::SteepTop => v * v * v,
+        FaderCurve::SteepBottom => 1.0 - (1.0 - v).powi(3),
+    }
+}
+
+/// Crossfader gains for each curve: constant power (smooth blend, −3 dB in the centre),
+/// slow cut (both full in the centre, fading to the edges), fast cut (full almost to the
+/// edge, then cut — for scratching).
+pub fn xfade_gains_curve(x: f32, c: CrossfaderCurve) -> (f32, f32) {
+    let x = x.clamp(0.0, 1.0);
+    match c {
+        CrossfaderCurve::SlowCut => xfade_gains(x),
+        CrossfaderCurve::ConstantPower => {
+            let a = x * std::f32::consts::FRAC_PI_2;
+            (a.cos(), a.sin())
+        }
+        CrossfaderCurve::FastCut => (((1.0 - x) / 0.04).min(1.0), (x / 0.04).min(1.0)),
+    }
 }
 
 /// Crossfader: both channels at full level in the centre, fast-ish cut at the edges.
@@ -176,7 +207,7 @@ impl Mixer {
         let n = master.len() / 2;
         master.fill(0.0);
         cue.fill(0.0);
-        let (xa, xb) = xfade_gains(p.crossfader);
+        let (xa, xb) = xfade_gains_curve(p.crossfader, p.crossfader_curve);
         let mut any_pfl = false;
 
         for (c, strip) in self.strips.iter_mut().enumerate() {
@@ -197,7 +228,7 @@ impl Mixer {
 
             let t_trim = trim_gain(cp.trim);
             let (t_lo, t_mid, t_hi) = (eq_gain(cp.low), eq_gain(cp.mid), eq_gain(cp.hi));
-            let t_out = fader_gain(cp.fader) * if c == 0 { xa } else { xb };
+            let t_out = fader_gain_curve(cp.fader, p.fader_curve) * if c == 0 { xa } else { xb };
             let t_pfl = if cp.pfl { 1.0 } else { 0.0 };
             let input = decks[c];
             let mut peak = 0f32;

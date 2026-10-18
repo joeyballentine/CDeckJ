@@ -1,6 +1,7 @@
 //! Steam Deck–sized (1280×800) touch UI: stacked waveforms, two CDJ-style decks, mixer, browser.
 
 use std::any::Any;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -23,7 +24,7 @@ use crate::midi::{Ctl as MidiCtl, MidiStatus, PickupLocks, UiAction};
 use crate::system::{GamepadStatus, KeepAwake};
 use crate::theme::{self as t, caption, cond, mono, semi};
 use crate::touch::Touches;
-use crate::track::{self, GridSource, SavedCue, Track, WAVE_BINS_PER_SEC};
+use crate::track::{self, GridSource, SavedCue, Track};
 
 const JOG_TICKS_PER_REV: f64 = 720.0;
 /// Idle redraw interval: everything that changes state (MIDI, gamepad, loaders) also
@@ -63,6 +64,7 @@ struct DeckUi {
     play_held: bool,
     jog_angle: Option<f32>,
     saved: Option<CueSnapshot>,
+    art: Option<crate::art::ArtKey>,
 }
 
 pub struct AppInit {
@@ -125,6 +127,7 @@ pub struct App {
     _keep_awake: Option<KeepAwake>,
     _keep: Vec<Box<dyn Any>>,
     recorder: crate::recorder::Recorder,
+    art: crate::art::ArtCache,
     /// First tap of the two-tap stop, so a stray touch can't end a recording.
     rec_confirm: Option<Instant>,
     rec_low_warned: bool,
@@ -188,6 +191,7 @@ impl App {
             _keep_awake: init.keep_awake,
             _keep: init.keep,
             recorder: crate::recorder::Recorder::new(init.tap),
+            art: { let c = ctx.clone(); crate::art::ArtCache::new(move || c.request_repaint()) },
             rec_confirm: None,
             rec_low_warned: false,
         };
@@ -217,7 +221,16 @@ impl App {
         du.generation = generation;
         du.error = None;
         du.loading = Some(lt.title.clone());
+        du.art = None;
+        let art = self.art_key(lt);
+        self.decks[deck].art = art;
         let (path, mut meta, rb) = self.lib.load_request(lt);
+        meta.auto_cue = match (self.config.auto_cue, self.config.auto_cue_db) {
+            (false, _) => track::AutoCue::Off,
+            (true, None) => track::AutoCue::Memory,
+            (true, Some(db)) => track::AutoCue::Level(db),
+        };
+        meta.hotcue_autoload = self.config.hotcue_autoload;
         meta.bpm_range = (self.config.bpm_range[0], self.config.bpm_range[1]);
         meta.offset_ms = self.config.offset_for(&path);
         meta.duration_hint = lt.duration.map(|d| d as f64);
@@ -230,18 +243,31 @@ impl App {
         }
         let tx = self.load_tx.clone();
         let ctx = self.ctx.clone();
+        let store = self.store.clone();
         std::thread::Builder::new()
             .name("loader".into())
             .spawn(move || {
                 if let Some((ex, id)) = rb {
                     meta.analysis = ex.track(id).and_then(|t| ex.analysis(t));
                 }
+                // Without rekordbox's waveforms, show a cached one of our own straight away.
+                let has_rb_wave = meta.analysis.as_ref().is_some_and(|a| !a.waves.is_empty());
+                if !has_rb_wave {
+                    meta.cached_wave = crate::wave::load_cached(&path);
+                }
+                let had_cache = meta.cached_wave.is_some();
                 let tx2 = tx.clone();
                 let c2 = ctx.clone();
                 let res = track::load_progressive(&path, meta, move |track| {
                     let _ = tx2.send(LoadMsg::Ready { deck, generation, track });
                     c2.request_repaint();
                 });
+                if let (Ok(t), false, false) = (&res, had_cache, has_rb_wave) {
+                    if t.is_complete() {
+                        crate::wave::save_cached(&path, &t.wave.read());
+                        store.lock().update(&path, |r| r.wave = true);
+                    }
+                }
                 let _ = tx.send(match res {
                     Ok(track) => LoadMsg::Done { deck, generation, track },
                     Err(error) => LoadMsg::Failed { deck, generation, error },
@@ -249,6 +275,17 @@ impl App {
                 ctx.request_repaint();
             })
             .ok();
+    }
+
+    /// Where a library track's cover comes from: the stick's artwork, else the file's tags.
+    fn art_key(&self, lt: &LibTrack) -> Option<crate::art::ArtKey> {
+        match lt.rb {
+            Some((u, id)) => {
+                let ex = self.lib.usbs.get(u)?;
+                ex.track(id).and_then(|t| ex.artwork_path(t)).map(crate::art::ArtKey::File)
+            }
+            None => Some(crate::art::ArtKey::Embedded(lt.path.clone())),
+        }
     }
 
     fn load_selected(&mut self, deck: usize) {
@@ -277,6 +314,13 @@ impl App {
 
     fn poll(&mut self) {
         while let Ok(ev) = self.lib_rx.try_recv() {
+            if let (LibEvent::UsbAdded(ex), true) = (&ev, self.config.apply_usb_settings) {
+                let s = crate::rekordbox::settings::MySettings::read(&ex.root);
+                let name = ex.root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "the USB".into());
+                if !s.is_empty() {
+                    self.apply_my_settings(&s, &name);
+                }
+            }
             self.lib.handle(ev);
         }
         while let Ok(m) = self.load_rx.try_recv() {
@@ -435,6 +479,69 @@ impl App {
         crate::config::write_in_background(job);
     }
 
+    /// Take on a stick's My Settings, as a CDJ does when the stick is loaded.
+    fn apply_my_settings(&mut self, s: &crate::rekordbox::settings::MySettings, name: &str) {
+        use crate::rekordbox::settings::AutoCueLevel;
+        let c = &mut self.config;
+        if let Some(v) = s.waveform_color {
+            c.waveform_color = v;
+        }
+        if let Some(v) = s.overview_full {
+            c.overview_full = v;
+        }
+        if let Some(v) = s.playhead_left {
+            c.playhead_left = v;
+        }
+        if let Some(v) = s.time_remain {
+            c.time_remain = v;
+        }
+        if let Some(v) = s.beat_jump {
+            c.beat_jump = v;
+        }
+        if let Some(v) = s.auto_cue {
+            c.auto_cue = v;
+        }
+        if let Some(v) = s.auto_cue_level {
+            c.auto_cue_db = match v {
+                AutoCueLevel::Memory => None,
+                AutoCueLevel::Db(db) => Some(db),
+            };
+        }
+        if let Some(v) = s.hotcue_autoload {
+            c.hotcue_autoload = v;
+        }
+        if let Some(v) = s.beat_fx_quantize {
+            c.beat_fx_quantize = v;
+        }
+        if let Some(v) = s.quantize_beats {
+            c.quantize_beats = v;
+            self.send(Cmd::QuantizeBeats(v));
+        }
+        if let Some(v) = s.fader_curve {
+            self.config.fader_curve = v;
+            self.send(Cmd::Mix(MixParam::FaderCurve(v)));
+        }
+        if let Some(v) = s.crossfader_curve {
+            self.config.crossfader_curve = v;
+            self.send(Cmd::Mix(MixParam::CrossfaderCurve(v)));
+        }
+        if let Some(v) = s.quantize {
+            self.send(Cmd::Quantize(v));
+        }
+        for d in 0..DECKS {
+            if let Some(v) = s.jog_vinyl {
+                self.send(Cmd::Vinyl(d, v));
+            }
+            if let Some(v) = s.master_tempo {
+                self.send(Cmd::MasterTempo(d, v));
+            }
+            if let Some(v) = s.tempo_range {
+                self.send(Cmd::TempoRange(d, v));
+            }
+        }
+        self.banner = Some(format!("Using My Settings from {name}: {}", s.summary()));
+    }
+
     fn recordings_dir(&self) -> PathBuf {
         self.config.recording_dir.clone().unwrap_or_else(|| library::default_root().join(crate::recorder::DIR_NAME))
     }
@@ -587,6 +694,7 @@ impl App {
                 (Key::P, true) => self.load_selected(1),
                 (Key::G, true) => self.send(Cmd::QuantizeToggle),
                 (Key::R, true) => self.record_toggle(),
+                (Key::W, true) => self.config.waveform_color = crate::wave::next_mode(self.config.waveform_color),
                 // Same as the on-screen −/+: minus shows more time (zoom out).
                 (Key::Minus, true) => self.set_zoom(1),
                 (Key::Equals | Key::Plus, true) => self.set_zoom(-1),
@@ -613,6 +721,7 @@ fn preset_comment(track: &Track, slot: usize, pos: f64) -> String {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let (events, now) = ui.input(|i| (i.events.clone(), i.time));
+        self.art.poll(ui.ctx());
         self.touches.begin_frame(&events, now);
         self.poll();
         self.maintain_audio();
@@ -737,6 +846,17 @@ fn control(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, info: impl Fn() -> Widget
     // Keyboard activation counts as a click in touch mode too.
     c.clicked |= c.key;
     (c, resp)
+}
+
+/// A tap target over something already drawn (a readout), with a focus ring and tooltip.
+fn invisible_button(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, name: &str, tip: &str) -> crate::touch::Ctl {
+    let n = name.to_string();
+    let (c, resp) = control(ui, tc, r, id, || WidgetInfo::labeled(egui::Role::Button, true, &n));
+    focus_ring(ui.painter(), r, &resp, t::R_CONTROL);
+    if !tc.touch_mode() {
+        resp.on_hover_text(tip);
+    }
+    c
 }
 
 /// −1 / +1 when ← / → is pressed while `resp` has keyboard focus.
@@ -1094,6 +1214,12 @@ impl App {
 
     fn zoom_buttons(&mut self, ui: &Ui, waves: Rect) {
         let w = 30.0;
+        // Waveform colour (BLUE / RGB / 3BAND), as WAVEFORM COLOR on a CDJ.
+        let mode = self.config.waveform_color;
+        let mr = Rect::from_min_size(pos2(waves.max.x - 2.0 * (w + 4.0) - 6.0 - 66.0, waves.min.y + 4.0), vec2(62.0, 26.0));
+        if button_tip(ui, &mut self.touches, mr, Id::NULL.with("wavemode"), crate::wave::mode_name(mode), None, semi(13.0), "Waveform colour: Blue / RGB / 3-Band  ( W )").clicked {
+            self.config.waveform_color = crate::wave::next_mode(mode);
+        }
         for (i, (label, dir)) in [("−", 1), ("+", -1)].into_iter().enumerate() {
             let r = Rect::from_min_size(pos2(waves.max.x - 2.0 * (w + 4.0) - 6.0 + i as f32 * (w + 4.0), waves.min.y + 4.0), vec2(w, 26.0));
             let tip = if dir > 0 { "Zoom waveforms out  ( − )" } else { "Zoom waveforms in  ( = )" };
@@ -1114,7 +1240,8 @@ impl App {
         let sr = track.sample_rate as f64;
         let pos_s = dv.pos / sr;
         let pps = r.width() as f64 / self.config.waveform_seconds; // pixels per second
-        let cx = r.center().x;
+        // Playhead centred, or toward the left (WAVEFORM CURRENT POSITION) to see more ahead.
+        let cx = if self.config.playhead_left { r.min.x + r.width() * 0.3 } else { r.center().x };
         let mid_y = r.center().y;
         let half = r.height() * 0.46;
         let t_at = |x: f32| pos_s + (x - cx) as f64 / pps;
@@ -1136,25 +1263,28 @@ impl App {
                 }
             }
         }
-        // Three-band waveform, one column per pixel.
+        // Waveform in the chosen colour mode, one column per pixel.
         {
-            let wave = track.wave.read();
+            let own = track.wave.read();
+            let mode = self.config.waveform_color;
             let mut mesh = Mesh::default();
             let x0 = r.min.x.floor() as i32;
             let x1 = r.max.x.ceil() as i32;
+            let px_s = 1.0 / pps;
             for x in x0..x1 {
-                let ts = t_at(x as f32 + 0.5);
-                if ts < 0.0 {
+                let ts = t_at(x as f32);
+                let a = crate::wave::bin_at(&track, ts);
+                if a < 0.0 {
                     continue;
                 }
-                let Some(b) = wave.get((ts * WAVE_BINS_PER_SEC) as usize) else { break };
-                let pk = b.peak as f32 / 255.0;
-                let col_r = |h: f32| Rect::from_min_max(pos2(x as f32, mid_y - h), pos2(x as f32 + 1.0, mid_y + h));
+                let b = crate::wave::bin_at(&track, ts + px_s);
+                let Some(col) = crate::wave::column(&track, &own, mode, a as usize, b as usize) else { break };
                 let played = (x as f32) < cx;
-                let dim = |c: Color32| if played { c.gamma_multiply(0.7) } else { c };
-                mesh.add_colored_rect(col_r(pk * half * (0.35 + 0.65 * b.low as f32 / 255.0)), dim(t::WAVE_LOW));
-                mesh.add_colored_rect(col_r(pk * half * 0.75 * b.mid as f32 / 255.0), dim(t::WAVE_MID));
-                mesh.add_colored_rect(col_r(pk * half * 0.5 * b.high as f32 / 255.0), dim(t::WAVE_HIGH));
+                for &(h, c) in &col.layers[..col.n] {
+                    let h = h * half;
+                    let c = if played { c.gamma_multiply(0.62) } else { c };
+                    mesh.add_colored_rect(Rect::from_min_max(pos2(x as f32, mid_y - h), pos2(x as f32 + 1.0, mid_y + h)), c);
+                }
             }
             p.add(mesh);
         }
@@ -1228,8 +1358,17 @@ impl App {
         p.circle_filled(badge_c, 14.0, tint.gamma_multiply(0.18));
         p.circle_stroke(badge_c, 14.0, Stroke::new(1.0, tint));
         p.text(badge_c, Align2::CENTER_CENTER, format!("{}", d + 1), semi(17.0), tint);
-        let tx = inner.min.x + 38.0;
+        let mut tx = inner.min.x + 38.0;
         let track = self.decks[d].track.clone().filter(|_| dv.loaded);
+        // Cover art beside the title.
+        if let (Some(key), true) = (self.decks[d].art.clone(), track.is_some()) {
+            if let Some(tex) = self.art.get(&key) {
+                let ar = Rect::from_min_size(pos2(tx, y + 1.0), vec2(42.0, 42.0));
+                p.image(tex.id(), ar, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                p.rect_stroke(ar, CornerRadius::same(3), Stroke::new(1.0, t::BORDER), StrokeKind::Inside);
+                tx += 50.0;
+            }
+        }
         let key = track.as_ref().map(|t| t.key.clone()).filter(|k| !k.is_empty());
         let chips: Vec<(String, Color32)> = [
             key.map(|k| (k, t::INK_MUTED)),
@@ -1293,11 +1432,20 @@ impl App {
         let sr = dv.sample_rate.max(1) as f64;
         let elapsed = dv.pos / sr;
         let remain = (dv.length as f64 - dv.pos) / sr;
-        p.text(pos2(inner.min.x, cap_y), Align2::LEFT_TOP, "REMAIN", caption(), t::INK_FAINT);
-        p.text(pos2(inner.min.x + 56.0, cap_y + 1.0), Align2::LEFT_TOP, fmt_time(elapsed), mono(11.5), t::INK_FAINT);
+        let remain_mode = self.config.time_remain;
+        let (cap, small) = if remain_mode { ("REMAIN", fmt_time(elapsed)) } else { ("ELAPSED", format!("-{}", fmt_time(remain))) };
+        p.text(pos2(inner.min.x, cap_y), Align2::LEFT_TOP, cap, caption(), t::INK_FAINT);
+        p.text(pos2(inner.min.x + 60.0, cap_y + 1.0), Align2::LEFT_TOP, small, mono(11.5), t::INK_FAINT);
         let low_time = dv.loaded && remain < 30.0 && dv.playing && dv.complete;
         let time_col = if low_time && (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0 { t::DANGER } else { t::INK };
-        p.text(pos2(inner.min.x, val_y), Align2::LEFT_TOP, format!("-{}", fmt_time(remain)), t::readout(), if dv.loaded { time_col } else { t::INK_FAINT });
+        let big = if remain_mode { format!("-{}", fmt_time(remain)) } else { fmt_time(elapsed) };
+        p.text(pos2(inner.min.x, val_y), Align2::LEFT_TOP, big, t::readout(), if dv.loaded { time_col } else { t::INK_FAINT });
+        // Tap the time to switch remaining/elapsed (TIME MODE).
+        let time_r = Rect::from_min_size(pos2(inner.min.x, cap_y), vec2(col_w * 1.1, 50.0));
+        let tip = if remain_mode { "Showing remaining time. Tap for elapsed" } else { "Showing elapsed time. Tap for remaining" };
+        if invisible_button(ui, &mut self.touches, time_r, Id::NULL.with(("time", d)), "Time mode", tip).clicked {
+            self.config.time_remain = !remain_mode;
+        }
 
         let tc = inner.min.x + col_w * 1.15 + 4.0;
         p.text(pos2(tc, cap_y), Align2::LEFT_TOP, if dv.tempo_held { "TEMPO · HELD" } else { "TEMPO" }, caption(), t::INK_FAINT);
@@ -1331,6 +1479,9 @@ impl App {
         y += 30.0 + 6.0;
 
         // Two button rows: loops & jumps, then deck functions.
+        let jump = self.config.beat_jump * if shift { 4.0 } else { 1.0 };
+        let jb = crate::rekordbox::settings::fmt_beats(jump);
+        let (jump_l, jump_r) = (format!("« {jb}"), format!("{jb} »"));
         let rows: [[(&str, Option<Color32>, u8); 8]; 2] = [
             [
                 ("IN", (dv.loop_in.is_some() && !dv.loop_active).then_some(t::LOOP), 0),
@@ -1339,8 +1490,8 @@ impl App {
                 ("4 BEAT", None, 3),
                 ("½×", None, 4),
                 ("2×", None, 5),
-                (if shift { "« 16" } else { "« 4" }, None, 6),
-                (if shift { "16 »" } else { "4 »" }, None, 7),
+                (jump_l.as_str(), None, 6),
+                (jump_r.as_str(), None, 7),
             ],
             [
                 ("SHIFT", shift.then_some(t::INK), 10),
@@ -1368,8 +1519,8 @@ impl App {
                     3 => Some(Cmd::AutoLoop(d, 4.0)),
                     4 => Some(Cmd::LoopScale(d, 0.5)),
                     5 => Some(Cmd::LoopScale(d, 2.0)),
-                    6 => Some(Cmd::BeatJump(d, if shift { -16.0 } else { -4.0 })),
-                    7 => Some(Cmd::BeatJump(d, if shift { 16.0 } else { 4.0 })),
+                    6 => Some(Cmd::BeatJump(d, -jump)),
+                    7 => Some(Cmd::BeatJump(d, jump)),
                     10 => {
                         self.decks[d].shift = !shift;
                         None
@@ -1493,32 +1644,31 @@ impl App {
         let Some(track) = self.decks[d].track.clone().filter(|_| dv.loaded) else { return };
         let length = dv.length.max(1) as f64;
         let sr = track.sample_rate as f64;
-        let total_bins = (length / sr * WAVE_BINS_PER_SEC).ceil().max(1.0) as usize;
+        let len_s = length / sr;
         let w = r.width() as usize;
         let mut mesh = Mesh::default();
-        let mid = r.center().y;
-        let half = r.height() * 0.45;
         let play_x = r.min.x + (dv.pos / length) as f32 * r.width();
+        let full = self.config.overview_full;
+        let (mid, half) = (r.center().y, r.height() * 0.45);
+        let base = r.max.y - 2.0;
         {
-            let wave = track.wave.read();
+            let own = track.wave.read();
+            let mode = self.config.waveform_color;
             for x in 0..w {
-                let a = x * total_bins / w;
-                if a >= wave.len() {
-                    break;
-                }
-                let b = ((x + 1) * total_bins / w).max(a + 1).min(wave.len());
-                let (mut pk, mut lo, mut hi) = (0u8, 0u32, 0u32);
-                for bin in &wave[a..b] {
-                    pk = pk.max(bin.peak);
-                    lo += bin.low as u32;
-                    hi += bin.high as u32;
-                }
-                let h = pk as f32 / 255.0 * half;
+                let a = crate::wave::bin_at(&track, x as f64 / w as f64 * len_s).max(0.0) as usize;
+                let b = crate::wave::bin_at(&track, (x + 1) as f64 / w as f64 * len_s).max(0.0) as usize;
+                let Some(col) = crate::wave::column(&track, &own, mode, a, b) else { break };
                 let px = r.min.x + x as f32;
-                let mix = (hi as f32 / (lo + hi + 1) as f32 * 1.4).clamp(0.0, 1.0);
-                let col = t::WAVE_LOW.lerp_to_gamma(t::WAVE_HIGH, mix * 0.6);
-                let col = if px < play_x { col.gamma_multiply(0.45) } else { col };
-                mesh.add_colored_rect(Rect::from_min_max(pos2(px, mid - h), pos2(px + 1.0, mid + h)), col);
+                for &(h, c) in &col.layers[..col.n] {
+                    let c = if px < play_x { c.gamma_multiply(0.45) } else { c };
+                    // Full: mirrored about the middle. Half: grows up from the bottom.
+                    let rr = if full {
+                        Rect::from_min_max(pos2(px, mid - h * half), pos2(px + 1.0, mid + h * half))
+                    } else {
+                        Rect::from_min_max(pos2(px, base - h * (r.height() - 4.0)), pos2(px + 1.0, base))
+                    };
+                    mesh.add_colored_rect(rr, c);
+                }
             }
         }
         p.add(mesh);
@@ -1853,6 +2003,17 @@ impl App {
             }
             area = area.vertical_scroll_offset(off.max(0.0));
         }
+        // Covers for the rows that might be visible (only rekordbox tracks list artwork up
+        // front; local files' embedded art would mean opening every file).
+        let first = (self.browser_offset / row_h).max(0.0) as usize;
+        let vis_rows = (rows_rect.height() / row_h) as usize + 2;
+        let arts: HashMap<usize, Option<crate::art::ArtKey>> = (first..(first + vis_rows).min(rows.len()))
+            .filter_map(|i| match &rows[i] {
+                Row::Track(e) if e.rb.is_some() => Some((i, self.art_key(e))),
+                _ => None,
+            })
+            .collect();
+        let art = &mut self.art;
         let out = area.show_rows(&mut child, row_h, rows.len(), |ui, range| {
             for i in range {
                 let (rr, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
@@ -1889,7 +2050,15 @@ impl App {
                         }
                         let cx = cols(rr.width());
                         let at = |c: usize| rr.min.x + cx[c] + 8.0;
-                        text_fit(p, pos2(at(1), y), Align2::LEFT_CENTER, &e.title, semi(16.0), t::INK, cx[2] - cx[1] - 16.0);
+                        let mut title_x = at(1);
+                        if let Some(key) = arts.get(&i).cloned().flatten() {
+                            if let Some(tex) = art.get(&key) {
+                                let ar = Rect::from_center_size(pos2(title_x + 12.0, y), vec2(24.0, 24.0));
+                                p.image(tex.id(), ar, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                            }
+                            title_x += 32.0;
+                        }
+                        text_fit(p, pos2(title_x, y), Align2::LEFT_CENTER, &e.title, semi(16.0), t::INK, cx[2] - cx[1] - 16.0 - (title_x - at(1)));
                         text_fit(p, pos2(at(2), y), Align2::LEFT_CENTER, &e.artist, cond(16.0), t::INK_MUTED, cx[3] - cx[2] - 16.0);
                         let bpm = e.bpm.map(|b| format!("{b:.1}")).unwrap_or_else(|| "–".into());
                         p.text(pos2(at(3), y), Align2::LEFT_CENTER, bpm, mono(13.0), if e.bpm.is_some() { t::INK } else { t::INK_FAINT });
@@ -1940,5 +2109,8 @@ pub fn restore_commands(cfg: &Config) -> Vec<Cmd> {
     v.push(Cmd::Mix(MixParam::Master(cfg.master_level)));
     v.push(Cmd::Mix(MixParam::HeadMix(cfg.phones_mix)));
     v.push(Cmd::Mix(MixParam::HeadLevel(cfg.phones_level)));
+    v.push(Cmd::QuantizeBeats(cfg.quantize_beats));
+    v.push(Cmd::Mix(MixParam::FaderCurve(cfg.fader_curve)));
+    v.push(Cmd::Mix(MixParam::CrossfaderCurve(cfg.crossfader_curve)));
     v
 }

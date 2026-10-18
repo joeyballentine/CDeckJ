@@ -1558,6 +1558,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -2636,6 +2638,7 @@ dependencies = [
  "eframe",
  "egui",
  "gilrs",
+ "image",
  "libc",
  "midir",
  "parking_lot",

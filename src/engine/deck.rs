@@ -63,6 +63,8 @@ pub struct Deck {
     /// Master Tempo: keep the key when the tempo changes.
     pub keylock: bool,
     pub quantize: bool,
+    /// Quantize resolution in beats.
+    pub quantize_beats: f64,
     pub slip: bool,
     /// Where the track would be without the current slip action (scratch, loop, reverse…).
     pub slip_pos: Option<f64>,
@@ -108,6 +110,7 @@ impl Deck {
             vinyl: true,
             keylock: false,
             quantize: true,
+            quantize_beats: 1.0,
             slip: false,
             slip_pos: None,
             reverse: false,
@@ -158,7 +161,7 @@ impl Deck {
     /// Snap to the nearest beat when quantize is on.
     fn q(&self, pos: f64) -> f64 {
         match (&self.track, self.quantize) {
-            (Some(t), true) => t.snap(pos),
+            (Some(t), true) => t.snap_to(pos, self.quantize_beats),
             _ => pos,
         }
     }
@@ -206,10 +209,11 @@ impl Deck {
     pub fn load(&mut self, track: Arc<Track>, generation: u64) -> Option<Arc<Track>> {
         // Auto-cue to the first audible sample (within what has been decoded), like a CDJ.
         let decoded = track.frames();
+        let thr = track.auto_cue_threshold();
         let first = (0..decoded)
             .find(|&i| {
                 let (l, r) = track.audio.frame(i);
-                l.abs().max(r.abs()) > 0.003
+                l.abs().max(r.abs()) > thr
             })
             .unwrap_or(0) as f64;
         let mut hot = [None; HOT_CUES];

@@ -1,6 +1,7 @@
 //! Platter — a minimal CDJ-style two-deck DJ player for the Steam Deck and a DDJ-GRV6.
 
 mod analysis;
+mod art;
 mod audio;
 mod config;
 mod engine;
@@ -12,6 +13,7 @@ mod system;
 mod theme;
 mod touch;
 mod track;
+mod wave;
 mod ui;
 
 use std::any::Any;

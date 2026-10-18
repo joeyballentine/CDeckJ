@@ -35,6 +35,8 @@ pub enum MixParam {
     HeadMix(f32),
     HeadLevel(f32),
     Master(f32),
+    FaderCurve(mixer::FaderCurve),
+    CrossfaderCurve(mixer::CrossfaderCurve),
 }
 
 /// Everything the UI, MIDI, gamepad and keyboard can ask the engine to do.
@@ -67,6 +69,8 @@ pub enum Cmd {
     Reverse(usize, bool),
     QuantizeToggle,
     Quantize(bool),
+    /// Quantize resolution in beats (1, ½, ¼, ⅛).
+    QuantizeBeats(f64),
     LoopIn(usize),
     LoopOut(usize),
     ReloopExit(usize),
@@ -338,6 +342,11 @@ impl Engine {
             Reverse(d, on) => self.decks[d].set_reverse(on),
             QuantizeToggle => self.set_quantize(!self.quantize),
             Quantize(on) => self.set_quantize(on),
+            QuantizeBeats(b) => {
+                for d in self.decks.iter_mut() {
+                    d.quantize_beats = b.clamp(0.125, 1.0);
+                }
+            }
             LoopIn(d) => self.decks[d].loop_in_pressed(),
             LoopOut(d) => self.decks[d].loop_out_pressed(),
             ReloopExit(d) => self.decks[d].reloop_exit(),
@@ -394,6 +403,8 @@ impl Engine {
             HeadMix(v) => m.head_mix = v,
             HeadLevel(v) => m.head_level = v,
             Master(v) => m.master = v,
+            FaderCurve(c) => m.fader_curve = c,
+            CrossfaderCurve(c) => m.crossfader_curve = c,
         }
     }
 

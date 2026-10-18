@@ -548,33 +548,40 @@ pub fn spawn_watchers(opts: WatchOptions, tx: Sender<LibEvent>, wake: impl Fn() 
                 }
                 if last.elapsed() > Duration::from_millis(400) {
                     let _ = tx1.send(LibEvent::Info(std::mem::take(&mut batch)));
-                    store.lock().flush(false);
+                    // Serialise under the lock, write outside it, so the UI never waits.
+                    let job = store.lock().snapshot(false);
+                    crate::config::write_now(job);
                     w1();
                     last = std::time::Instant::now();
                 }
             }
             let _ = tx1.send(LibEvent::Info(std::mem::take(&mut batch)));
-            store.lock().flush(true);
+            let job = store.lock().snapshot(true);
+            crate::config::write_now(job);
             w1();
             if !analyze {
                 return;
             }
-            // Slow pass: detect BPM for files that don't have a grid yet, one at a time.
+            // Slow pass: detect BPM and draw the waveform for files that don't have them yet,
+            // one at a time.
             let todo: Vec<PathBuf> = {
                 let st = store.lock();
-                paths.into_iter().filter(|p| st.get(p).is_none_or(|r| r.grid.is_none())).collect()
+                paths.into_iter().filter(|p| st.get(p).is_none_or(|r| r.grid.is_none() || !r.wave)).collect()
             };
             let total = todo.len();
             for (i, p) in todo.into_iter().enumerate() {
                 let _ = tx1.send(LibEvent::Progress(i, total));
-                if let Ok((tags, grid)) = track::analyze_file(&p, bpm_range) {
+                if let Ok((tags, grid, bins)) = track::analyze_file(&p, bpm_range) {
+                    crate::wave::save_cached(&p, &bins);
                     store.lock().update(&p, |r| {
                         r.grid = r.grid.or(grid);
+                        r.wave = !bins.is_empty();
                         if r.tags.is_none() {
                             r.tags = Some(tags);
                         }
                     });
-                    store.lock().flush(false);
+                    let job = store.lock().snapshot(false);
+                    crate::config::write_now(job);
                     if let Some((bpm, _)) = grid {
                         let _ = tx1.send(LibEvent::Info(vec![(p, Info { tags: None, bpm: Some(bpm) })]));
                         w1();

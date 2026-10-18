@@ -3,6 +3,7 @@
 
 pub mod anlz;
 pub mod pdb;
+pub mod settings;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -67,6 +68,15 @@ impl Export {
         resolve(&self.root, &t.file_path)
     }
 
+    /// The track's cover on the stick, preferring the larger `_m` version CDJ-3000s use.
+    pub fn artwork_path(&self, t: &TrackRow) -> Option<PathBuf> {
+        let stored = self.db.artwork.get(&t.artwork_id)?;
+        let p = resolve(&self.root, stored);
+        let stem = p.file_stem()?.to_string_lossy().into_owned();
+        let big = p.with_file_name(format!("{stem}_m.jpg"));
+        Some(if big.exists() { big } else { p })
+    }
+
     pub fn artist(&self, t: &TrackRow) -> &str {
         self.db.artists.get(&t.artist_id).map(|s| s.as_str()).unwrap_or("")
     }
@@ -102,6 +112,12 @@ impl Export {
         let ext = dat.with_extension("EXT");
         let ext = if ext.exists() { ext } else { dat.with_extension("ext") };
         if let Ok(d) = std::fs::read(&ext) {
+            ok |= a.read(&d).is_ok();
+        }
+        // CDJ-3000-era 3-band waveform.
+        let ex2 = dat.with_extension("2EX");
+        let ex2 = if ex2.exists() { ex2 } else { dat.with_extension("2ex") };
+        if let Ok(d) = std::fs::read(&ex2) {
             ok |= a.read(&d).is_ok();
         }
         ok.then_some(a)

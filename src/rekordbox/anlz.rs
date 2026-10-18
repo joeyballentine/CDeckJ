@@ -1,4 +1,5 @@
-//! Reader for rekordbox ANLZ analysis files (`ANLZ0000.DAT` / `.EXT`): beat grid and cue points.
+//! Reader for rekordbox ANLZ analysis files (`ANLZ0000.DAT` / `.EXT` / `.2EX`): beat grid,
+//! cue points and the scrolling waveforms.
 //! Big-endian, a "PMAI" header followed by type-tagged sections.
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -28,6 +29,26 @@ pub struct Analysis {
     pub memory_cues: Vec<Cue>,
     /// Set when the cues came from the extended (nxs2+) list, which wins over the basic one.
     extended_cues: bool,
+    /// Waveforms at 150 entries per second, as CDJs draw them. Any may be empty.
+    pub waves: Waves,
+}
+
+/// The three detailed waveforms rekordbox exports, one per colour setting.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Waves {
+    /// `PWV3` (Blue): height in bits 0–4, "whiteness" (high-frequency content) in bits 5–7.
+    pub blue: Vec<u8>,
+    /// `PWV5` (RGB): big-endian; red (lows) bits 13–15, green (mids) 10–12, blue (highs) 7–9,
+    /// height 2–6.
+    pub rgb: Vec<u16>,
+    /// `PWV7` (3Band, in `.2EX`): low, mid, high levels.
+    pub band: Vec<[u8; 3]>,
+}
+
+impl Waves {
+    pub fn is_empty(&self) -> bool {
+        self.blue.is_empty() && self.rgb.is_empty() && self.band.is_empty()
+    }
 }
 
 fn be16(b: &[u8], o: usize) -> Option<u16> {
@@ -51,7 +72,16 @@ impl Analysis {
                 break;
             }
             let body = &data[pos + 12..pos + len_tag];
+            // Waveform tags: entry size and count, then the entries after the header.
+            let entries = |size: usize| -> &[u8] {
+                let hlen = be32(data, pos + 4).unwrap_or(0) as usize;
+                let n = be32(body, 4).unwrap_or(0) as usize;
+                data.get(pos + hlen..(pos + hlen + n * size).min(pos + len_tag)).unwrap_or(&[])
+            };
             match tag {
+                b"PWV3" => self.waves.blue = entries(1).to_vec(),
+                b"PWV5" => self.waves.rgb = entries(2).chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect(),
+                b"PWV7" => self.waves.band = entries(3).chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect(),
                 b"PQTZ" => self.read_grid(body),
                 b"PCOB" if !self.extended_cues => self.read_cues(body),
                 b"PCO2" => self.read_cues_ext(body),
@@ -167,6 +197,28 @@ mod tests {
     use super::*;
 
     const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/rekordbox");
+
+    /// The sweep fixture runs 20 kHz → 20 Hz: highs first, lows last, in every waveform.
+    #[test]
+    fn sweep_waveforms_have_the_documented_layout() {
+        let mut a = Analysis::default();
+        for ext in ["DAT", "EXT", "2EX"] {
+            a.read(&std::fs::read(format!("{DIR}/anlz_sweep/ANLZ0000.{ext}")).unwrap()).unwrap();
+        }
+        let w = &a.waves;
+        assert_eq!((w.blue.len(), w.rgb.len(), w.band.len()), (22500, 22500, 22500));
+        let at = |sec: usize| sec * 150;
+        // Seconds 6 (high frequencies) and 45 (low frequencies) of the stereo pass.
+        let (hi, lo) = (at(6), at(45));
+        let rgb = |v: u16| ((v >> 13) & 7, (v >> 10) & 7, (v >> 7) & 7, (v >> 2) & 31);
+        assert_eq!(rgb(w.rgb[hi]).2, 7, "highs are blue");
+        assert_eq!(rgb(w.rgb[lo]).0, 7, "lows are red");
+        assert!(rgb(w.rgb[lo]).3 > 20);
+        assert!(w.band[hi][2] > 50 && w.band[hi][0] == 0, "{:?}", w.band[hi]);
+        assert!(w.band[lo][0] > 50 && w.band[lo][2] == 0, "{:?}", w.band[lo]);
+        assert_eq!(w.blue[hi] >> 5, 7, "highs are white");
+        assert_eq!(w.blue[lo] >> 5, 0);
+    }
 
     #[test]
     fn demo_track_grid_and_cues() {
