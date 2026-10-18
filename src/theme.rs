@@ -95,13 +95,16 @@ pub fn readout() -> FontId {
 
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
+    // Barlow's line box (ascent 1.0 em, descent 0.2 em) puts capitals 0.05 em below the
+    // middle, so centred labels sit low. Lift the glyphs so caps are optically centred.
+    let barlow = FontTweak { y_offset_factor: -0.05, ..Default::default() };
     fonts.font_data.insert(
         COND.into(),
-        Arc::new(FontData::from_static(include_bytes!("../assets/fonts/BarlowCondensed-Medium.ttf"))),
+        Arc::new(FontData::from_static(include_bytes!("../assets/fonts/BarlowCondensed-Medium.ttf")).tweak(barlow.clone())),
     );
     fonts.font_data.insert(
         COND_SEMI.into(),
-        Arc::new(FontData::from_static(include_bytes!("../assets/fonts/BarlowCondensed-SemiBold.ttf"))),
+        Arc::new(FontData::from_static(include_bytes!("../assets/fonts/BarlowCondensed-SemiBold.ttf")).tweak(barlow)),
     );
     fonts.font_data.insert(
         "mono".into(),
