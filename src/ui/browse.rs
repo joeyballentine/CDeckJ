@@ -8,7 +8,7 @@ use egui::text::{LayoutJob, TextWrapping};
 use egui::{pos2, vec2, Align2, Color32, CornerRadius, Id, Key, Mesh, Rect, Sense, Stroke, StrokeKind, Ui, WidgetInfo};
 
 use super::views::{panel, segmented};
-use super::{button, button_tip, caret, card, control, focus_ring, nav_icon, text_fit, App};
+use super::{button, button_tip, caret, card, control, focus_ring, mix, nav_icon, text_fit, App};
 use crate::config::BrowseCols;
 use crate::engine::{EngineView, DECKS};
 use crate::library::{self, LibTrack, Node, Row, SortKey, TrackFilter};
@@ -58,7 +58,7 @@ fn layout(w: f32, c: &BrowseCols) -> Vec<(Col, f32, f32)> {
     if c.format {
         fixed.push((Col::Format, 56.0));
     }
-    let marks = 44.0;
+    let marks = 40.0;
     let fixed_w: f32 = fixed.iter().map(|f| f.1).sum();
     let flex = (w - marks - fixed_w).max(120.0);
     let (tw, aw) = if c.artist { (flex * 0.58, flex * 0.42) } else { (flex, 0.0) };
@@ -215,24 +215,29 @@ impl App {
                         resp.widget_info(|| WidgetInfo::selected(egui::Role::Button, true, i == selected, format!("{} — {}", e.title, e.artist)));
                         let was_played = played.contains(&e.path);
                         let is_loaded = loaded.iter().any(|lp| lp.as_ref() == Some(&e.path));
-                        let mut bx = rr.min.x + 10.0;
+                        // Marks column: deck badge (or played tick) centred 18 pt in, then the
+                        // tag bookmark; the title starts right after.
+                        let mut bx = rr.min.x + 18.0;
+                        let mut used = false;
                         if was_played && !is_loaded {
                             // Played this session: a tick, and the row in muted ink.
-                            let c = pos2(bx + 4.0, y);
+                            let c = pos2(bx, y);
                             let st = Stroke::new(2.0, t::PLAY);
                             p.line_segment([c + vec2(-5.0, 0.0), c + vec2(-1.5, 3.5)], st);
                             p.line_segment([c + vec2(-1.5, 3.5), c + vec2(5.0, -4.0)], st);
+                            used = true;
                         }
                         for (d, lp) in loaded.iter().enumerate() {
                             if lp.as_ref() == Some(&e.path) {
-                                p.circle_filled(pos2(bx, y), 8.0, t::DECK_TINT[d].gamma_multiply(0.25));
+                                p.circle_filled(pos2(bx, y), 9.0, mix(t::DECK_TINT[d], t::SURFACE, 0.7));
                                 p.text(pos2(bx, y), Align2::CENTER_CENTER, format!("{}", d + 1), semi(12.0), t::DECK_TINT[d]);
-                                bx += 18.0;
+                                // On both decks: the second badge overlaps the first.
+                                bx += 11.0;
+                                used = true;
                             }
                         }
                         if tags.contains(&e.path) {
-                            // Tagged: a small bookmark at the right of the marks.
-                            let x = rr.min.x + 34.0;
+                            let x = if used { rr.min.x + 34.0 } else { rr.min.x + 18.0 };
                             let pts = vec![pos2(x - 4.0, y - 7.0), pos2(x + 4.0, y - 7.0), pos2(x + 4.0, y + 7.0), pos2(x, y + 3.0), pos2(x - 4.0, y + 7.0)];
                             p.add(egui::Shape::convex_polygon(pts, t::ACCENT, Stroke::NONE));
                         }
