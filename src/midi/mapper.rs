@@ -153,6 +153,9 @@ impl Mapper {
                 let mx = |p: MixParam| e(Cmd::Mix(p));
                 return match d1 {
                     n if n == m.fx_select => mx(MixParam::FxNext(1)),
+                    n if n >= m.fx_kind_base && ((n - m.fx_kind_base) as usize) < m.fx_kinds.len() => {
+                        mx(MixParam::FxKind(m.fx_kinds[(n - m.fx_kind_base) as usize]))
+                    }
                     n if n == m.fx_beat_left => mx(MixParam::FxBeat(-1)),
                     n if n == m.fx_beat_right => mx(MixParam::FxBeat(1)),
                     n if n == m.fx_ch1 => mx(MixParam::FxTarget(FxTarget::Ch(0))),

@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::engine::fx::FxKind;
+
 /// Note and CC numbers. Deck controls use status 0x90/0xB0 + deck channel (0..3),
 /// global controls use channel `global_channel`, pads use `pad_status` + 2·deck (+1 = SHIFT).
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -59,6 +61,10 @@ pub struct MidiMap {
     /// BEAT FX section (DDJ-400/FLX layout: MIDI channel 5).
     pub fx_channel: u8,
     pub fx_select: u8,
+    /// The GRV6's FX type knob sends one note per position, from `fx_kind_base` up. Each
+    /// position picks the effect at the same index in `fx_kinds`.
+    pub fx_kind_base: u8,
+    pub fx_kinds: Vec<FxKind>,
     pub fx_beat_left: u8,
     pub fx_beat_right: u8,
     pub fx_ch1: u8,
@@ -91,7 +97,7 @@ impl Default for MidiMap {
             loop_out: 0x11,
             reloop: 0x4D,
             shift_loop_in: 0x4C,
-            shift_loop_out: 0x4E,
+            shift_loop_out: 0x77,
             shift_reloop: 0x50,
             pfl: 0x54,
             cc_tempo: 0x00,
@@ -123,6 +129,25 @@ impl Default for MidiMap {
             pad_beat_loop: 0x60,
             fx_channel: 4,
             fx_select: 0x63,
+            fx_kind_base: 0x20,
+            // DELAY, ECHO, LC ECHO, SPIRAL, HELIX, REVERB, FLANGER, PHASER, FILTER, TRANS, PITCH,
+            // ROLL, MOBIUS (SAW), MOBIUS (TRI). Effects CDeckJ lacks get the nearest it has.
+            fx_kinds: vec![
+                FxKind::Delay,
+                FxKind::Echo,
+                FxKind::Echo,
+                FxKind::PingPong,
+                FxKind::Roll,
+                FxKind::Reverb,
+                FxKind::Flanger,
+                FxKind::Phaser,
+                FxKind::Phaser,
+                FxKind::Trans,
+                FxKind::Flanger,
+                FxKind::Roll,
+                FxKind::Phaser,
+                FxKind::Flanger,
+            ],
             fx_beat_left: 0x4A,
             fx_beat_right: 0x4B,
             fx_ch1: 0x10,

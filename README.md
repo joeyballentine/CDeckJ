@@ -180,7 +180,7 @@ Press **REC** in the top bar (or R, or ≡ on the Steam Deck) to start. The butt
 | BROWSE tilt BACK, or SHIFT + BROWSE press | Back up one level |
 | BROWSE tilt VIEW / SHIFT + VIEW | Next / previous screen (PERFORM, WAVE, BROWSE, TAG, SETTINGS) |
 | LOAD 1·2 | Load the selected track |
-| BEAT FX SELECT / BEAT ◀ ▶ | Next effect / beat value |
+| FX type knob / BEAT ◀ ▶ | Effect / beat value. The GRV6's effects CDeckJ lacks use the nearest one: LC ECHO → echo, SPIRAL → ping pong, HELIX → roll, FILTER → phaser, PITCH → flanger, MOBIUS → phaser / flanger (`fx_kinds` in the MIDI settings) |
 | FX CH SELECT lever | Effect on channel 1, 2 or master |
 | LEVEL/DEPTH, BEAT FX ON | As labelled (ON blinks while active) |
 | Channel level indicators | Driven by CDeckJ (each channel's level before the fader, like a DJM) |
@@ -354,7 +354,7 @@ On SteamOS itself, build inside a `distrobox` container (Arch or Ubuntu) rather 
 
 More than two decks, sampler, mic input, building playlists in CDeckJ, key detection for plain files, saving cues back to the stick, and rekordbox's OneLibrary format. Detected grids (non-rekordbox tracks) assume a constant tempo.
 
-Not yet tested on hardware: the DDJ-GRV6 mapping (including the BEAT FX section), the Steam Deck's own audio, touchscreen and controls, and the screen-sleep inhibit. Each was built against documentation and tested in software only.
+Tested on a DDJ-GRV6: master on outputs 1/2 and the headphone cue on 3/4 (direct and through PipeWire), and the MIDI mapping of the transport, jogs, tempo, loops, hot cue and beat jump pads, mixer, browse knob (with BACK and VIEW), LOAD and the BEAT FX section. Not yet tested on hardware: the Steam Deck's own audio, touchscreen and controls, and the screen-sleep inhibit.
 
 ## Licences
 

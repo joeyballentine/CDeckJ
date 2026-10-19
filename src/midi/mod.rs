@@ -134,6 +134,13 @@ mod tests {
         assert!((40..90).contains(&meter_value(0.1)), "-20 dB lights about half: {}", meter_value(0.1));
         assert_eq!(dec(&mut m, [0x94, 0x4B, 0x7F]), "Some(Mix(FxBeat(1)))");
         assert_eq!(dec(&mut m, [0x94, 0x11, 0x7F]), "Some(Mix(FxTarget(Ch(1))))");
+        // GRV6 FX type knob: one note per position from 0x20.
+        assert_eq!(dec(&mut m, [0x94, 0x20, 0x7F]), "Some(Mix(FxKind(Delay)))");
+        assert_eq!(dec(&mut m, [0x94, 0x25, 0x7F]), "Some(Mix(FxKind(Reverb)))");
+        assert_eq!(dec(&mut m, [0x94, 0x2B, 0x7F]), "Some(Mix(FxKind(Roll)))");
+        assert_eq!(dec(&mut m, [0x94, 0x2E, 0x7F]), "None");
+        // SHIFT + LOOP OUT halves the loop (0x77 on the GRV6).
+        assert_eq!(dec(&mut m, [0x90, 0x77, 0x7F]), "Some(LoopScale(0, 0.5))");
         assert_eq!(dec(&mut m, [0xB4, 0x22, 0x7F]), format!("Some(Mix(FxLevel({:?})))", 127.0 / 16383.0f32));
         assert_eq!(dec(&mut m, [0xB0, 0x13, 0x7F]), format!("Some(Mix(Fader(0, {:?})))", 127.0 * 128.0 / 16383.0f32));
         assert_eq!(dec(&mut m, [0xB0, 0x33, 0x7F]), "Some(Mix(Fader(0, 1.0)))");
