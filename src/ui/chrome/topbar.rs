@@ -29,15 +29,18 @@ impl App {
         };
         let midi = self.midi.lock().clone();
         let pad = self.gamepad.as_ref().and_then(|g| g.lock().clone());
-        let (audio_ok, audio_short, audio_long) = match (&self.audio, &self.audio_error) {
-            (Some(a), _) => {
+        let audio_desc = self.audio.as_ref().map(|a| &a.description);
+        #[cfg(test)]
+        let audio_desc = audio_desc.or(self.demo_audio.as_ref());
+        let (audio_ok, audio_short, audio_long) = match (audio_desc, &self.audio_error) {
+            (Some(desc), _) => {
                 let routing = match v.routing {
                     crate::engine::CueRouting::Channels34 => "phones on 3/4",
                     crate::engine::CueRouting::SplitMono => "split cue L/R",
                     crate::engine::CueRouting::MasterOnly => "no cue output",
                 };
-                let dev = a.description.split(" · ").last().unwrap_or(&a.description).to_string();
-                (true, format!("{dev} · {routing}"), format!("Audio: {}  ·  {} Hz  ·  {routing}", a.description, v.sample_rate))
+                let dev = desc.split(" · ").last().unwrap_or(desc).to_string();
+                (true, format!("{dev} · {routing}"), format!("Audio: {desc}  ·  {} Hz  ·  {routing}", v.sample_rate))
             }
             (None, e) => {
                 let s = format!("No audio — {}. Retrying…", e.as_deref().unwrap_or("not started").trim_end_matches('.'));

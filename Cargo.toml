@@ -23,6 +23,10 @@ symphonia = { version = "0.6.1", features = ["all-codecs", "all-formats"] }
 toml = "1.1.8"
 zbus = "5"
 
+[dev-dependencies]
+# Screenshot tests (src/ui/screenshots.rs)
+egui_kittest = { version = "0.37", features = ["wgpu", "snapshot", "eframe"] }
+
 [profile.release]
 opt-level = 3
 lto = "thin"

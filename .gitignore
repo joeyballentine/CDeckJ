@@ -26,3 +26,8 @@ rustc-ice-*.txt
 # Platter: rekordbox test exports are .pdb files, keep them
 !tests/fixtures/**/*.pdb
 dist/
+
+# egui_kittest output when a screenshot test fails or is updated
+docs/screenshots/*.new.png
+docs/screenshots/*.diff.png
+docs/screenshots/*.old.png

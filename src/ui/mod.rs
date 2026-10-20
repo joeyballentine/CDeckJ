@@ -36,6 +36,8 @@ pub mod icons;
 mod keyboard;
 mod panels;
 mod prelude;
+#[cfg(test)]
+mod screenshots;
 mod state;
 pub mod theme;
 pub mod touch;
@@ -168,6 +170,9 @@ pub struct App {
     /// First press of the two-press EXIT.
     exit_confirm: Option<Instant>,
     rec_low_warned: bool,
+    /// Screenshot tests have no sound card: the top bar names this one instead.
+    #[cfg(test)]
+    demo_audio: Option<String>,
 }
 
 impl App {
@@ -242,6 +247,8 @@ impl App {
             settings: Default::default(),
             exit_confirm: None,
             rec_low_warned: false,
+            #[cfg(test)]
+            demo_audio: None,
         };
         for (d, p) in init.preload.into_iter().take(DECKS).enumerate() {
             let (title, artist) = track::names_from_path(&p);

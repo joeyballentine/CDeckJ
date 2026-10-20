@@ -207,11 +207,23 @@ pub fn migrate_old_dirs() {
 }
 
 pub fn config_dir() -> PathBuf {
+    #[cfg(test)]
+    return test_dir().join("config");
+    #[cfg(not(test))]
     std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".config")).join("cdeckj")
 }
 
 pub fn data_dir() -> PathBuf {
+    #[cfg(test)]
+    return test_dir().join("data");
+    #[cfg(not(test))]
     std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".local/share")).join("cdeckj")
+}
+
+/// Tests save settings, cues and tags here, never in the user's own directories.
+#[cfg(test)]
+pub fn test_dir() -> PathBuf {
+    std::env::temp_dir().join("cdeckj-tests")
 }
 
 /// Write via a temporary file so a crash never leaves a half-written file.
