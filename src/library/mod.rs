@@ -3,6 +3,7 @@
 
 pub mod history;
 pub mod keys;
+pub mod suggest;
 
 mod scan;
 
@@ -46,6 +47,8 @@ pub enum Node {
     HistoryPast(usize),
     /// The tag list (a crate built during the set).
     Tag,
+    /// Tracks that mix with the leading deck, best first.
+    Suggest,
 }
 
 /// Narrow track lists to what mixes with the master deck (CDJ TRACK FILTER).
@@ -88,6 +91,7 @@ pub enum NavKind {
     Collection,
     History,
     Tag,
+    Suggest,
 }
 
 #[derive(Clone, Debug)]
@@ -146,6 +150,9 @@ pub struct Library {
     pub played: HashSet<PathBuf>,
     pub tags: Vec<crate::library::history::HistEntry>,
     pub track_filter: TrackFilter,
+    /// What the suggestions are for, and why each suggested track is there.
+    pub seed: Option<suggest::Seed>,
+    pub why: HashMap<PathBuf, suggest::Why>,
 }
 
 fn apply_tags(t: &mut LibTrack, tags: &Tags) {
@@ -182,6 +189,8 @@ impl Library {
             played: HashSet::new(),
             tags: Vec::new(),
             track_filter: TrackFilter::default(),
+            seed: None,
+            why: HashMap::new(),
         };
         l.refresh();
         l
@@ -222,6 +231,7 @@ impl Library {
     /// Open the selected row if it leads somewhere. Returns true if it did.
     pub fn enter(&mut self) -> bool {
         if let Some(Row::Nav { node, .. }) = self.selected_row().cloned() {
+            self.unsort_suggestions(node);
             self.stack.push((node, 0));
             self.filter.clear();
             self.refresh();
@@ -232,6 +242,7 @@ impl Library {
 
     /// Go straight to a list from the side bar (keeps Sources as the level above).
     pub fn jump_to(&mut self, node: Node) {
+        self.unsort_suggestions(node);
         self.filter.clear();
         self.stack = if node == Node::Root { vec![(Node::Root, 0)] } else { vec![(Node::Root, 0), (node, 0)] };
         self.refresh();
@@ -281,6 +292,113 @@ impl Library {
         self.refresh();
     }
 
+    /// Suggestions open in their ranked order.
+    fn unsort_suggestions(&mut self, to: Node) {
+        if to == Node::Suggest {
+            self.sort = None;
+        }
+    }
+
+    /// Follow the leading deck. Suggestions are ranked again when its track, key or Master
+    /// Tempo changes, or its tempo moves more than a quarter of a percent; the highlighted
+    /// track stays highlighted.
+    pub fn set_seed(&mut self, seed: Option<suggest::Seed>) {
+        let same = match (&self.seed, &seed) {
+            (Some(a), Some(b)) => a.same_as(b),
+            (None, None) => true,
+            _ => false,
+        };
+        if same {
+            return;
+        }
+        self.seed = seed;
+        match self.node() {
+            Node::Suggest => {
+                let keep = match self.selected_row() {
+                    Some(Row::Track(t)) => Some(t.path.clone()),
+                    _ => None,
+                };
+                self.refresh();
+                if let Some(i) = keep.and_then(|p| self.rows.iter().position(|r| matches!(r, Row::Track(t) if t.path == p))) {
+                    self.select(i);
+                }
+            }
+            Node::Root => self.refresh(),
+            _ => {}
+        }
+    }
+
+    /// A name for a track that holds across mounts, as history records it: the path inside
+    /// the export for stick tracks, the file path otherwise.
+    fn track_id(&self, t: &LibTrack) -> String {
+        t.rb.and_then(|(u, id)| Some(self.usbs.get(u)?.track(id)?.file_path.clone())).unwrap_or_else(|| t.path.to_string_lossy().into_owned())
+    }
+
+    /// rekordbox's genre and rating for a stick track.
+    fn rb_extra(&self, t: &LibTrack) -> (Option<String>, u8) {
+        let Some((u, id)) = t.rb else { return (None, 0) };
+        let Some(ex) = self.usbs.get(u) else { return (None, 0) };
+        let Some(row) = ex.track(id) else { return (None, 0) };
+        (ex.db.genres.get(&row.genre_id).cloned(), row.rating)
+    }
+
+    /// How often each track was played straight after `seed` (a track id), in CDeckJ's
+    /// history and the sticks' rekordbox histories.
+    fn follows(&self, seed: &str) -> HashMap<String, u32> {
+        let id = |e: &crate::library::history::HistEntry| e.rb_path.clone().unwrap_or_else(|| e.path.to_string_lossy().into_owned());
+        let mut m: HashMap<String, u32> = HashMap::new();
+        for s in self.sessions.iter().chain(std::iter::once(&self.current)) {
+            for w in s.entries.windows(2) {
+                if id(&w[0]) == seed {
+                    *m.entry(id(&w[1])).or_default() += 1;
+                }
+            }
+        }
+        for ex in &self.usbs {
+            for list in ex.db.history_entries.values() {
+                for w in list.windows(2) {
+                    if let (Some(a), Some(b)) = (ex.track(w[0].1), ex.track(w[1].1)) {
+                        if a.file_path == seed {
+                            *m.entry(b.file_path.clone()).or_default() += 1;
+                        }
+                    }
+                }
+            }
+        }
+        m
+    }
+
+    /// Every track the library knows, ranked against the seed.
+    fn suggestions(&self) -> Vec<(LibTrack, suggest::Why)> {
+        let Some(seed) = &self.seed else { return Vec::new() };
+        let mut pool: Vec<LibTrack> = self.local.iter().flatten().cloned().collect();
+        for (u, ex) in self.usbs.iter().enumerate() {
+            pool.extend(ex.db.tracks.iter().filter_map(|t| self.rb_track(u, ex, t.id)));
+        }
+        let pool = pool
+            .into_iter()
+            .map(|mut t| {
+                self.fill_learnt(&mut t);
+                let (genre, rating) = self.rb_extra(&t);
+                suggest::Candidate { id: self.track_id(&t), track: t, genre, rating }
+            })
+            .collect();
+        let (seed_genre, _) = self.rb_extra(&seed.track);
+        suggest::rank(seed, seed_genre.as_deref(), pool, &self.follows(&self.track_id(&seed.track)), &self.played)
+    }
+
+    /// BPM and key learnt from loading a plain file.
+    fn fill_learnt(&self, t: &mut LibTrack) {
+        if let Some((b, k)) = self.learnt.get(&t.path) {
+            if b.is_some() {
+                t.bpm = *b;
+            }
+            if t.key.is_empty() {
+                t.key = k.clone();
+            }
+        }
+    }
+
     pub fn set_track_filter(&mut self, f: TrackFilter) {
         if f != self.track_filter {
             self.track_filter = f;
@@ -301,6 +419,7 @@ impl Library {
             }
         }
         v.push(("Music folder".into(), Node::Folder, false));
+        v.push(("Suggested".into(), Node::Suggest, false));
         v.push(("History".into(), Node::History, false));
         v.push((format!("Tag list ({})", self.tags.len()), Node::Tag, false));
         v
@@ -343,6 +462,7 @@ impl Library {
                 Node::HistoryCurrent => "This session".into(),
                 Node::HistoryPast(i) => self.sessions.get(i).map(|s| s.label()).unwrap_or_default(),
                 Node::Tag => "Tag list".into(),
+                Node::Suggest => "Suggested".into(),
                 Node::UsbHistoryList(u, id) => self
                     .usbs
                     .get(u)
@@ -513,6 +633,11 @@ impl Library {
                     None => format!("{} · scanning…", self.local_root.display()),
                 };
                 rows.push(nav("Music folder".into(), detail, NavKind::Folder, Node::Folder));
+                let detail = match &self.seed {
+                    Some(s) => format!("Tracks that mix with deck {}", s.deck + 1),
+                    None => "Load a track first".into(),
+                };
+                rows.push(nav("Suggested".into(), detail, NavKind::Suggest, Node::Suggest));
                 if !self.tags.is_empty() {
                     rows.push(nav("Tag list".into(), format!("{} tracks", self.tags.len()), NavKind::Tag, Node::Tag));
                 }
@@ -531,6 +656,11 @@ impl Library {
             }
             Node::Tag => {
                 rows.extend(self.tags.iter().map(|e| Row::Track(self.hist_track(e))));
+            }
+            Node::Suggest => {
+                let ranked = self.suggestions();
+                self.why = ranked.iter().map(|(t, w)| (t.path.clone(), w.clone())).collect();
+                rows.extend(ranked.into_iter().map(|(t, _)| Row::Track(t)));
             }
             Node::HistoryCurrent => {
                 rows.extend(self.current.entries.iter().map(|e| Row::Track(self.hist_track(e))));
@@ -635,14 +765,7 @@ impl Library {
         // Fill BPM/key learnt from loaded files.
         for r in rows.iter_mut() {
             if let Row::Track(t) = r {
-                if let Some((b, k)) = self.learnt.get(&t.path) {
-                    if b.is_some() {
-                        t.bpm = *b;
-                    }
-                    if t.key.is_empty() {
-                        t.key = k.clone();
-                    }
-                }
+                self.fill_learnt(t);
             }
         }
         self.rows = Arc::new(rows);
@@ -689,7 +812,8 @@ mod tests {
         lib.back();
         assert_eq!(lib.node(), Node::Root);
         lib.handle(LibEvent::UsbRemoved(root));
-        assert_eq!(lib.rows.len(), 1);
+        // Music folder and Suggested.
+        assert_eq!(lib.rows.len(), 2);
     }
 
     fn lt(title: &str, artist: &str, bpm: f64) -> LibTrack {

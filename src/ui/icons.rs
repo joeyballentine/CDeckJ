@@ -69,6 +69,7 @@ pub const BACKSPACE: &str = "\u{e0ae}";
 pub const TRASH: &str = "\u{e4a6}";
 pub const X: &str = "\u{e4f6}";
 pub const IMAGE: &str = "\u{e2ca}";
+pub const SPARKLE: &str = "\u{e6a2}";
 
 // Settings pages.
 pub const PLAYER: &str = "\u{ecac}"; // vinyl-record

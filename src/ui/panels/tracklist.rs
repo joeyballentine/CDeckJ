@@ -33,11 +33,16 @@ pub(crate) enum Col {
     Key,
     Time,
     Format,
+    /// Suggestions: why each track is there.
+    Why,
 }
 
 /// Column x positions for a row width: (column, x, width).
-pub(crate) fn layout(w: f32, c: &BrowseCols) -> Vec<(Col, f32, f32)> {
+pub(crate) fn layout(w: f32, c: &BrowseCols, why: bool) -> Vec<(Col, f32, f32)> {
     let mut fixed: Vec<(Col, f32)> = Vec::new();
+    if why {
+        fixed.push((Col::Why, sz(200.0, 230.0)));
+    }
     if c.preview {
         fixed.push((Col::Preview, 150.0));
     }
@@ -79,6 +84,7 @@ pub(crate) fn col_name(c: Col) -> Option<(&'static str, Option<SortKey>)> {
         Col::Key => ("KEY", Some(SortKey::Key)),
         Col::Time => ("TIME", Some(SortKey::Time)),
         Col::Format => ("TYPE", None),
+        Col::Why => ("WHY", None),
         Col::Marks => return None,
     })
 }
@@ -93,6 +99,34 @@ pub(crate) fn lead_deck(v: &EngineView) -> Option<usize> {
 }
 
 impl App {
+    /// What suggestions are for: the leading deck's track, at its tempo, in the key it
+    /// sounds in now.
+    pub(crate) fn suggest_seed(&self, v: &EngineView) -> Option<crate::library::suggest::Seed> {
+        use crate::library::keys;
+        let d = lead_deck(v)?;
+        let dv = &v.decks[d];
+        let tr = self.decks[d].track.as_ref()?;
+        let bpm = dv.bpm?;
+        let track = self.decks[d].lib.clone().unwrap_or_else(|| LibTrack {
+            path: tr.path.clone(),
+            title: tr.title.clone(),
+            artist: tr.artist.clone(),
+            key: tr.key.clone(),
+            bpm: Some(bpm / dv.rate),
+            duration: None,
+            ext: String::new(),
+            rb: None,
+        });
+        Some(crate::library::suggest::Seed {
+            deck: d,
+            track,
+            bpm,
+            key: keys::parse(&tr.key).map(|k| keys::sounding(k, dv.rate, dv.keylock)),
+            keylock: v.decks[(d + 1) % DECKS].keylock,
+            loaded: self.decks.iter().filter_map(|x| x.track.as_ref().map(|t| t.path.clone())).collect(),
+        })
+    }
+
     pub(crate) fn preview_source(&self, e: &LibTrack) -> crate::ui::cache::preview::Source {
         match e.rb.and_then(|(u, id)| self.lib.usbs.get(u).map(|ex| (ex.clone(), id))) {
             Some((ex, id)) => crate::ui::cache::preview::Source::Rekordbox(ex, id),
@@ -104,10 +138,13 @@ impl App {
     pub(crate) fn rows_list(&mut self, ui: &mut Ui, list: Rect, o: ListOpts) {
         let p = ui.painter().clone();
         let rows = self.lib.rows.clone();
+        let why = if self.lib.node() == crate::library::Node::Suggest { self.lib.why.clone() } else { HashMap::new() };
+        // Suggestions show why in place of the preview.
+        let o = ListOpts { cols: BrowseCols { preview: o.cols.preview && why.is_empty(), ..o.cols }, ..o };
         let tracks_view = rows.iter().any(|r| matches!(r, Row::Track(_)));
         let mut top = list.min.y;
         if tracks_view {
-            for (i, (col, x, w)) in layout(list.width(), &o.cols).into_iter().enumerate() {
+            for (i, (col, x, w)) in layout(list.width(), &o.cols, !why.is_empty()).into_iter().enumerate() {
                 let Some((name, key)) = col_name(col) else { continue };
                 let x = list.min.x + x + 8.0;
                 let Some(key) = key else {
@@ -180,7 +217,7 @@ impl App {
         let played = &self.lib.played;
         let tags: std::collections::HashSet<PathBuf> = self.lib.tags.iter().map(|e| e.path.clone()).collect();
         let art = &mut self.art;
-        let cols = layout(list.width() - 12.0, &o.cols);
+        let cols = layout(list.width() - 12.0, &o.cols, !why.is_empty());
         let small = (o.title - 3.0).max(12.0);
         let out = area.show_rows(&mut child, row_h, rows.len(), |ui, range| {
             for i in range {
@@ -270,6 +307,12 @@ impl App {
                                 Col::Format => {
                                     p.text(pos2(x0, y), Align2::LEFT_CENTER, &e.ext, mono(small), t::INK_FAINT);
                                 }
+                                Col::Why => {
+                                    if let Some(wy) = why.get(&e.path) {
+                                        let g = p.layout_job(why_job(wy, small, w));
+                                        p.galley(pos2(x0, y - g.size().y / 2.0), g, t::INK);
+                                    }
+                                }
                             }
                         }
                         if resp.clicked() {
@@ -305,6 +348,41 @@ impl App {
 }
 
 /// Draw a whole-track preview into `r` (bars from the bottom), with a playhead if given.
+/// A suggestion's reasons in a few words: the tempo change, where the key sits on the wheel
+/// (and what it will sound as), and how often you've played it next.
+fn why_job(w: &crate::library::suggest::Why, size: f32, max_w: f32) -> LayoutJob {
+    use crate::library::suggest::KeyMatch;
+    let mut job = LayoutJob::default();
+    let mut add = |s: &str, font: FontId, col: Color32| job.append(s, 0.0, egui::TextFormat::simple(font, col));
+    let tempo = match w.tempo {
+        Some(p) if p.abs() < 0.05 => "±0 %".to_string(),
+        Some(p) => format!("{p:+.1} %"),
+        None => "–".to_string(),
+    };
+    add(&tempo, mono(size), t::INK_MUTED);
+    let (key, col) = match w.key {
+        KeyMatch::Same => ("same key", t::PLAY),
+        KeyMatch::Up => ("key +1", t::PLAY),
+        KeyMatch::Down => ("key −1", t::PLAY),
+        KeyMatch::Relative => ("relative", t::PLAY),
+        KeyMatch::Boost => ("key +2", t::CUE),
+        KeyMatch::Clash => ("key clash", t::DANGER),
+        KeyMatch::Unknown => ("", t::INK_FAINT),
+    };
+    if !key.is_empty() {
+        let mark = if w.key.mixes() { format!("{} ", icons::CHECK) } else { String::new() };
+        add(&format!("   {mark}{key}"), cond(size + 2.0), col);
+    }
+    if let Some(s) = w.sounds {
+        add(&format!(" as {}", crate::library::keys::label(s)), cond(size + 2.0), t::INK_FAINT);
+    }
+    if w.after > 0 {
+        add(&format!("   {} {}×", icons::HISTORY, w.after), cond(size + 2.0), t::ACCENT);
+    }
+    job.wrap = TextWrapping::truncate_at_width(max_w.max(1.0));
+    job
+}
+
 pub(crate) fn draw_preview(p: &egui::Painter, r: Rect, cols: &[crate::track::wave::Column], play: Option<f32>) {
     if cols.is_empty() {
         return;

@@ -73,6 +73,22 @@ pub fn label(c: Camelot) -> String {
     format!("{}{}", c.num, if c.minor { "A" } else { "B" })
 }
 
+/// The key a semitone count higher (lower when negative): a semitone is 7 steps round the
+/// wheel.
+pub fn transpose(c: Camelot, semitones: i32) -> Camelot {
+    Camelot { num: ((c.num as i32 - 1 + 7 * semitones).rem_euclid(12) + 1) as u8, minor: c.minor }
+}
+
+/// How far playing at `rate` without Master Tempo moves the pitch, to the nearest semitone.
+pub fn semitones(rate: f64) -> i32 {
+    if rate > 0.0 { (12.0 * rate.log2()).round() as i32 } else { 0 }
+}
+
+/// A key as it sounds on a deck playing at `rate`.
+pub fn sounding(c: Camelot, rate: f64, keylock: bool) -> Camelot {
+    if keylock { c } else { transpose(c, semitones(rate)) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,5 +117,17 @@ mod tests {
         assert!(!compatible(k("8A"), k("10A")));
         assert!(!compatible(k("8A"), k("9B")));
         assert!(compatible(k("Fm"), k("Ab")), "relative major");
+    }
+
+    #[test]
+    fn tempo_moves_the_key_without_master_tempo() {
+        let k = |s| parse(s).unwrap();
+        assert_eq!(transpose(k("C"), 1), k("C#"));
+        assert_eq!(transpose(k("Am"), -1), k("G#m"));
+        assert_eq!(transpose(k("8A"), 12), k("8A"));
+        // +6 % is a semitone (5.9 %); +2 % rounds to none.
+        assert_eq!(sounding(k("8A"), 1.06, false), k("3A"));
+        assert_eq!(sounding(k("8A"), 1.02, false), k("8A"));
+        assert_eq!(sounding(k("8A"), 1.06, true), k("8A"));
     }
 }

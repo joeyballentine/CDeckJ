@@ -81,6 +81,8 @@ impl App {
         if self.lib.rows.is_empty() {
             let (icon, title, line) = match self.lib.node() {
                 _ if !self.lib.filter.is_empty() => (icons::SEARCH, "No matches".to_string(), format!("Nothing here matches \u{201c}{}\u{201d}. BACK clears the search.", self.lib.filter)),
+                library::Node::Suggest if self.lib.seed.is_none() => (icons::SPARKLE, "No suggestions yet".to_string(), "Load a track on a deck: tracks that mix with it show up here.".to_string()),
+                library::Node::Suggest => (icons::SPARKLE, "No suggestions".to_string(), "Nothing in the library is close in tempo with a key that mixes.".to_string()),
                 library::Node::Folder if self.lib.local.is_none() => (icons::FOLDER, "Scanning your music folder…".to_string(), String::new()),
                 library::Node::Folder => (
                     icons::FOLDER,

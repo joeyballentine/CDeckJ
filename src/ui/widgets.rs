@@ -295,6 +295,7 @@ pub(crate) fn nav_icon(p: &Painter, c: Pos2, kind: NavKind) {
         NavKind::Collection => (icons::TRACKS, t::INK_MUTED),
         NavKind::History => (icons::HISTORY, t::INK_MUTED),
         NavKind::Tag => (icons::TAG, t::ACCENT),
+        NavKind::Suggest => (icons::SPARKLE, t::ACCENT),
     };
     p.text(c, Align2::CENTER_CENTER, icon, cond(18.0), col);
 }

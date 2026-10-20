@@ -15,6 +15,7 @@ A two-deck DJ player that works like a pair of CDJs and a two-channel mixer. It'
 - **Waveforms** in Blue, RGB or 3-Band, as soon as a track loads.
 - **Recording** of the mix to WAV, with a tracklist and CUE sheet.
 - **Key matching.** Keys that mix with the other deck show green, and the library can filter by BPM and key.
+- **Suggestions.** The library ranked against the playing track by tempo, key and what you've played after it before.
 - **Play history and a tag list** for planning the set.
 - **Multi-touch.** Hold CUE with one finger and tap PLAY with another, or ride two faders at once.
 
@@ -35,6 +36,10 @@ The big buttons down the left switch between screens, like the buttons beside a 
 **BROWSE** is the whole library, with search, an on-screen keyboard, sortable columns, a BPM and key filter, and an INFO panel. **TAG** is your tag list.
 
 ![BROWSE](docs/screenshots/browse.png)
+
+**Suggested**, in the BROWSE sidebar, ranks the whole library against the leading deck. A track makes the list if its tempo is within 8 % (half and double time count) and its key doesn't clash, or if you've played it straight after this track before, in CDeckJ or on a rekordbox stick. The WHY column shows the tempo change, where the key sits on the wheel, and how often you've played it next. Without Master Tempo, a tempo change moves the key, so keys are compared as they will sound. Tracks already played this session are left out.
+
+![Suggested](docs/screenshots/suggest.png)
 
 **SETTINGS** holds the player and mixer options, the audio output, a live controller test and system options.
 

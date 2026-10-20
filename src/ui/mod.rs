@@ -273,6 +273,8 @@ impl eframe::App for App {
         // The controller test (SETTINGS) is the only reader of the MIDI log.
         crate::midi::MIDI_LOG_ON.store(self.view_mode == View::Settings && self.settings.page == 3, Ordering::Relaxed);
         self.persist(&v);
+        let seed = self.suggest_seed(&v);
+        self.lib.set_seed(seed);
         self.recording_tick(&v);
         self.history_tick(&v);
 

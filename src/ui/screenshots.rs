@@ -116,6 +116,8 @@ fn screenshots() {
     app.silent = None;
     app.last_reconnect = Instant::now() + Duration::from_secs(3600);
     app.view.lock().routing = CueRouting::Channels34;
+    // The load it last measured varies from run to run.
+    app.view.lock().dsp_load = 0.01;
     app.demo_audio = Some("DDJ-GRV6".into());
     app.lib.jump_to(Node::Folder);
     app.lib.select(2);
@@ -124,6 +126,13 @@ fn screenshots() {
     for t in &tagged {
         app.lib.toggle_tag(t);
     }
+    // A past set in which Undertow followed Low Tide Signal, for the suggestions.
+    let past = |title: &str| {
+        let t = app.lib.local.iter().flatten().find(|t| t.title == title).unwrap();
+        crate::library::history::HistEntry { title: t.title.clone(), artist: t.artist.clone(), path: t.path.clone(), ..Default::default() }
+    };
+    let session = crate::library::history::Session { started: "2026-10-17 22-00".into(), entries: vec![past("Low Tide Signal"), past("Undertow")] };
+    app.lib.handle(LibEvent::History(vec![session]));
 
     let options = SnapshotOptions::new().output_path(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/screenshots"));
     let mut h = Harness::builder()
@@ -140,11 +149,17 @@ fn screenshots() {
 
     fn perform(a: &mut App) {
         a.set_view(View::Perform);
+        a.lib.jump_to(Node::Folder);
+        a.lib.select(2);
+        a.scroll_to_selected = true;
         a.config.perform_layout = PerformLayout::Full;
         *a.midi.lock() = None;
     }
     fn display(a: &mut App) {
         a.set_view(View::Perform);
+        a.lib.jump_to(Node::Folder);
+        a.lib.select(2);
+        a.scroll_to_selected = true;
         a.config.perform_layout = PerformLayout::Display;
         *a.midi.lock() = Some("DDJ-GRV6".into());
     }
@@ -154,11 +169,15 @@ fn screenshots() {
         a.lib.select(2);
         a.scroll_to_selected = true;
     }
-    let shots: [(&str, fn(&mut App)); 10] = [
+    let shots: [(&str, fn(&mut App)); 11] = [
         ("perform", perform),
         ("display", display),
         ("wave", |a| a.set_view(View::Wave)),
         ("browse", browse),
+        ("suggest", |a| {
+            a.lib.jump_to(Node::Suggest);
+            a.scroll_to_selected = true;
+        }),
         ("settings", |a| a.set_view(View::Settings)),
         ("glance-settings", |a| a.config.glance = true),
         ("glance-perform", perform),

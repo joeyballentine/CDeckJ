@@ -57,6 +57,7 @@ impl App {
                     Node::UsbHistory(_) | Node::History => (icons::HISTORY, t::INK_MUTED),
                     Node::Folder => (icons::FOLDER, t::INK_MUTED),
                     Node::Tag => (icons::TAG, t::ACCENT),
+                    Node::Suggest => (icons::SPARKLE, t::ACCENT),
                     _ => (icons::FOLDER, t::INK_MUTED),
                 };
                 let icol = if on { t::INK } else { icol };
@@ -90,6 +91,10 @@ impl App {
                 (icons::FILTER, "No tracks match the filter. Tap FILTER to change or clear it.")
             } else if self.lib.node() == Node::Tag {
                 (icons::TAG, "Tag tracks with TAG (or T) while browsing; they collect here for the set.")
+            } else if self.lib.node() == Node::Suggest && self.lib.seed.is_none() {
+                (icons::SPARKLE, "Load a track on a deck: tracks that mix with it show up here.")
+            } else if self.lib.node() == Node::Suggest {
+                (icons::SPARKLE, "Nothing in the library is close in tempo with a key that mixes.")
             } else if !self.lib.filter.is_empty() {
                 (icons::SEARCH, "Nothing matches the search. BACK clears it.")
             } else {
