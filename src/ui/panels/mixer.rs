@@ -63,6 +63,7 @@ impl App {
         } else if c.down || c.clicked {
             c.pos.map(|pos| (pos.x - track.min.x) / track.width())
         } else if resp.has_focus() {
+            lock_arrows(ui, &resp);
             let step = ui.input(|i| i.key_pressed(Key::ArrowRight) as i32 - i.key_pressed(Key::ArrowLeft) as i32);
             (step != 0).then(|| m.crossfader + step as f32 * 0.05)
         } else {

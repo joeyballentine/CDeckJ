@@ -99,6 +99,9 @@ impl App {
                 (Key::PageUp, true) => self.browse(-10),
                 (Key::PageDown, true) => self.browse(10),
                 (Key::Enter | Key::ArrowRight, true) => self.browse_enter(),
+                // Esc closes a BROWSE popup or the on-screen keyboard before it goes back.
+                (Key::Escape, true) if self.browse_popup.is_some() => self.browse_popup = None,
+                (Key::Escape, true) if self.keyboard_open => self.keyboard_open = false,
                 (Key::Backspace | Key::ArrowLeft | Key::Escape, true) => self.browse_back(),
                 (Key::F11, true) => {
                     self.fullscreen = !self.fullscreen;

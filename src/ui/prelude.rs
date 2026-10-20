@@ -11,7 +11,7 @@ pub(crate) use egui::{
 pub(crate) use crate::engine::{Cmd, DeckView, EngineView, MixParam, DECKS};
 pub(crate) use crate::midi::Ctl as MidiCtl;
 
-pub(crate) use super::deckinfo::{bar_position, bars_beats, key_colour, next_cue};
+pub(crate) use super::deckinfo::{bar_position, bars_beats, key_label, next_cue};
 pub(crate) use super::icons;
 pub(crate) use super::theme::{self as t, caption, cond, mono, semi};
 pub(crate) use super::touch::Touches;

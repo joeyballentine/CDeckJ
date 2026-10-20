@@ -78,7 +78,7 @@ impl App {
         let main = Rect::from_min_max(pos2(side.max.x + 6.0, r.min.y), r.max);
         card(&p, main);
         let inner = main.shrink2(vec2(18.0, 14.0));
-        let mut rows = Rows { y: inner.min.y, x: inner.min.x, w: inner.width(), label_w: 340.0 };
+        let mut rows = Rows { y: inner.min.y, x: inner.min.x, w: inner.width(), bottom: inner.max.y, label_w: 340.0 };
         match self.settings.page {
             0 => self.page_player(ui, &mut rows, v),
             1 => self.page_mixer(ui, &mut rows, v),
@@ -139,18 +139,20 @@ impl App {
         if let Some(i) = rows.seg(self, ui, "Hot cue auto load (next load)", "sha", &["OFF", "ON"], usize::from(c.hotcue_autoload)) {
             self.config.hotcue_autoload = i == 1;
         }
-        if let Some(i) = rows.seg(self, ui, "Jog mode (both decks)", "sjm", &["VINYL", "CDJ"], usize::from(!v.decks[0].vinyl)) {
+        let (label, sel) = both_decks("Jog mode", v.decks.map(|d| usize::from(!d.vinyl)));
+        if let Some(i) = rows.seg(self, ui, &label, "sjm", &["VINYL", "CDJ"], sel) {
             for d in 0..DECKS {
                 self.send(Cmd::Vinyl(d, i == 0));
             }
         }
-        if let Some(i) = rows.seg(self, ui, "Tempo range (both decks)", "str", &["±6 %", "±10 %", "±16 %", "WIDE"], v.decks[0].range_idx) {
+        let (label, sel) = both_decks("Tempo range", v.decks.map(|d| d.range_idx));
+        if let Some(i) = rows.seg(self, ui, &label, "str", &["±6 %", "±10 %", "±16 %", "WIDE"], sel) {
             for d in 0..DECKS {
                 self.send(Cmd::TempoRange(d, i));
             }
         }
-        let mt = usize::from(v.decks.iter().all(|d| d.keylock));
-        if let Some(i) = rows.seg(self, ui, "Master Tempo: tempo without pitch (both decks)", "smt", &["OFF", "ON"], mt) {
+        let (label, sel) = both_decks("Master Tempo: tempo without pitch", v.decks.map(|d| usize::from(d.keylock)));
+        if let Some(i) = rows.seg(self, ui, &label, "smt", &["OFF", "ON"], sel) {
             for d in 0..DECKS {
                 self.send(Cmd::MasterTempo(d, i == 1));
             }
@@ -252,18 +254,24 @@ impl App {
                 rows.y += 30.0;
             }
         }
-        for (i, (label, dev)) in choices.into_iter().enumerate() {
-            if rows.y > rows.limit() {
-                break;
+        // The rest of the page, scrolling when there are more devices than fit.
+        let list = Rect::from_min_max(pos2(rows.x, rows.y), pos2(rows.x + rows.w.min(720.0), rows.bottom));
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(list));
+        child.spacing_mut().item_spacing.y = 4.0;
+        let mut picked = None;
+        egui::ScrollArea::vertical().id_salt("sdevs").auto_shrink([false, false]).show(&mut child, |ui| {
+            for (i, (label, dev)) in choices.into_iter().enumerate() {
+                let (br, _) = ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::hover());
+                let on = self.audio_opts.device == dev;
+                if button(ui, &mut self.touches, br, Id::NULL.with(("sdev", i)), &label, on.then_some(t::ACCENT), cond(15.0)).clicked {
+                    picked = Some(dev);
+                }
             }
-            let br = Rect::from_min_size(pos2(rows.x, rows.y), vec2(rows.w.min(720.0), 36.0));
-            let on = self.audio_opts.device == dev;
-            if button(ui, &mut self.touches, br, Id::NULL.with(("sdev", i)), &label, on.then_some(t::ACCENT), cond(15.0)).clicked {
-                self.audio_opts.device = dev.clone();
-                self.config.audio_device = dev;
-                self.restart_audio();
-            }
-            rows.y += 40.0;
+        });
+        if let Some(dev) = picked {
+            self.audio_opts.device = dev.clone();
+            self.config.audio_device = dev;
+            self.restart_audio();
         }
     }
 
@@ -338,19 +346,25 @@ impl App {
     }
 }
 
+/// A row that sets both decks: the shared choice, or nothing lit when the decks differ.
+fn both_decks(name: &str, per_deck: [usize; DECKS]) -> (String, usize) {
+    if per_deck.iter().all(|&s| s == per_deck[0]) {
+        (format!("{name} (both decks)"), per_deck[0])
+    } else {
+        (format!("{name} (decks differ)"), usize::MAX)
+    }
+}
+
 /// Lays out labelled settings rows top to bottom.
 struct Rows {
     y: f32,
     x: f32,
     w: f32,
+    bottom: f32,
     label_w: f32,
 }
 
 impl Rows {
-    fn limit(&self) -> f32 {
-        f32::MAX
-    }
-
     fn label(&self, p: &egui::Painter, s: &str) {
         text_fit(p, pos2(self.x, self.y + 17.0), Align2::LEFT_CENTER, s, cond(16.0), t::INK, self.label_w - 12.0);
     }

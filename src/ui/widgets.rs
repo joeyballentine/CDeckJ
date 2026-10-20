@@ -29,7 +29,8 @@ pub(crate) fn card(p: &Painter, r: Rect) {
 pub(crate) fn control(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, info: impl Fn() -> WidgetInfo) -> (crate::ui::touch::Ctl, egui::Response) {
     let resp = ui.interact(r, id, Sense::click_and_drag());
     resp.widget_info(info);
-    let mut c = tc.ctl(r, id, &resp);
+    // Only the visible part takes touches (a control scrolled out of view takes none).
+    let mut c = tc.ctl(r.intersect(ui.clip_rect()), id, &resp);
     c.key = resp.has_focus() && ui.input(|i| i.key_pressed(Key::Enter) || i.key_pressed(Key::Space));
     // A press and release inside one frame (a quick tap, or a synthetic click) never shows
     // as `down`: report it as a momentary press so hold-style controls still respond.
@@ -58,7 +59,17 @@ pub(crate) fn focused_arrow(ui: &Ui, resp: &egui::Response) -> f64 {
     if !resp.has_focus() {
         return 0.0;
     }
+    lock_arrows(ui, resp);
     ui.input(|i| i.key_pressed(Key::ArrowRight) as i32 - i.key_pressed(Key::ArrowLeft) as i32) as f64
+}
+
+/// Keep focus on a control that uses the arrow keys itself. Otherwise egui moves focus to the
+/// neighbouring control on the first press.
+pub(crate) fn lock_arrows(ui: &Ui, resp: &egui::Response) {
+    if resp.has_focus() {
+        let filter = egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, ..Default::default() };
+        ui.memory_mut(|m| m.set_focus_lock_filter(resp.id, filter));
+    }
 }
 
 /// Like [`button`], with a tooltip (for terse labels and to show the keyboard shortcut).
@@ -76,9 +87,16 @@ pub(crate) fn button_tip(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str
     c
 }
 
+/// A ring around a focused control; inside its edge where the clip rect (a scroll area or
+/// panel edge) would cut the outer ring off.
 pub(crate) fn focus_ring(p: &Painter, r: Rect, resp: &egui::Response, radius: u8) {
-    if resp.has_focus() {
+    if !resp.has_focus() {
+        return;
+    }
+    if p.clip_rect().contains_rect(r.expand(4.0)) {
         p.rect_stroke(r.expand(2.0), CornerRadius::same(radius + 2), Stroke::new(2.0, t::ACCENT), StrokeKind::Outside);
+    } else {
+        p.rect_stroke(r, CornerRadius::same(radius), Stroke::new(2.0, t::ACCENT), StrokeKind::Inside);
     }
 }
 
@@ -175,6 +193,7 @@ pub(crate) fn knob(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, value: f32, label
         }
     }
     if resp.has_focus() {
+        lock_arrows(ui, &resp);
         let step = ui.input(|i| {
             (i.key_pressed(Key::ArrowUp) || i.key_pressed(Key::ArrowRight)) as i32 - (i.key_pressed(Key::ArrowDown) || i.key_pressed(Key::ArrowLeft)) as i32
         });
@@ -204,6 +223,7 @@ pub(crate) fn vfader(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, value: f32, col
         }
     }
     if resp.has_focus() {
+        lock_arrows(ui, &resp);
         let step = ui.input(|i| i.key_pressed(Key::ArrowUp) as i32 - i.key_pressed(Key::ArrowDown) as i32);
         if step != 0 {
             return Some((value + step as f32 * 0.05).clamp(0.0, 1.0));
@@ -374,6 +394,35 @@ mod tests {
         let update = o.platform_output.accesskit_update.expect("accesskit update");
         let labels: Vec<String> = update.nodes.iter().filter_map(|(_, n)| n.label().map(str::to_string)).collect();
         assert!(labels.iter().any(|l| l == "PLAY"), "{labels:?}");
+    }
+
+    #[test]
+    fn arrow_keys_turn_the_focused_knob_and_keep_focus() {
+        let ctx = egui::Context::default();
+        crate::ui::theme::install(&ctx);
+        let mut tc = Touches::default();
+        let ids = [Id::NULL.with("k1"), Id::NULL.with("k2")];
+        let mut turns = [0; 2];
+        for frame in 0..5 {
+            let mut input = egui::RawInput::default();
+            if frame >= 2 {
+                input.events.push(egui::Event::Key { key: Key::ArrowRight, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
+            }
+            let mut o = ctx.run_ui(input, |ui| {
+                for (i, id) in ids.iter().enumerate() {
+                    let r = Rect::from_min_size(pos2(10.0 + i as f32 * 70.0, 10.0), vec2(60.0, 60.0));
+                    if knob(ui, &mut tc, r, *id, 0.5, "K", t::ACCENT, true).is_some() {
+                        turns[i] += 1;
+                    }
+                }
+                if frame == 0 {
+                    ui.memory_mut(|m| m.request_focus(ids[0]));
+                }
+            });
+            o.textures_delta.clear(); // no renderer in tests
+        }
+        assert_eq!(turns, [3, 0]);
+        assert_eq!(ctx.memory(|m| m.focused()), Some(ids[0]));
     }
 
     #[test]

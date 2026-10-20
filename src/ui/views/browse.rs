@@ -28,47 +28,54 @@ impl App {
 
         // Side bar: each stick's lists, the music folder, history and the tag list.
         card(&p, side);
-        let mut y = side.min.y + 8.0;
         let current = self.lib.root_node();
-        for (i, (label, node, indent)) in self.lib.roots().into_iter().enumerate() {
-            let h = if indent { 32.0 } else { 36.0 };
-            let br = Rect::from_min_size(pos2(side.min.x + 6.0 + if indent { 14.0 } else { 0.0 }, y), vec2(side_w - 12.0 - if indent { 14.0 } else { 0.0 }, h));
-            if br.max.y > side.max.y - 4.0 {
-                break;
-            }
-            let on = current == node;
-            let (c, resp) = control(ui, &mut self.touches, br, Id::NULL.with(("side", i)), || WidgetInfo::selected(egui::Role::Button, true, on, &label));
-            if on {
-                p.rect_filled(br, CornerRadius::same(t::R_CONTROL), t::ACCENT.gamma_multiply(0.2));
-            } else if c.hovered {
-                p.rect_filled(br, CornerRadius::same(t::R_CONTROL), t::RAISED);
-            }
-            focus_ring(&p, br, &resp, t::R_CONTROL);
-            let font = if indent { cond(15.0) } else { semi(16.0) };
-            let ink = if on { t::INK } else if indent { t::INK_MUTED } else { t::INK };
-            let (icon, icol) = match node {
-                Node::Usb(_) => (icons::USB, t::ACCENT),
-                Node::UsbAll(_) => (icons::TRACKS, t::INK_MUTED),
-                Node::UsbPlaylists(..) => (icons::PLAYLIST, t::INK_MUTED),
-                Node::UsbHistory(_) | Node::History => (icons::HISTORY, t::INK_MUTED),
-                Node::Folder => (icons::FOLDER, t::INK_MUTED),
-                Node::Tag => (icons::TAG, t::ACCENT),
-                _ => (icons::FOLDER, t::INK_MUTED),
-            };
-            let icol = if on { t::INK } else { icol };
-            p.text(pos2(br.min.x + 17.0, br.center().y), Align2::CENTER_CENTER, icon, cond(if indent { 16.0 } else { 18.0 }), icol);
-            text_fit(&p, pos2(br.min.x + 34.0, br.center().y), Align2::LEFT_CENTER, &label, font, ink, br.width() - 40.0);
-            if c.clicked {
-                self.lib.jump_to(node);
-                self.search.clear();
-                self.scroll_to_selected = true;
-                if node == Node::Tag {
-                    self.view_mode = crate::ui::views::View::Tag;
-                } else if self.view_mode == crate::ui::views::View::Tag {
-                    self.view_mode = crate::ui::views::View::Browse;
+        let roots = self.lib.roots();
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(side.shrink2(vec2(6.0, 8.0))));
+        child.spacing_mut().item_spacing.y = 2.0;
+        let mut picked = None;
+        // Scrolls when sticks, playlists and history don't all fit.
+        egui::ScrollArea::vertical().id_salt("browse_side").auto_shrink([false, false]).show(&mut child, |ui| {
+            for (i, (label, node, indent)) in roots.into_iter().enumerate() {
+                let h = if indent { 32.0 } else { 36.0 };
+                let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
+                let br = Rect::from_min_max(row.min + vec2(if indent { 14.0 } else { 0.0 }, 0.0), row.max);
+                let on = current == node;
+                let (c, resp) = control(ui, &mut self.touches, br, Id::NULL.with(("side", i)), || WidgetInfo::selected(egui::Role::Button, true, on, &label));
+                let p = ui.painter();
+                if on {
+                    p.rect_filled(br, CornerRadius::same(t::R_CONTROL), t::ACCENT.gamma_multiply(0.2));
+                } else if c.hovered {
+                    p.rect_filled(br, CornerRadius::same(t::R_CONTROL), t::RAISED);
+                }
+                focus_ring(p, br, &resp, t::R_CONTROL);
+                let font = if indent { cond(15.0) } else { semi(16.0) };
+                let ink = if on { t::INK } else if indent { t::INK_MUTED } else { t::INK };
+                let (icon, icol) = match node {
+                    Node::Usb(_) => (icons::USB, t::ACCENT),
+                    Node::UsbAll(_) => (icons::TRACKS, t::INK_MUTED),
+                    Node::UsbPlaylists(..) => (icons::PLAYLIST, t::INK_MUTED),
+                    Node::UsbHistory(_) | Node::History => (icons::HISTORY, t::INK_MUTED),
+                    Node::Folder => (icons::FOLDER, t::INK_MUTED),
+                    Node::Tag => (icons::TAG, t::ACCENT),
+                    _ => (icons::FOLDER, t::INK_MUTED),
+                };
+                let icol = if on { t::INK } else { icol };
+                p.text(pos2(br.min.x + 17.0, br.center().y), Align2::CENTER_CENTER, icon, cond(if indent { 16.0 } else { 18.0 }), icol);
+                text_fit(p, pos2(br.min.x + 34.0, br.center().y), Align2::LEFT_CENTER, &label, font, ink, br.width() - 40.0);
+                if c.clicked {
+                    picked = Some(node);
                 }
             }
-            y += h + 2.0;
+        });
+        if let Some(node) = picked {
+            self.lib.jump_to(node);
+            self.search.clear();
+            self.scroll_to_selected = true;
+            if node == Node::Tag {
+                self.view_mode = crate::ui::views::View::Tag;
+            } else if self.view_mode == crate::ui::views::View::Tag {
+                self.view_mode = crate::ui::views::View::Browse;
+            }
         }
 
         // Main list.
@@ -230,6 +237,9 @@ impl App {
         let r = Rect::from_min_size(pos2(inner.min.x, inner.min.y + HEADER_H), vec2(470.0, if pop == Popup::Filter { 196.0 } else { 120.0 }));
         p.rect_filled(r.expand(4.0), CornerRadius::same(t::R_CARD), Color32::from_black_alpha(120));
         panel(&p, r);
+        // Covers the track rows underneath, so a tap between the popup's buttons doesn't
+        // select a row. Registered before the buttons, which stay on top of it.
+        let _ = ui.interact(r.expand(4.0), Id::NULL.with("browse_popup"), Sense::click_and_drag());
         let inner = r.shrink(12.0);
         match pop {
             Popup::Filter => {

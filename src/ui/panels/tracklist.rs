@@ -194,6 +194,7 @@ impl App {
                 } else if i % 2 == 1 {
                     p.rect_filled(rr, 0, t::CHROME.gamma_multiply(0.6));
                 }
+                focus_ring(p, rr, &resp, t::R_CONTROL);
                 let y = rr.center().y;
                 match &rows[i] {
                     Row::Nav { label, detail, kind, .. } => {

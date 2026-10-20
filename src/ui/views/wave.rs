@@ -89,7 +89,8 @@ impl App {
         rx -= 104.0;
         if let Some(tr) = &track {
             if !tr.key.is_empty() {
-                p.text(pos2(rx, val_y), Align2::RIGHT_BOTTOM, &tr.key, mono(18.0), key_colour(self, d));
+                let (key, col) = key_label(self, d, &tr.key);
+                p.text(pos2(rx, val_y), Align2::RIGHT_BOTTOM, key, mono(18.0), col);
                 p.text(pos2(rx, cap_y), Align2::RIGHT_TOP, "KEY", caption(), t::INK_FAINT);
             }
         }

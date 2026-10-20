@@ -44,7 +44,6 @@ impl App {
             }
         }
         let key = track.as_ref().map(|t| t.key.clone()).filter(|k| !k.is_empty());
-        let key_col = key_colour(self, d);
         // Countdown to the next cue while playing (like a CDJ's beat countdown).
         let countdown = if dv.playing {
             next_cue(self, d, dv).filter(|(b, _)| *b <= 64.0).map(|(b, l)| (format!("{}›{}", bars_beats(b), if l == "MEMORY" { "M".to_string() } else if l == "CUE" { "C".to_string() } else { l }), if b <= 16.0 { t::CUE } else { t::INK_MUTED }))
@@ -53,7 +52,7 @@ impl App {
         };
         let chips: Vec<(String, Color32)> = [
             countdown,
-            key.map(|k| (k, key_col)),
+            key.map(|k| key_label(self, d, &k)),
             dv.slip.then(|| ("SLIP".to_string(), t::SYNC)),
             dv.reverse.then(|| ("REV".to_string(), t::DANGER)),
             dv.keylock.then(|| ("MT".to_string(), t::ACCENT)),
@@ -301,7 +300,8 @@ impl App {
             let ink = if set { t::INK } else { t::INK_FAINT };
             if let Some(sub) = sub {
                 p.text(pr.center() - vec2(0.0, 7.0), Align2::CENTER_CENTER, HOT_LETTERS[i], semi(16.0), ink);
-                text_fit(&p, pr.center() + vec2(0.0, 10.0), Align2::CENTER_CENTER, &sub, cond(12.0), t::INK_MUTED, pw - 6.0);
+                // Full ink: muted ink falls below 4.5:1 on most pad colours.
+                text_fit(&p, pr.center() + vec2(0.0, 10.0), Align2::CENTER_CENTER, &sub, cond(12.0), ink, pw - 6.0);
             } else {
                 p.text(pr.center(), Align2::CENTER_CENTER, HOT_LETTERS[i], semi(17.0), ink);
             }

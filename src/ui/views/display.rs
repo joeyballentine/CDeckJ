@@ -156,7 +156,7 @@ impl App {
         };
         let chips: Vec<(String, Color32)> = [
             state,
-            key.map(|k| (k, key_colour(self, d))),
+            key.map(|k| key_label(self, d, &k)),
             dv.loop_active.then(|| ("LOOP".to_string(), t::LOOP)),
             dv.synced.then(|| ("SYNC".to_string(), t::SYNC)),
             dv.keylock.then(|| ("MT".to_string(), t::ACCENT)),
