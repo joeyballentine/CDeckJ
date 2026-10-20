@@ -104,6 +104,9 @@ impl App {
             use crate::config::PerformLayout as L;
             self.config.perform_layout = [L::Auto, L::Full, L::Display][i];
         }
+        if let Some(i) = rows.seg(self, ui, "Screen (GLANCE: bigger text, fewer words)  ( F6 )", "sgl", &["DETAILED", "GLANCE"], usize::from(c.glance)) {
+            self.config.glance = i == 1;
+        }
         if let Some(i) = rows.seg(self, ui, "Waveform colour", "swc", &["BLUE", "RGB", "3-BAND"], w) {
             self.config.waveform_color = [WaveColor::Blue, WaveColor::Rgb, WaveColor::ThreeBand][i];
         }

@@ -9,7 +9,7 @@ use crate::engine::{Cmd, DeckView, EngineView, DECKS};
 
 impl App {
     pub(crate) fn wave_view(&mut self, ui: &mut Ui, r: Rect, v: &EngineView) {
-        let head_h = 50.0;
+        let head_h = sz(50.0, 60.0);
         let ov_h = 40.0;
         let ctl_h = 42.0;
         let phase_h = 44.0;
@@ -46,51 +46,52 @@ impl App {
                 x += inner.height() + 8.0;
             }
         }
-        let right_w = 640.0;
+        let right_w = sz(640.0, 730.0);
         let title_w = (inner.max.x - right_w - x).max(80.0);
         match &track {
             Some(tr) => {
-                text_fit(&p, pos2(x, inner.min.y - 1.0), Align2::LEFT_TOP, &tr.title, semi(19.0), t::INK, title_w);
-                text_fit(&p, pos2(x, inner.min.y + 22.0), Align2::LEFT_TOP, &tr.artist, cond(15.0), t::INK_MUTED, title_w);
+                text_fit(&p, pos2(x, inner.min.y - 1.0), Align2::LEFT_TOP, &tr.title, semi(sz(19.0, 24.0)), t::INK, title_w);
+                text_fit(&p, pos2(x, inner.min.y + sz(22.0, 28.0)), Align2::LEFT_TOP, &tr.artist, cond(sz(15.0, 17.0)), t::INK_MUTED, title_w);
             }
             None => {
-                p.text(pos2(x, inner.center().y), Align2::LEFT_CENTER, "Empty deck", semi(19.0), t::INK_FAINT);
+                p.text(pos2(x, inner.center().y), Align2::LEFT_CENTER, "Empty deck", semi(sz(19.0, 24.0)), t::INK_FAINT);
             }
         }
         // Readouts from the right edge inwards.
         let cap_y = inner.min.y;
         let val_y = inner.max.y;
         let mut rx = inner.max.x;
+        let (big, small) = (mono(sz(26.0, 34.0)), mono(sz(18.0, 23.0)));
         let bpm = dv.bpm.map(|b| format!("{b:.2}")).unwrap_or_else(|| "--.--".into());
-        p.text(pos2(rx, val_y + 2.0), Align2::RIGHT_BOTTOM, bpm, mono(26.0), if dv.synced { t::SYNC } else { t::INK });
+        p.text(pos2(rx, val_y + 2.0), Align2::RIGHT_BOTTOM, bpm, big.clone(), if dv.synced { t::SYNC } else { t::INK });
         p.text(pos2(rx, cap_y), Align2::RIGHT_TOP, if dv.is_master { "BPM · MASTER" } else { "BPM" }, caption(), if dv.is_master { t::ACCENT } else { t::INK_FAINT });
-        rx -= 130.0;
+        rx -= sz(130.0, 150.0);
         let sr = dv.sample_rate.max(1) as f64;
         let (elapsed, remain) = (dv.pos / sr, (dv.length as f64 - dv.pos) / sr);
-        let big = if self.config.time_remain { format!("-{}", fmt_time(remain.max(0.0))) } else { fmt_time(elapsed) };
-        p.text(pos2(rx, val_y + 2.0), Align2::RIGHT_BOTTOM, big, mono(26.0), if dv.loaded { t::INK } else { t::INK_FAINT });
+        let time = if self.config.time_remain { format!("-{}", fmt_time(remain.max(0.0))) } else { fmt_time(elapsed) };
+        p.text(pos2(rx, val_y + 2.0), Align2::RIGHT_BOTTOM, time, big, if dv.loaded { t::INK } else { t::INK_FAINT });
         p.text(pos2(rx, cap_y), Align2::RIGHT_TOP, if self.config.time_remain { "REMAIN" } else { "ELAPSED" }, caption(), t::INK_FAINT);
-        rx -= 170.0;
+        rx -= sz(170.0, 200.0);
         let pct = (dv.rate - 1.0) * 100.0;
-        p.text(pos2(rx, val_y), Align2::RIGHT_BOTTOM, format!("{pct:+.2}%"), mono(18.0), if pct.abs() < 0.005 { t::INK_MUTED } else { t::INK });
+        p.text(pos2(rx, val_y), Align2::RIGHT_BOTTOM, format!("{pct:+.2}%"), small.clone(), if pct.abs() < 0.005 { t::INK_MUTED } else { t::INK });
         p.text(pos2(rx, cap_y), Align2::RIGHT_TOP, "TEMPO", caption(), t::INK_FAINT);
-        rx -= 112.0;
+        rx -= sz(112.0, 128.0);
         match next_cue(self, d, dv) {
             Some((beats, label)) => {
                 let warn = beats <= 16.0 && dv.playing;
-                p.text(pos2(rx, val_y), Align2::RIGHT_BOTTOM, bars_beats(beats), mono(18.0), if warn { t::CUE } else { t::INK });
+                p.text(pos2(rx, val_y), Align2::RIGHT_BOTTOM, bars_beats(beats), small.clone(), if warn { t::CUE } else { t::INK });
                 p.text(pos2(rx, cap_y), Align2::RIGHT_TOP, format!("BARS TO {label}"), caption(), t::INK_FAINT);
             }
             None => {
                 p.text(pos2(rx, cap_y), Align2::RIGHT_TOP, "NEXT CUE", caption(), t::INK_FAINT);
-                p.text(pos2(rx, val_y), Align2::RIGHT_BOTTOM, "–", mono(18.0), t::INK_FAINT);
+                p.text(pos2(rx, val_y), Align2::RIGHT_BOTTOM, "–", small.clone(), t::INK_FAINT);
             }
         }
-        rx -= 104.0;
+        rx -= sz(104.0, 120.0);
         if let Some(tr) = &track {
             if !tr.key.is_empty() {
                 let (key, col) = key_label(self, d, &tr.key);
-                p.text(pos2(rx, val_y), Align2::RIGHT_BOTTOM, key, mono(18.0), col);
+                p.text(pos2(rx, val_y), Align2::RIGHT_BOTTOM, key, small, col);
                 p.text(pos2(rx, cap_y), Align2::RIGHT_TOP, "KEY", caption(), t::INK_FAINT);
             }
         }
@@ -138,7 +139,7 @@ impl App {
         let bw = 92.0;
         for (i, (label, lit, cmd, tip)) in btns.into_iter().enumerate() {
             let br = Rect::from_min_size(pos2(x, cr.min.y + 2.0), vec2(bw, h - 4.0));
-            if button_tip(ui, &mut self.touches, br, Id::NULL.with(("wbtn", d, i)), &label, lit, semi(14.0), tip).clicked {
+            if button_tip(ui, &mut self.touches, br, Id::NULL.with(("wbtn", d, i)), &label, lit, semi(sz(14.0, 16.0)), tip).clicked {
                 self.send(cmd);
             }
             x += bw + 6.0;
@@ -158,7 +159,7 @@ impl App {
             });
             p.rect_filled(pr, CornerRadius::same(t::R_CONTROL), if set { colr.gamma_multiply(if c.down { 0.6 } else { 0.35 }) } else { t::RAISED });
             p.rect_stroke(pr, CornerRadius::same(t::R_CONTROL), Stroke::new(1.0, if set { colr } else { t::BORDER }), egui::StrokeKind::Inside);
-            p.text(pr.center(), Align2::CENTER_CENTER, crate::ui::HOT_LETTERS[i], semi(15.0), if set { t::INK } else { t::INK_FAINT });
+            p.text(pr.center(), Align2::CENTER_CENTER, crate::ui::HOT_LETTERS[i], semi(sz(15.0, 18.0)), if set { t::INK } else { t::INK_FAINT });
             if c.down != self.decks[d].hot_held[i] {
                 self.decks[d].hot_held[i] = c.down;
                 self.send(Cmd::HotCue(d, i, c.down));
@@ -211,7 +212,7 @@ impl App {
             let nx = scale.center().x + (diff as f32 * 2.0).clamp(-1.0, 1.0) * scale.width() / 2.0;
             p.rect_filled(Rect::from_center_size(pos2(nx, scale.center().y), vec2(6.0, 18.0)), CornerRadius::same(2), col);
             let txt = if ok { "IN PHASE".to_string() } else { format!("deck 2 {:+.2} beat", diff) };
-            p.text(pos2(scale.max.x + 12.0, inner.center().y), Align2::LEFT_CENTER, txt, cond(15.0), col);
+            p.text(pos2(scale.max.x + 12.0, inner.center().y), Align2::LEFT_CENTER, txt, cond(sz(15.0, 18.0)), col);
             if bar_diff != 0 && ok {
                 p.text(pos2(scale.max.x + 100.0, inner.center().y), Align2::LEFT_CENTER, format!("· bars off by {bar_diff} beat(s)"), cond(15.0), t::CUE);
             }

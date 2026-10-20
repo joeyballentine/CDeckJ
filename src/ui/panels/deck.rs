@@ -15,6 +15,7 @@ impl App {
         let inner = r.shrink(t::SP_M);
         let tint = t::DECK_TINT[d];
         let mut y = inner.min.y;
+        let (head_h, read_h) = (sz(46.0, 52.0), sz(52.0, 58.0));
 
         // Screen readers: the painted header and readouts as one label (registered first, so
         // the controls on top of it keep their hover and clicks).
@@ -23,7 +24,7 @@ impl App {
             let bpm = dv.bpm.map(|b| format!(", {b:.2} BPM")).unwrap_or_default();
             let state = if dv.playing { "playing" } else if dv.loaded { "paused" } else { "" };
             let desc = format!("Deck {}: {title}, {state}, {} remaining, tempo {:+.2}%{bpm}", d + 1, fmt_time(((dv.length as f64 - dv.pos) / dv.sample_rate.max(1) as f64).max(0.0)), (dv.rate - 1.0) * 100.0);
-            let hr = Rect::from_min_size(inner.min, vec2(inner.width(), 46.0 + 6.0 + 52.0));
+            let hr = Rect::from_min_size(inner.min, vec2(inner.width(), head_h + 6.0 + read_h));
             ui.interact(hr, Id::NULL.with(("deck_info", d)), Sense::hover()).widget_info(|| WidgetInfo::labeled(egui::Role::Label, true, &desc));
         }
 
@@ -68,24 +69,25 @@ impl App {
         let chips_w = if fix_bpm { 2.0 * 74.0 + 4.0 } else { chips.len() as f32 * 56.0 + 4.0 };
         let title_w = inner.max.x - tx - chips_w;
         let du = &self.decks[d];
-        let sub_y = y + 26.0;
+        let sub_y = y + sz(26.0, 31.0);
+        let sub_font = cond(sz(15.0, 17.0));
         if let Some(name) = &du.loading {
             text_fit(&p, pos2(tx, y + 2.0), Align2::LEFT_TOP, &format!("Loading {name}…"), t::title(), t::INK_MUTED, title_w);
-            text_fit(&p, pos2(tx, sub_y), Align2::LEFT_TOP, "Opening the file", cond(15.0), t::INK_FAINT, title_w);
+            text_fit(&p, pos2(tx, sub_y), Align2::LEFT_TOP, "Opening the file", sub_font.clone(), t::INK_FAINT, title_w);
         } else if let Some(err) = &du.error {
             text_fit(&p, pos2(tx, y + 2.0), Align2::LEFT_TOP, "Couldn't load that file", t::title(), t::DANGER, title_w);
-            text_fit(&p, pos2(tx, sub_y), Align2::LEFT_TOP, err, cond(15.0), t::INK_MUTED, title_w);
+            text_fit(&p, pos2(tx, sub_y), Align2::LEFT_TOP, err, sub_font.clone(), t::INK_MUTED, title_w);
         } else if let Some(tr) = &track {
             text_fit(&p, pos2(tx, y + 2.0), Align2::LEFT_TOP, &tr.title, t::title(), t::INK, title_w);
             if let Some(e) = tr.error.lock().clone() {
-                text_fit(&p, pos2(tx, sub_y), Align2::LEFT_TOP, &format!("Stopped decoding early: {e}"), cond(15.0), t::DANGER, title_w);
+                text_fit(&p, pos2(tx, sub_y), Align2::LEFT_TOP, &format!("Stopped decoding early: {e}"), sub_font.clone(), t::DANGER, title_w);
             } else {
                 let artist = if tr.artist.is_empty() { "Unknown artist" } else { &tr.artist };
-                text_fit(&p, pos2(tx, sub_y), Align2::LEFT_TOP, artist, cond(15.0), t::INK_MUTED, title_w);
+                text_fit(&p, pos2(tx, sub_y), Align2::LEFT_TOP, artist, sub_font.clone(), t::INK_MUTED, title_w);
             }
         } else {
             text_fit(&p, pos2(tx, y + 2.0), Align2::LEFT_TOP, "Empty deck", t::title(), t::INK_MUTED, title_w);
-            text_fit(&p, pos2(tx, sub_y), Align2::LEFT_TOP, &format!("Pick a track below and press LOAD {}", d + 1), cond(15.0), t::INK_FAINT, title_w);
+            text_fit(&p, pos2(tx, sub_y), Align2::LEFT_TOP, &format!("Pick a track below and press LOAD {}", d + 1), sub_font, t::INK_FAINT, title_w);
         }
         let mut chip_x = inner.max.x;
         if fix_bpm {
@@ -99,48 +101,63 @@ impl App {
         }
         for (label, col) in chips.iter().filter(|_| !fix_bpm) {
             let w = 52.0;
-            let cr = Rect::from_min_size(pos2(chip_x - w, y + 8.0), vec2(w, 22.0));
+            let cr = Rect::from_min_size(pos2(chip_x - w, y + sz(8.0, 9.0)), vec2(w, sz(22.0, 26.0)));
             p.rect_filled(cr, CornerRadius::same(t::R_CONTROL), col.gamma_multiply(0.18));
             text_fit(&p, cr.center(), Align2::CENTER_CENTER, label, caption(), mix(*col, t::INK, 0.4), w - 4.0);
             chip_x -= w + 4.0;
         }
-        y += 46.0 + 6.0;
+        y += head_h + 6.0;
 
         // Readouts.
         let col_w = inner.width() / 3.0;
         let cap_y = y;
-        let val_y = y + 16.0;
+        let val_y = y + sz(16.0, 18.0);
         let sr = dv.sample_rate.max(1) as f64;
         let elapsed = dv.pos / sr;
         let remain = (dv.length as f64 - dv.pos) / sr;
         let remain_mode = self.config.time_remain;
         let (cap, small) = if remain_mode { ("REMAIN", fmt_time(elapsed)) } else { ("ELAPSED", format!("-{}", fmt_time(remain))) };
         p.text(pos2(inner.min.x, cap_y), Align2::LEFT_TOP, cap, caption(), t::INK_FAINT);
-        p.text(pos2(inner.min.x + 60.0, cap_y + 1.0), Align2::LEFT_TOP, small, mono(11.5), t::INK_FAINT);
+        if !t::glance() {
+            p.text(pos2(inner.min.x + 60.0, cap_y + 1.0), Align2::LEFT_TOP, small, mono(11.5), t::INK_FAINT);
+        }
         let low_time = dv.loaded && remain < 30.0 && dv.playing && dv.complete;
         let time_col = if low_time && (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0 { t::DANGER } else { t::INK };
         let big = if remain_mode { format!("-{}", fmt_time(remain)) } else { fmt_time(elapsed) };
-        p.text(pos2(inner.min.x, val_y), Align2::LEFT_TOP, big, t::readout(), if dv.loaded { time_col } else { t::INK_FAINT });
+        let time_end = p.text(pos2(inner.min.x, val_y), Align2::LEFT_TOP, big, t::readout(), if dv.loaded { time_col } else { t::INK_FAINT }).max.x;
         // Tap the time to switch remaining/elapsed (TIME MODE).
-        let time_r = Rect::from_min_size(pos2(inner.min.x, cap_y), vec2(col_w * 1.1, 50.0));
+        let time_r = Rect::from_min_size(pos2(inner.min.x, cap_y), vec2(col_w * 1.1, read_h - 2.0));
         let tip = if remain_mode { "Showing remaining time. Tap for elapsed" } else { "Showing elapsed time. Tap for remaining" };
         if invisible_button(ui, &mut self.touches, time_r, Id::NULL.with(("time", d)), "Time mode", tip).clicked {
             self.config.time_remain = !remain_mode;
         }
 
-        let tc = inner.min.x + col_w * 1.15 + 4.0;
-        p.text(pos2(tc, cap_y), Align2::LEFT_TOP, if dv.tempo_held { "TEMPO · HELD" } else { "TEMPO" }, caption(), t::INK_FAINT);
+        let tc = (inner.min.x + col_w * 1.15 + 4.0).max(time_end + 18.0);
         let pct = (dv.rate - 1.0) * 100.0;
         let range = if dv.range >= 1.0 { "WIDE".to_string() } else { format!("±{:.0}", dv.range * 100.0) };
+        let range_tip = "Tempo range: ±6 / ±10 / ±16 % / WIDE";
         // Measured, so "-100.00%" (WIDE range) never runs into the chip.
-        let tr = p.text(pos2(tc, val_y + 3.0), Align2::LEFT_TOP, format!("{pct:+.2}%"), mono(19.0), if pct.abs() < 0.005 { t::INK_MUTED } else { t::INK });
-        let rr = Rect::from_min_size(pos2(tr.max.x + 6.0, val_y + 1.0), vec2(46.0, 26.0));
-        if button_tip(ui, &mut self.touches, rr, Id::NULL.with(("range", d)), &range, None, caption(), "Tempo range: ±6 / ±10 / ±16 % / WIDE").clicked {
-            self.send(Cmd::TempoRangeCycle(d));
-        }
+        let tr = p.text(pos2(tc, val_y + 3.0), Align2::LEFT_TOP, format!("{pct:+.2}%"), mono(sz(19.0, 23.0)), if pct.abs() < 0.005 { t::INK_MUTED } else { t::INK });
+        let right = if t::glance() {
+            // No chip: the range joins the caption and the whole readout cycles it.
+            p.text(pos2(tc, cap_y), Align2::LEFT_TOP, format!("{} {range}", if dv.tempo_held { "HELD" } else { "TEMPO" }), caption(), if dv.tempo_held { t::CUE } else { t::INK_FAINT });
+            let hit = Rect::from_min_max(pos2(tc, cap_y), pos2(tr.max.x + 4.0, cap_y + read_h - 2.0));
+            if invisible_button(ui, &mut self.touches, hit, Id::NULL.with(("range", d)), "Tempo range", range_tip).clicked {
+                self.send(Cmd::TempoRangeCycle(d));
+            }
+            tr.max.x
+        } else {
+            p.text(pos2(tc, cap_y), Align2::LEFT_TOP, if dv.tempo_held { "TEMPO · HELD" } else { "TEMPO" }, caption(), t::INK_FAINT);
+            let rr = Rect::from_min_size(pos2(tr.max.x + 6.0, val_y + 1.0), vec2(46.0, 26.0));
+            if button_tip(ui, &mut self.touches, rr, Id::NULL.with(("range", d)), &range, None, caption(), range_tip).clicked {
+                self.send(Cmd::TempoRangeCycle(d));
+            }
+            rr.max.x
+        };
 
         {
             let bpm_cap = match grid_src {
+                _ if t::glance() => "BPM",
                 Some(GridSource::Rekordbox) => "BPM · REKORDBOX GRID",
                 Some(GridSource::Saved) => "BPM · SAVED GRID",
                 _ => "BPM",
@@ -149,10 +166,11 @@ impl App {
         }
         let bpm = dv.bpm.map(|b| format!("{b:.2}")).unwrap_or_else(|| if dv.loaded && !dv.complete { "…".into() } else { "--.--".into() });
         // Shrink the BPM readout rather than overlap the range chip on a narrow window.
-        let room = inner.max.x - rr.max.x - 8.0;
-        let bpm_size = (28.0f32).min(room / (bpm.chars().count().max(1) as f32 * 0.62)).max(16.0);
-        p.text(pos2(inner.max.x, val_y - 3.0 + (28.0 - bpm_size) * 0.5), Align2::RIGHT_TOP, bpm, mono(bpm_size), if dv.synced { t::SYNC } else { t::INK });
-        y += 52.0 + 6.0;
+        let room = inner.max.x - right - 8.0;
+        let bpm_max = sz(28.0, 34.0);
+        let bpm_size = bpm_max.min(room / (bpm.chars().count().max(1) as f32 * 0.62)).max(16.0);
+        p.text(pos2(inner.max.x, val_y - 3.0 + (bpm_max - bpm_size) * 0.5), Align2::RIGHT_TOP, bpm, mono(bpm_size), if dv.synced { t::SYNC } else { t::INK });
+        y += read_h + 6.0;
 
         // Overview (tap to seek) with decode progress.
         let ov = Rect::from_min_size(pos2(inner.min.x, y), vec2(inner.width(), 30.0));
@@ -190,7 +208,7 @@ impl App {
         for row in rows {
             for (i, (label, lit, code)) in row.into_iter().enumerate() {
                 let br = Rect::from_min_size(pos2(inner.min.x + i as f32 * (bw + 5.0), y), vec2(bw, 32.0));
-                let c = button(ui, &mut self.touches, br, Id::NULL.with(("btn", d, code)), label, lit, semi(13.5));
+                let c = button(ui, &mut self.touches, br, Id::NULL.with(("btn", d, code)), label, lit, semi(sz(13.5, 15.5)));
                 if !c.clicked {
                     continue;
                 }
@@ -299,11 +317,11 @@ impl App {
             };
             let ink = if set { t::INK } else { t::INK_FAINT };
             if let Some(sub) = sub {
-                p.text(pr.center() - vec2(0.0, 7.0), Align2::CENTER_CENTER, HOT_LETTERS[i], semi(16.0), ink);
+                p.text(pr.center() - vec2(0.0, sz(7.0, 8.0)), Align2::CENTER_CENTER, HOT_LETTERS[i], semi(sz(16.0, 19.0)), ink);
                 // Full ink: muted ink falls below 4.5:1 on most pad colours.
-                text_fit(&p, pr.center() + vec2(0.0, 10.0), Align2::CENTER_CENTER, &sub, cond(12.0), ink, pw - 6.0);
+                text_fit(&p, pr.center() + vec2(0.0, sz(10.0, 12.0)), Align2::CENTER_CENTER, &sub, cond(sz(12.0, 13.5)), ink, pw - 6.0);
             } else {
-                p.text(pr.center(), Align2::CENTER_CENTER, HOT_LETTERS[i], semi(17.0), ink);
+                p.text(pr.center(), Align2::CENTER_CENTER, HOT_LETTERS[i], semi(sz(17.0, 21.0)), ink);
             }
             if shift || resp.secondary_clicked() {
                 if c.pressed || resp.secondary_clicked() {

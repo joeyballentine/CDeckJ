@@ -23,7 +23,7 @@ impl App {
 
     pub(crate) fn perform_display(&mut self, ui: &mut Ui, full: Rect, v: &EngineView) {
         let gap = 6.0;
-        let info_h = 206.0;
+        let info_h = sz(206.0, 226.0);
         let wave_h = (full.height() * 0.29).clamp(140.0, 260.0);
         let waves = Rect::from_min_size(full.min + vec2(gap, gap), vec2(full.width() - gap, wave_h));
         for d in 0..DECKS {
@@ -93,12 +93,12 @@ impl App {
         } else {
             ("Empty deck".to_string(), format!("Pick a track below and press LOAD {} (or LOAD on the controller)", d + 1), t::INK_MUTED, t::INK_FAINT)
         };
-        text_fit(&p, pos2(tx, y - 1.0), Align2::LEFT_TOP, &line1, semi(21.0), c1, title_w);
-        text_fit(&p, pos2(tx, y + 24.0), Align2::LEFT_TOP, &line2, cond(15.0), c2, title_w);
+        text_fit(&p, pos2(tx, y - 1.0), Align2::LEFT_TOP, &line1, semi(sz(21.0, 25.0)), c1, title_w);
+        text_fit(&p, pos2(tx, y + sz(24.0, 29.0)), Align2::LEFT_TOP, &line2, cond(sz(15.0, 17.0)), c2, title_w);
 
         // Row 2: time | tempo | BPM, sized to the card.
-        let y2 = y + 52.0;
-        let big = (inner.width() / 480.0 * 34.0).clamp(26.0, 34.0);
+        let y2 = y + sz(52.0, 56.0);
+        let big = (inner.width() / 480.0 * sz(34.0, 42.0)).clamp(26.0, sz(34.0, 42.0));
         let remain_mode = self.config.time_remain;
         p.text(pos2(inner.min.x, y2), Align2::LEFT_TOP, if remain_mode { "REMAIN" } else { "ELAPSED" }, caption(), t::INK_FAINT);
         let low_time = dv.loaded && remain < 30.0 && dv.playing && dv.complete;
@@ -127,14 +127,14 @@ impl App {
         p.text(pos2(inner.max.x + 1.0, y2 + 14.0), Align2::RIGHT_TOP, bpm, mono(big), if dv.synced { t::SYNC } else if dv.loaded { t::INK } else { t::INK_FAINT });
 
         // Row 3: overview (tap to seek).
-        let y3 = y2 + 58.0;
+        let y3 = y2 + sz(58.0, 70.0);
         let ov = Rect::from_min_size(pos2(inner.min.x, y3), vec2(inner.width(), 34.0));
         self.overview(ui, &p, ov, d, dv);
 
         // Row 4: state chips, then the hot cues A–H (set ones in their colour).
         let y4 = ov.max.y + 10.0;
-        let chip_h = 24.0;
-        let pad_s = 22.0;
+        let chip_h = sz(24.0, 28.0);
+        let pad_s = sz(22.0, 26.0);
         let pads_w = 8.0 * (pad_s + 3.0) - 3.0;
         let pads_x = inner.max.x - pads_w;
         let mut x = inner.min.x;
@@ -185,7 +185,7 @@ impl App {
             if set {
                 p.rect_stroke(pr, CornerRadius::same(4), Stroke::new(1.0, col), StrokeKind::Inside);
             }
-            p.text(pr.center(), Align2::CENTER_CENTER, HOT_LETTERS[i], semi(12.0), if set { t::INK } else { t::INK_FAINT });
+            p.text(pr.center(), Align2::CENTER_CENTER, HOT_LETTERS[i], semi(sz(12.0, 14.0)), if set { t::INK } else { t::INK_FAINT });
         }
     }
 
@@ -223,7 +223,7 @@ impl App {
             }
             _ => ("–".to_string(), t::INK_FAINT),
         };
-        p.text(pos2(inner.center().x, inner.min.y + 46.0), Align2::CENTER_TOP, txt, cond(15.0), col);
+        p.text(pos2(inner.center().x, inner.min.y + 46.0), Align2::CENTER_TOP, txt, cond(sz(15.0, 17.0)), col);
 
         // Meters: channel 1, master, channel 2.
         let my0 = inner.min.y + 74.0;

@@ -12,6 +12,8 @@ use crate::engine::EngineView;
 /// Rail width for a window at least `WIDE` points wide, and below it.
 pub const RAIL_W: f32 = 84.0;
 pub const RAIL_W_NARROW: f32 = 72.0;
+/// Glance mode: icons only.
+pub const RAIL_W_ICONS: f32 = 62.0;
 pub const WIDE: f32 = 1180.0;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -86,10 +88,15 @@ impl App {
         p.rect_stroke(r, radius, Stroke::new(1.0, stroke), StrokeKind::Inside);
         focus_ring(p, r, &resp, t::R_CARD);
         let (icon_col, label_col) = if on || danger { (accent, mix(accent, t::INK, 0.55)) } else { (t::INK_MUTED, t::INK_MUTED) };
-        let icon_size = (r.height() * 0.34).clamp(20.0, 26.0);
         let c_y = r.center().y;
-        p.text(pos2(r.center().x, c_y - 9.0), Align2::CENTER_CENTER, icon, cond(icon_size), icon_col);
-        p.text(pos2(r.center().x, c_y + icon_size * 0.5 + 5.0), Align2::CENTER_CENTER, label, semi(12.5), label_col);
+        if t::glance() && !danger {
+            // Icons only; the EXIT? confirmation keeps its word.
+            p.text(pos2(r.center().x, c_y), Align2::CENTER_CENTER, icon, cond((r.width() * 0.5).min(32.0)), icon_col);
+        } else {
+            let icon_size = (r.height() * 0.34).clamp(20.0, 26.0);
+            p.text(pos2(r.center().x, c_y - 9.0), Align2::CENTER_CENTER, icon, cond(icon_size), icon_col);
+            p.text(pos2(r.center().x, c_y + icon_size * 0.5 + 5.0), Align2::CENTER_CENTER, label, semi(12.5), label_col);
+        }
         if !self.touches.touch_mode() {
             resp.on_hover_text(tip);
         }

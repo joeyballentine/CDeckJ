@@ -28,16 +28,16 @@ impl App {
                 }
             }
             // Right side: state, time, BPM.
-            let right_w = 250.0;
+            let right_w = sz(250.0, 290.0);
             let title_w = (inner.max.x - right_w - x).max(40.0);
             match &track {
                 Some(tr) => {
-                    text_fit(&p, pos2(x, inner.min.y), Align2::LEFT_TOP, &tr.title, semi(16.0), t::INK, title_w);
-                    text_fit(&p, pos2(x, inner.min.y + 20.0), Align2::LEFT_TOP, &tr.artist, cond(14.0), t::INK_MUTED, title_w);
+                    text_fit(&p, pos2(x, inner.min.y), Align2::LEFT_TOP, &tr.title, semi(sz(16.0, 20.0)), t::INK, title_w);
+                    text_fit(&p, pos2(x, inner.min.y + sz(20.0, 25.0)), Align2::LEFT_TOP, &tr.artist, cond(sz(14.0, 16.0)), t::INK_MUTED, title_w);
                 }
                 None => {
                     let s = self.decks[d].loading.clone().map(|n| format!("Loading {n}…")).unwrap_or_else(|| "Empty deck".into());
-                    text_fit(&p, pos2(x, inner.center().y), Align2::LEFT_CENTER, &s, semi(16.0), t::INK_FAINT, title_w);
+                    text_fit(&p, pos2(x, inner.center().y), Align2::LEFT_CENTER, &s, semi(sz(16.0, 20.0)), t::INK_FAINT, title_w);
                 }
             }
             let rx = inner.max.x - right_w + 10.0;
@@ -45,9 +45,9 @@ impl App {
             p.text(pos2(rx, inner.min.y + 2.0), Align2::LEFT_TOP, state, caption(), col);
             let sr = dv.sample_rate.max(1) as f64;
             let remain = (dv.length as f64 - dv.pos) / sr;
-            p.text(pos2(rx, inner.max.y), Align2::LEFT_BOTTOM, format!("-{}", fmt_time(remain.max(0.0))), mono(17.0), if dv.loaded { t::INK } else { t::INK_FAINT });
+            p.text(pos2(rx, inner.max.y), Align2::LEFT_BOTTOM, format!("-{}", fmt_time(remain.max(0.0))), mono(sz(17.0, 22.0)), if dv.loaded { t::INK } else { t::INK_FAINT });
             let bpm = dv.bpm.map(|b| format!("{b:.1}")).unwrap_or_else(|| "--.-".into());
-            p.text(pos2(inner.max.x, inner.max.y), Align2::RIGHT_BOTTOM, bpm, mono(17.0), if dv.synced { t::SYNC } else { t::INK });
+            p.text(pos2(inner.max.x, inner.max.y), Align2::RIGHT_BOTTOM, bpm, mono(sz(17.0, 22.0)), if dv.synced { t::SYNC } else { t::INK });
             p.text(pos2(inner.max.x, inner.min.y + 2.0), Align2::RIGHT_TOP, "BPM", caption(), t::INK_FAINT);
             // Progress along the bottom edge.
             if dv.loaded && dv.length > 0 {

@@ -262,6 +262,7 @@ impl App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        t::set_glance(self.config.glance);
         let (events, now) = ui.input(|i| (i.events.clone(), i.time));
         self.art.poll(ui.ctx());
         self.touches.begin_frame(&events, now);
@@ -291,7 +292,13 @@ impl eframe::App for App {
         let top = Rect::from_min_size(full.min, vec2(full.width(), top_h));
         let banner = Rect::from_min_size(pos2(full.min.x, top.max.y), vec2(full.width(), banner_h));
         // The rail of big screen buttons down the left; views get the rest.
-        let rail_w = if full.width() >= rail::WIDE { rail::RAIL_W } else { rail::RAIL_W_NARROW };
+        let rail_w = if t::glance() {
+            rail::RAIL_W_ICONS
+        } else if full.width() >= rail::WIDE {
+            rail::RAIL_W
+        } else {
+            rail::RAIL_W_NARROW
+        };
         let rail_r = Rect::from_min_max(pos2(full.min.x + 6.0, banner.max.y + 6.0), pos2(full.min.x + 6.0 + rail_w, full.max.y - 6.0));
         let body = Rect::from_min_max(pos2(rail_r.max.x, banner.max.y), full.max);
         self.top_bar(ui, top, &v, body.min.x);
@@ -304,7 +311,7 @@ impl eframe::App for App {
             View::Perform => self.perform_view(ui, body, &v),
             View::Wave => self.wave_view(ui, body.shrink2(vec2(6.0, 4.0)), &v),
             View::Browse | View::Tag | View::Settings => {
-                let strip = Rect::from_min_size(body.min + vec2(6.0, 4.0), vec2(body.width() - 12.0, 58.0));
+                let strip = Rect::from_min_size(body.min + vec2(6.0, 4.0), vec2(body.width() - 12.0, t::sz(58.0, 66.0)));
                 self.now_playing(ui, strip, &v);
                 let rest = Rect::from_min_max(pos2(body.min.x + 6.0, strip.max.y + 6.0), body.max - vec2(6.0, 6.0));
                 if self.view_mode == View::Settings {

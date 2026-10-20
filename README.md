@@ -40,6 +40,10 @@ The big buttons down the left switch between screens, like the buttons beside a 
 
 ![SETTINGS](docs/screenshots/settings.png)
 
+**Glance mode** is for reading the screen from arm's length. It makes the text and readouts bigger, the track list rows taller, and drops the rail labels and secondary captions. Switch it in SETTINGS → PLAYER → Screen, or with F6.
+
+![WAVE in glance mode](docs/screenshots/glance-wave.png)
+
 ## Install on the Steam Deck
 
 1. In Desktop Mode, download the [latest release](https://github.com/joeyballentine/CDeckJ/releases/latest/download/cdeckj-steamdeck-x86_64.tar.gz), extract it, and run `install.sh` (double-click it and choose *Execute*). It installs CDeckJ to `~/Applications/cdeckj`, adds it to the applications menu, and opens CDeckJ whenever the controller is plugged in.
@@ -135,6 +139,7 @@ Use Steam's *Gamepad* layout for CDeckJ.
 | Key | Action |
 |---|---|
 | F1–F5 | PERFORM, WAVE, BROWSE, TAG, SETTINGS |
+| F6 | Glance mode on/off |
 | ↑ ↓, Page Up / Down | Move in the library |
 | Enter or → / Backspace, Esc or ← | Open / back |
 | `/` or Ctrl+F | Search |

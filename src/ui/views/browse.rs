@@ -18,8 +18,8 @@ impl App {
     pub(crate) fn browse_view(&mut self, ui: &mut Ui, r: Rect, v: &EngineView) {
         self.previews.poll();
         let p = ui.painter().clone();
-        // Narrow windows give the list more room.
-        let narrow = r.width() < 1180.0;
+        // Narrow windows give the list more room; so does glance mode's bigger type.
+        let narrow = r.width() < sz(1180.0, 1260.0);
         let side_w = if narrow { 172.0 } else { 210.0 };
         let info_w = if !self.config.browse_info { 0.0 } else if narrow { 248.0 } else { 300.0 };
         let side = Rect::from_min_size(r.min, vec2(side_w, r.height()));
@@ -48,7 +48,7 @@ impl App {
                     p.rect_filled(br, CornerRadius::same(t::R_CONTROL), t::RAISED);
                 }
                 focus_ring(p, br, &resp, t::R_CONTROL);
-                let font = if indent { cond(15.0) } else { semi(16.0) };
+                let font = if indent { cond(sz(15.0, 17.0)) } else { semi(sz(16.0, 18.0)) };
                 let ink = if on { t::INK } else if indent { t::INK_MUTED } else { t::INK };
                 let (icon, icol) = match node {
                     Node::Usb(_) => (icons::USB, t::ACCENT),
@@ -98,9 +98,11 @@ impl App {
             p.text(list.center() - vec2(0.0, 30.0), Align2::CENTER_CENTER, icon, cond(34.0), t::INK_FAINT);
             p.text(list.center() + vec2(0.0, 8.0), Align2::CENTER_CENTER, msg, t::body(), t::INK_MUTED);
         } else {
-            // Sized for a thumb on the Deck's 7" screen; A− / A+ trade size for rows.
-            let row_h = [34.0, 44.0, 54.0][self.config.browse_text.min(2) as usize];
-            let title = [15.0, 17.0, 20.0][self.config.browse_text.min(2) as usize];
+            // Sized for a thumb on the Deck's 7" screen; A− / A+ trade size for rows, and glance
+            // mode is one step up.
+            let step = self.config.browse_text.min(2) as usize + usize::from(t::glance());
+            let row_h = [34.0, 44.0, 54.0, 64.0][step];
+            let title = [15.0, 17.0, 20.0, 23.0][step];
             self.rows_list(ui, list, ListOpts { row_h, title, cols: self.config.browse_cols, art: true });
         }
         if self.keyboard_open {

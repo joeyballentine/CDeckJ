@@ -82,18 +82,35 @@ pub fn mono(size: f32) -> FontId {
     FontId::new(size, FontFamily::Monospace)
 }
 
+thread_local! {
+    static GLANCE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Glance mode: bigger type and fewer words, for reading the screen from arm's length.
+/// Set once per frame from the config.
+pub fn set_glance(on: bool) {
+    GLANCE.with(|l| l.set(on));
+}
+pub fn glance() -> bool {
+    GLANCE.with(|l| l.get())
+}
+/// `detailed` normally, `glance` in glance mode.
+pub fn sz(detailed: f32, glance: f32) -> f32 {
+    if self::glance() { glance } else { detailed }
+}
+
 // Text roles.
 pub fn caption() -> FontId {
-    semi(12.5)
+    semi(sz(12.5, 14.0))
 }
 pub fn body() -> FontId {
-    cond(16.0)
+    cond(sz(16.0, 18.0))
 }
 pub fn title() -> FontId {
-    semi(21.0)
+    semi(sz(21.0, 25.0))
 }
 pub fn readout() -> FontId {
-    mono(24.0)
+    mono(sz(24.0, 30.0))
 }
 
 fn install_fonts(ctx: &egui::Context) {

@@ -129,8 +129,7 @@ fn screenshots() {
     let mut h = Harness::builder()
         .with_size(egui::vec2(1280.0, 800.0))
         .with_pixels_per_point(1.0)
-        // Short steps keep the whole run inside the first half second, so paused decks'
-        // CUE and PLAY are lit in every shot (they blink at 1 Hz).
+        // Short steps keep each shot inside the first half second of the blink.
         .with_step_dt(1.0 / 60.0)
         .with_options(options)
         .wgpu()
@@ -139,24 +138,40 @@ fn screenshots() {
             app
         });
 
-    let shots: [(&str, fn(&mut App)); 5] = [
-        ("perform", |a| a.config.perform_layout = PerformLayout::Full),
-        ("display", |a| {
-            a.config.perform_layout = PerformLayout::Display;
-            *a.midi.lock() = Some("DDJ-GRV6".into());
-        }),
+    fn perform(a: &mut App) {
+        a.set_view(View::Perform);
+        a.config.perform_layout = PerformLayout::Full;
+        *a.midi.lock() = None;
+    }
+    fn display(a: &mut App) {
+        a.set_view(View::Perform);
+        a.config.perform_layout = PerformLayout::Display;
+        *a.midi.lock() = Some("DDJ-GRV6".into());
+    }
+    fn browse(a: &mut App) {
+        a.set_view(View::Browse);
+        a.lib.jump_to(Node::Folder);
+        a.lib.select(2);
+        a.scroll_to_selected = true;
+    }
+    let shots: [(&str, fn(&mut App)); 10] = [
+        ("perform", perform),
+        ("display", display),
         ("wave", |a| a.set_view(View::Wave)),
-        ("browse", |a| {
-            a.set_view(View::Browse);
-            a.lib.jump_to(Node::Folder);
-            a.lib.select(2);
-            a.scroll_to_selected = true;
-        }),
+        ("browse", browse),
         ("settings", |a| a.set_view(View::Settings)),
+        ("glance-settings", |a| a.config.glance = true),
+        ("glance-perform", perform),
+        ("glance-display", display),
+        ("glance-wave", |a| a.set_view(View::Wave)),
+        ("glance-browse", browse),
     ];
     let mut failed = Vec::new();
     for (name, setup) in shots {
         setup(h.state_mut());
+        // Back to the start of the clock: paused decks blink CUE and PLAY at 1 Hz, and the
+        // hover checks of earlier shots have run it on.
+        h.input_mut().time = Some(0.0);
         h.run_steps(3);
         if let Err(e) = h.try_snapshot(name) {
             failed.push(e.to_string());

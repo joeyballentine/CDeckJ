@@ -13,7 +13,7 @@ pub(crate) use crate::midi::Ctl as MidiCtl;
 
 pub(crate) use super::deckinfo::{bar_position, bars_beats, key_label, next_cue};
 pub(crate) use super::icons;
-pub(crate) use super::theme::{self as t, caption, cond, mono, semi};
+pub(crate) use super::theme::{self as t, caption, cond, mono, semi, sz};
 pub(crate) use super::touch::Touches;
 pub(crate) use crate::ui::views::View;
 pub(crate) use super::widgets::*;

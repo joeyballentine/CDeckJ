@@ -30,12 +30,12 @@ impl App {
             }
         }
         y += art_s + 10.0;
-        let tg = p.layout(e.title.clone(), semi(18.0), t::INK, inner.width());
-        let th = tg.size().y.min(48.0);
+        let tg = p.layout(e.title.clone(), semi(sz(18.0, 21.0)), t::INK, inner.width());
+        let th = tg.size().y.min(sz(48.0, 56.0));
         p.galley(pos2(inner.min.x, y), tg, t::INK);
         y += th + 2.0;
-        text_fit(&p, pos2(inner.min.x, y), Align2::LEFT_TOP, &e.artist, cond(16.0), t::INK_MUTED, inner.width());
-        y += 24.0;
+        text_fit(&p, pos2(inner.min.x, y), Align2::LEFT_TOP, &e.artist, cond(sz(16.0, 18.0)), t::INK_MUTED, inner.width());
+        y += sz(24.0, 27.0);
         // Whole-track preview.
         let pr = Rect::from_min_size(pos2(inner.min.x, y), vec2(inner.width(), 40.0));
         p.rect_filled(pr, CornerRadius::same(3), t::INSET);
@@ -101,8 +101,8 @@ impl App {
                     p.text(pos2(inner.min.x + 72.0 + i as f32 * 17.0, y + 7.0), Align2::LEFT_CENTER, icons::STAR, font, col);
                 }
             }
-            text_fit(&p, pos2(inner.min.x + 72.0, y - 1.0), Align2::LEFT_TOP, &val, cond(15.0), t::INK, inner.width() - 72.0);
-            y += 22.0;
+            text_fit(&p, pos2(inner.min.x + 72.0, y - 1.0), Align2::LEFT_TOP, &val, cond(sz(15.0, 17.0)), t::INK, inner.width() - 72.0);
+            y += sz(22.0, 25.0);
         }
     }
 }

@@ -19,7 +19,7 @@ pub struct ListOpts {
 impl ListOpts {
     /// The PERFORM view's browser: fixed columns, 30 pt rows.
     pub fn compact() -> ListOpts {
-        ListOpts { row_h: 30.0, title: 16.0, cols: BrowseCols { preview: false, format: false, ..BrowseCols::default() }, art: true }
+        ListOpts { row_h: sz(30.0, 34.0), title: sz(16.0, 18.0), cols: BrowseCols { preview: false, format: false, ..BrowseCols::default() }, art: true }
     }
 }
 
@@ -42,13 +42,13 @@ pub(crate) fn layout(w: f32, c: &BrowseCols) -> Vec<(Col, f32, f32)> {
         fixed.push((Col::Preview, 150.0));
     }
     if c.bpm {
-        fixed.push((Col::Bpm, 70.0));
+        fixed.push((Col::Bpm, sz(70.0, 80.0)));
     }
     if c.key {
-        fixed.push((Col::Key, 54.0));
+        fixed.push((Col::Key, sz(54.0, 62.0)));
     }
     if c.time {
-        fixed.push((Col::Time, 60.0));
+        fixed.push((Col::Time, sz(60.0, 70.0)));
     }
     if c.format {
         fixed.push((Col::Format, 56.0));
@@ -127,7 +127,7 @@ impl App {
                     self.lib.sort_by(key);
                 }
             }
-            top += 18.0;
+            top += sz(18.0, 20.0);
         }
         let rows_rect = Rect::from_min_max(pos2(list.min.x, top), list.max);
         let row_h = o.row_h;

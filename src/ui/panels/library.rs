@@ -74,7 +74,7 @@ impl App {
         }
 
         let list = Rect::from_min_max(pos2(inner.min.x, head.max.y + 6.0), inner.max);
-        let opts = if big { ListOpts { row_h: 42.0, title: 17.0, ..ListOpts::compact() } } else { ListOpts::compact() };
+        let opts = if big { ListOpts { row_h: sz(42.0, 50.0), title: sz(17.0, 20.0), ..ListOpts::compact() } } else { ListOpts::compact() };
         if let Some((done, total)) = self.lib.analysis_progress {
             text_fit(&p, pos2(list.max.x, r.max.y - 2.0), Align2::RIGHT_BOTTOM, &format!("Analysing BPM {done}/{total}"), caption(), t::INK_FAINT, 200.0);
         }

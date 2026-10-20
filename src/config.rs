@@ -134,6 +134,8 @@ pub struct Config {
     pub browse_text: u8,
     pub browse_info: bool,
     pub perform_layout: PerformLayout,
+    /// Glance mode: bigger type and fewer words, an icon-only rail.
+    pub glance: bool,
     pub midi: MidiMap,
 }
 
@@ -180,6 +182,7 @@ impl Default for Config {
             browse_text: 1,
             browse_info: true,
             perform_layout: PerformLayout::Auto,
+            glance: false,
             midi: MidiMap::default(),
         }
     }

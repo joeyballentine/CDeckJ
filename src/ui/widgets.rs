@@ -120,6 +120,10 @@ pub(crate) fn button_resp(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &st
     let fill = if c.down && lit.is_some() { fill.gamma_multiply(1.4) } else { fill };
     p.rect_filled(r, CornerRadius::same(t::R_CONTROL), fill);
     p.rect_stroke(r, CornerRadius::same(t::R_CONTROL), Stroke::new(1.0, stroke), StrokeKind::Inside);
+    // Shrink a label that would overflow (glance mode on a narrow window).
+    let room = r.width() - 6.0;
+    let w = p.layout_no_wrap(label.to_owned(), font.clone(), ink).size().x;
+    let font = if w > room { FontId::new(font.size * room / w, font.family) } else { font };
     p.text(r.center(), Align2::CENTER_CENTER, label, font, ink);
     focus_ring(p, r, &resp, t::R_CONTROL);
     (c, resp)
@@ -138,7 +142,7 @@ pub(crate) fn round_button(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &s
     let ink = if lit { col } else { t::INK_MUTED };
     match icon {
         Some(i) => p.text(center, Align2::CENTER_CENTER, i, icons::fill(rad * 0.78), ink),
-        None => p.text(center, Align2::CENTER_CENTER, label, semi(15.0), ink),
+        None => p.text(center, Align2::CENTER_CENTER, label, semi(sz(15.0, 17.0)), ink),
     };
     if resp.has_focus() {
         p.circle_stroke(center, rad + 3.0, Stroke::new(2.0, t::ACCENT));
@@ -307,8 +311,8 @@ pub(crate) fn nav_row(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, icon: &str, la
     }
     focus_ring(p, r, &resp, t::R_CONTROL);
     let ink = if on { t::INK } else { t::INK_MUTED };
-    p.text(pos2(r.min.x + 18.0, r.center().y), Align2::CENTER_CENTER, icon, cond(18.0), if on { t::ACCENT } else { t::INK_FAINT });
-    text_fit(p, pos2(r.min.x + 38.0, r.center().y), Align2::LEFT_CENTER, label, semi(15.0), ink, r.width() - 44.0);
+    p.text(pos2(r.min.x + 18.0, r.center().y), Align2::CENTER_CENTER, icon, cond(sz(18.0, 20.0)), if on { t::ACCENT } else { t::INK_FAINT });
+    text_fit(p, pos2(r.min.x + 38.0, r.center().y), Align2::LEFT_CENTER, label, semi(sz(15.0, 17.0)), ink, r.width() - 44.0);
     c
 }
 
@@ -316,7 +320,7 @@ pub(crate) fn nav_row(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, icon: &str, la
 pub(crate) fn search_field(ui: &mut Ui, r: Rect, text: &mut String) -> egui::Response {
     let te = egui::TextEdit::singleline(text)
         .hint_text("Search  ( / )")
-        .font(cond(16.0))
+        .font(cond(sz(16.0, 18.0)))
         .margin(egui::Margin { left: 30, right: 6, top: 3, bottom: 3 })
         .desired_width(r.width());
     let resp = ui.put(r, te);
@@ -330,7 +334,7 @@ pub(crate) fn crumbs_job(crumbs: &[String], max_w: f32) -> LayoutJob {
     let last = crumbs.len().saturating_sub(1);
     let mut job = LayoutJob::default();
     for (i, c) in crumbs.iter().enumerate() {
-        let (font, col) = if i == last { (semi(16.0), t::INK) } else { (cond(16.0), t::INK_FAINT) };
+        let (font, col) = if i == last { (semi(sz(16.0, 18.0)), t::INK) } else { (cond(sz(16.0, 18.0)), t::INK_FAINT) };
         job.append(c, 0.0, egui::TextFormat::simple(font, col));
         if i != last {
             job.append(&format!("  {}  ", icons::CARET_RIGHT), 0.0, egui::TextFormat::simple(cond(13.0), t::INK_FAINT));
@@ -358,7 +362,7 @@ pub(crate) fn segmented(app: &mut App, ui: &Ui, r: Rect, id: &str, labels: &[&st
     let mut out = None;
     for (i, l) in labels.iter().enumerate() {
         let br = Rect::from_min_size(pos2(r.min.x + i as f32 * (w + 4.0), r.min.y), vec2(w, r.height()));
-        if button_tip(ui, &mut app.touches, br, Id::NULL.with((id, i)), l, (i == selected).then_some(t::ACCENT), cond(14.0), tip).clicked {
+        if button_tip(ui, &mut app.touches, br, Id::NULL.with((id, i)), l, (i == selected).then_some(t::ACCENT), cond(sz(14.0, 16.0)), tip).clicked {
             out = Some(i);
         }
     }

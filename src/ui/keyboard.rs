@@ -84,6 +84,7 @@ impl App {
                 (Key::F3, true) => self.set_view(View::Browse),
                 (Key::F4, true) => self.set_view(View::Tag),
                 (Key::F5, true) => self.set_view(View::Settings),
+                (Key::F6, true) => self.config.glance = !self.config.glance,
                 (Key::T, true) => {
                     if let Some(Row::Track(t)) = self.lib.selected_row().cloned() {
                         self.lib.toggle_tag(&t);
