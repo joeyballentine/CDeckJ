@@ -136,7 +136,7 @@ pub(crate) fn button_resp(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &st
     (c, resp)
 }
 
-/// A big square transport button. With `icon`, the icon (solid) is drawn and `label` only names it.
+/// A round transport button. With `icon`, the icon (solid) is drawn and `label` only names it.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn round_button(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str, icon: Option<&str>, col: Color32, lit: bool) -> crate::ui::touch::Ctl {
     let l = label.to_string();
@@ -144,15 +144,16 @@ pub(crate) fn round_button(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &s
     let p = ui.painter();
     let center = r.center();
     let rad = r.width().min(r.height()) / 2.0;
-    let fill = if lit { col.gamma_multiply(if c.down { 0.35 } else { 0.22 }) } else if c.down { t::HOVER } else { t::RAISED };
-    tile(p, r, fill);
-    lit_bar(p, r, if lit { col } else { col.gamma_multiply(0.25) });
+    p.circle_filled(center, rad, if c.down { t::HOVER } else { t::RAISED });
+    p.circle_stroke(center, rad - 1.5, Stroke::new(3.0, if lit { col } else { col.gamma_multiply(0.25) }));
     let ink = if lit { col } else { t::INK_MUTED };
     match icon {
         Some(i) => p.text(center, Align2::CENTER_CENTER, i, icons::fill(rad * 0.78), ink),
         None => p.text(center, Align2::CENTER_CENTER, label, semi(sz(15.0, 17.0)), ink),
     };
-    focus_ring(p, r, &resp, t::R_CONTROL);
+    if resp.has_focus() {
+        p.circle_stroke(center, rad + 3.0, Stroke::new(2.0, t::ACCENT));
+    }
     c
 }
 

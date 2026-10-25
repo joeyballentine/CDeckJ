@@ -115,14 +115,14 @@ impl App {
             self.send(Cmd::Cue(d, true));
             self.send(Cmd::Cue(d, false));
         }
-        x += h;
+        x += h + 8.0;
         let play_r = Rect::from_min_size(pos2(x, cr.min.y), vec2(h, h));
         let pc = round_button(ui, &mut self.touches, play_r, Id::NULL.with(("wplay", d)), "PLAY", Some(crate::ui::icons::PLAY_PAUSE), t::PLAY, dv.playing || (dv.loaded && blink));
         if (pc.down && !self.decks[d].play_held) || pc.key {
             self.send(Cmd::Play(d));
         }
         self.decks[d].play_held = pc.down;
-        x += h;
+        x += h + 16.0;
         let jump = self.config.beat_jump;
         let jb = crate::rekordbox::settings::fmt_beats(jump);
         let btns: [(String, Option<Color32>, Cmd, &str); 7] = [

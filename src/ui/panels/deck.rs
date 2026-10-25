@@ -244,8 +244,8 @@ impl App {
         let ctl = Rect::from_min_max(pos2(inner.min.x, y), inner.max);
         // Pads keep a usable width (≥ 44 pt) on narrow windows: the jog gives way first.
         let fader_w = 26.0;
-        let bsize = (ctl.height() / 2.0).min(if ctl.width() < 400.0 { 54.0 } else { 60.0 });
-        let fixed = 12.0 + bsize + 10.0 + fader_w;
+        let bsize = ((ctl.height() - 8.0) / 2.0).min(if ctl.width() < 400.0 { 54.0 } else { 60.0 });
+        let fixed = 12.0 + bsize + 12.0 + 10.0 + fader_w;
         let pads_min = 4.0 * 44.0;
         let jog_max = ctl.height().min(132.0).max(1.0);
         // (not clamp: on a tiny first frame the max can fall below the min)
@@ -265,15 +265,15 @@ impl App {
         p.text(pos2(fader.center().x, fader.max.y), Align2::CENTER_BOTTOM, "+", semi(13.0), t::INK_FAINT);
 
         // CUE / PLAY (act on press, like the hardware; two fingers can hold CUE and hit PLAY).
-        // Flush with the pads, so the two read as one block of keys of the pads' height.
+        // Round like the controller's; the pads beside them sit flush as one block.
         let bx = jog.max.x + 12.0;
-        let gx = bx + bsize;
+        let cue_r = Rect::from_min_size(pos2(bx, ctl.center().y - bsize - 4.0), vec2(bsize, bsize));
+        let play_r = Rect::from_min_size(pos2(bx, ctl.center().y + 4.0), vec2(bsize, bsize));
+        let gx = bx + bsize + 12.0;
         let pw = ((fader.min.x - 10.0 - gx) / 4.0).min(ctl.height() / 2.0);
         // Narrow pads grow taller instead, up to square-ish 52 pt.
         let ph = pw.max(52.0f32.min(ctl.height() / 2.0));
         let gy = ctl.center().y - ph;
-        let cue_r = Rect::from_min_size(pos2(bx, gy), vec2(bsize, ph));
-        let play_r = Rect::from_min_size(pos2(bx, gy + ph), vec2(bsize, ph));
         let blink = (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0;
         let cue_lit = dv.loaded && (dv.playing || dv.at_cue || blink);
         let play_lit = dv.playing || dv.previewing || (dv.loaded && blink);
