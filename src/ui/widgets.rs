@@ -20,8 +20,19 @@ pub(crate) fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
 }
 
 pub(crate) fn card(p: &Painter, r: Rect) {
-    p.rect_filled(r, CornerRadius::same(t::R_CARD), t::SURFACE);
-    p.rect_stroke(r, CornerRadius::same(t::R_CARD), Stroke::new(1.0, t::BORDER), StrokeKind::Inside);
+    tile(p, r, t::SURFACE);
+}
+
+/// A flat, square block of colour. Tiles are laid edge to edge; each leaves a 1 px seam of
+/// whatever is behind it, so neighbours still read as separate keys without outlines.
+pub(crate) fn tile(p: &Painter, r: Rect, fill: Color32) {
+    p.rect_filled(r.shrink(0.5), CornerRadius::ZERO, fill);
+}
+
+/// The "on" mark of a lit tile: a bar along its bottom edge, like the LED strip on a key.
+pub(crate) fn lit_bar(p: &Painter, r: Rect, col: Color32) {
+    let r = r.shrink(0.5);
+    p.rect_filled(Rect::from_min_max(pos2(r.min.x, r.max.y - 3.0), r.max), CornerRadius::ZERO, col);
 }
 
 /// Shared input for every custom control: touch (per finger) or mouse/keyboard.
@@ -87,16 +98,11 @@ pub(crate) fn button_tip(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str
     c
 }
 
-/// A ring around a focused control; inside its edge where the clip rect (a scroll area or
-/// panel edge) would cut the outer ring off.
+/// A ring just inside a focused control's edge (controls sit flush, so outside it would
+/// cover the neighbours).
 pub(crate) fn focus_ring(p: &Painter, r: Rect, resp: &egui::Response, radius: u8) {
-    if !resp.has_focus() {
-        return;
-    }
-    if p.clip_rect().contains_rect(r.expand(4.0)) {
-        p.rect_stroke(r.expand(2.0), CornerRadius::same(radius + 2), Stroke::new(2.0, t::ACCENT), StrokeKind::Outside);
-    } else {
-        p.rect_stroke(r, CornerRadius::same(radius), Stroke::new(2.0, t::ACCENT), StrokeKind::Inside);
+    if resp.has_focus() {
+        p.rect_stroke(r.shrink(0.5), CornerRadius::same(radius), Stroke::new(2.0, t::ACCENT), StrokeKind::Inside);
     }
 }
 
@@ -110,16 +116,17 @@ pub(crate) fn button_resp(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &st
     let selected = lit.is_some();
     let (c, resp) = control(ui, tc, r, id, || WidgetInfo::selected(egui::Role::Button, true, selected, &l));
     let p = ui.painter();
-    let (fill, stroke, ink) = match lit {
+    let (fill, ink) = match lit {
         // Label mixed toward INK so it keeps ≥ 4.5:1 on its own tinted fill (REV, DELETE).
-        Some(col) => (col.gamma_multiply(0.18), col, mix(col, t::INK, 0.4)),
-        None if c.down => (t::HOVER, t::INK_FAINT, t::INK),
-        None if c.hovered => (t::HOVER, t::BORDER, t::INK),
-        None => (t::RAISED, t::BORDER, t::INK_MUTED),
+        Some(col) => (col.gamma_multiply(0.22), mix(col, t::INK, 0.4)),
+        None if c.down || c.hovered => (t::HOVER, t::INK),
+        None => (t::RAISED, t::INK_MUTED),
     };
     let fill = if c.down && lit.is_some() { fill.gamma_multiply(1.4) } else { fill };
-    p.rect_filled(r, CornerRadius::same(t::R_CONTROL), fill);
-    p.rect_stroke(r, CornerRadius::same(t::R_CONTROL), Stroke::new(1.0, stroke), StrokeKind::Inside);
+    tile(p, r, fill);
+    if let Some(col) = lit {
+        lit_bar(p, r, col);
+    }
     // Shrink a label that would overflow (glance mode on a narrow window).
     let room = r.width() - 6.0;
     let w = p.layout_no_wrap(label.to_owned(), font.clone(), ink).size().x;
@@ -129,7 +136,7 @@ pub(crate) fn button_resp(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &st
     (c, resp)
 }
 
-/// A round transport button. With `icon`, the icon (solid) is drawn and `label` only names it.
+/// A big square transport button. With `icon`, the icon (solid) is drawn and `label` only names it.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn round_button(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &str, icon: Option<&str>, col: Color32, lit: bool) -> crate::ui::touch::Ctl {
     let l = label.to_string();
@@ -137,16 +144,15 @@ pub(crate) fn round_button(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &s
     let p = ui.painter();
     let center = r.center();
     let rad = r.width().min(r.height()) / 2.0;
-    p.circle_filled(center, rad, if c.down { t::HOVER } else { t::RAISED });
-    p.circle_stroke(center, rad - 1.5, Stroke::new(3.0, if lit { col } else { col.gamma_multiply(0.25) }));
+    let fill = if lit { col.gamma_multiply(if c.down { 0.35 } else { 0.22 }) } else if c.down { t::HOVER } else { t::RAISED };
+    tile(p, r, fill);
+    lit_bar(p, r, if lit { col } else { col.gamma_multiply(0.25) });
     let ink = if lit { col } else { t::INK_MUTED };
     match icon {
         Some(i) => p.text(center, Align2::CENTER_CENTER, i, icons::fill(rad * 0.78), ink),
         None => p.text(center, Align2::CENTER_CENTER, label, semi(sz(15.0, 17.0)), ink),
     };
-    if resp.has_focus() {
-        p.circle_stroke(center, rad + 3.0, Stroke::new(2.0, t::ACCENT));
-    }
+    focus_ring(p, r, &resp, t::R_CONTROL);
     c
 }
 
@@ -215,11 +221,11 @@ pub(crate) fn vfader(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, value: f32, col
     let (c, resp) = control(ui, tc, r, id, || WidgetInfo::slider(true, value as f64, &l));
     let p = ui.painter();
     let track = Rect::from_center_size(r.center(), vec2(4.0, r.height() - 16.0));
-    p.rect_filled(track, 2, t::INSET);
+    p.rect_filled(track, 0, t::INSET);
     let y = track.max.y - value.clamp(0.0, 1.0) * track.height();
     let cap = Rect::from_center_size(pos2(r.center().x, y), vec2(r.width() - 2.0, 16.0));
-    p.rect_filled(cap, CornerRadius::same(3), if c.down { t::HOVER } else { t::RAISED });
-    p.rect_stroke(cap, CornerRadius::same(3), Stroke::new(1.0, if resp.has_focus() { t::ACCENT } else { t::BORDER }), StrokeKind::Inside);
+    p.rect_filled(cap, CornerRadius::ZERO, if c.down { t::HOVER } else { t::RAISED });
+    focus_ring(p, cap, &resp, t::R_CONTROL);
     p.hline(cap.x_range().shrink(3.0), y, Stroke::new(2.0, color));
     if c.down || c.clicked {
         if let Some(pos) = c.pos {
@@ -261,7 +267,7 @@ pub(crate) fn hslider(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, value: f32, co
 }
 
 pub(crate) fn meter(p: &Painter, r: Rect, level: f32) {
-    p.rect_filled(r, 1, t::INSET);
+    p.rect_filled(r, 0, t::INSET);
     let segs = 14;
     let gap = 2.0;
     let seg_h = (r.height() - gap * (segs - 1) as f32) / segs as f32;
@@ -271,7 +277,7 @@ pub(crate) fn meter(p: &Painter, r: Rect, level: f32) {
         let y1 = r.max.y - i as f32 * (seg_h + gap);
         let seg = Rect::from_min_max(pos2(r.min.x, y1 - seg_h), pos2(r.max.x, y1));
         let col = if i >= segs - 2 { t::DANGER } else if i >= segs - 5 { t::CUE } else { t::PLAY };
-        p.rect_filled(seg, 1, if (i as i32) < lit { col } else { col.gamma_multiply(0.12) });
+        p.rect_filled(seg, 0, if (i as i32) < lit { col } else { col.gamma_multiply(0.12) });
     }
 }
 
@@ -306,9 +312,10 @@ pub(crate) fn nav_row(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, icon: &str, la
     let (c, resp) = control(ui, tc, r, id, || WidgetInfo::selected(egui::Role::Button, true, on, &l));
     let p = ui.painter();
     if on {
-        p.rect_filled(r, CornerRadius::same(t::R_CONTROL), t::ACCENT.gamma_multiply(0.2));
+        p.rect_filled(r, CornerRadius::ZERO, t::ACCENT.gamma_multiply(0.2));
+        p.rect_filled(Rect::from_min_max(r.min, pos2(r.min.x + 3.0, r.max.y)), CornerRadius::ZERO, t::ACCENT);
     } else if c.hovered || c.down {
-        p.rect_filled(r, CornerRadius::same(t::R_CONTROL), t::RAISED);
+        p.rect_filled(r, CornerRadius::ZERO, t::RAISED);
     }
     focus_ring(p, r, &resp, t::R_CONTROL);
     let ink = if on { t::INK } else { t::INK_MUTED };
@@ -358,11 +365,10 @@ pub(crate) fn heading(p: &egui::Painter, pos: egui::Pos2, s: &str) {
 
 /// A row of mutually exclusive choices. Returns the index tapped.
 pub(crate) fn segmented(app: &mut App, ui: &Ui, r: Rect, id: &str, labels: &[&str], selected: usize, tip: &str) -> Option<usize> {
-    let n = labels.len().max(1) as f32;
-    let w = (r.width() - 4.0 * (n - 1.0)) / n;
+    let w = r.width() / labels.len().max(1) as f32;
     let mut out = None;
     for (i, l) in labels.iter().enumerate() {
-        let br = Rect::from_min_size(pos2(r.min.x + i as f32 * (w + 4.0), r.min.y), vec2(w, r.height()));
+        let br = Rect::from_min_size(pos2(r.min.x + i as f32 * w, r.min.y), vec2(w, r.height()));
         if button_tip(ui, &mut app.touches, br, Id::NULL.with((id, i)), l, (i == selected).then_some(t::ACCENT), cond(sz(14.0, 16.0)), tip).clicked {
             out = Some(i);
         }
@@ -370,10 +376,9 @@ pub(crate) fn segmented(app: &mut App, ui: &Ui, r: Rect, id: &str, labels: &[&st
     out
 }
 
-/// A rounded panel outline (used for overlays).
+/// A panel for overlays: a raised block over whatever is behind it.
 pub(crate) fn panel(p: &egui::Painter, r: Rect) {
-    p.rect_filled(r, CornerRadius::same(t::R_CARD), t::SURFACE);
-    p.rect_stroke(r, CornerRadius::same(t::R_CARD), Stroke::new(1.0, t::BORDER), StrokeKind::Inside);
+    p.rect_filled(r, CornerRadius::ZERO, t::SURFACE);
 }
 
 #[cfg(test)]

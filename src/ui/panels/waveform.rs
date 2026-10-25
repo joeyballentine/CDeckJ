@@ -13,12 +13,12 @@ impl App {
         let (w, h, mw) = if big { (44.0, 36.0, 76.0) } else { (30.0, 26.0, 62.0) };
         // Waveform colour (BLUE / RGB / 3BAND), as WAVEFORM COLOR on a CDJ.
         let mode = self.config.waveform_color;
-        let mr = Rect::from_min_size(pos2(waves.max.x - 2.0 * (w + 4.0) - 6.0 - mw - 4.0, waves.min.y + 4.0), vec2(mw, h));
+        let mr = Rect::from_min_size(pos2(waves.max.x - 2.0 * w - mw, waves.min.y), vec2(mw, h));
         if button_tip(ui, &mut self.touches, mr, Id::NULL.with("wavemode"), crate::track::wave::mode_name(mode), None, semi(if big { 14.0 } else { 13.0 }), "Waveform colour: Blue / RGB / 3-Band  ( W )").clicked {
             self.config.waveform_color = crate::track::wave::next_mode(mode);
         }
         for (i, (label, dir)) in [(icons::ZOOM_OUT, 1), (icons::ZOOM_IN, -1)].into_iter().enumerate() {
-            let r = Rect::from_min_size(pos2(waves.max.x - 2.0 * (w + 4.0) - 6.0 + i as f32 * (w + 4.0), waves.min.y + 4.0), vec2(w, h));
+            let r = Rect::from_min_size(pos2(waves.max.x - 2.0 * w + i as f32 * w, waves.min.y), vec2(w, h));
             let tip = if dir > 0 { "Zoom waveforms out  ( − )" } else { "Zoom waveforms in  ( = )" };
             if button_tip(ui, &mut self.touches, r, Id::NULL.with(("zoom", i)), label, None, semi(if big { 20.0 } else { 16.0 }), tip).clicked {
                 self.set_zoom(dir);
@@ -133,7 +133,7 @@ impl App {
     }
 
     pub(crate) fn overview(&mut self, ui: &Ui, p: &Painter, r: Rect, d: usize, dv: &DeckView) {
-        p.rect_filled(r, CornerRadius::same(4), t::INSET);
+        p.rect_filled(r, CornerRadius::ZERO, t::INSET);
         let Some(track) = self.decks[d].track.clone().filter(|_| dv.loaded) else { return };
         let length = dv.length.max(1) as f64;
         let sr = track.sample_rate as f64;

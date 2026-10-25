@@ -49,12 +49,12 @@ impl App {
         let xr = Rect::from_center_size(pos2(inner.center().x, inner.max.y - xf_h / 2.0), vec2(200.0, xf_h - 6.0));
         let (c, resp) = control(ui, &mut self.touches, xr, Id::NULL.with("xfader"), || WidgetInfo::slider(true, m.crossfader as f64, "Crossfader"));
         let track = Rect::from_center_size(xr.center(), vec2(xr.width() - 24.0, 4.0));
-        p.rect_filled(track, 2, t::INSET);
+        p.rect_filled(track, 0, t::INSET);
         p.vline(track.center().x, Rect::from_center_size(xr.center(), vec2(1.0, 14.0)).y_range(), Stroke::new(1.0, t::INK_FAINT));
         let x = track.min.x + m.crossfader * track.width();
         let cap = Rect::from_center_size(pos2(x, xr.center().y), vec2(18.0, xr.height() - 4.0));
-        p.rect_filled(cap, CornerRadius::same(3), if c.down { t::HOVER } else { t::RAISED });
-        p.rect_stroke(cap, CornerRadius::same(3), Stroke::new(1.0, if resp.has_focus() { t::ACCENT } else { t::BORDER }), StrokeKind::Inside);
+        p.rect_filled(cap, CornerRadius::ZERO, if c.down { t::HOVER } else { t::RAISED });
+        focus_ring(&p, cap, &resp, t::R_CONTROL);
         p.vline(x, cap.y_range().shrink(3.0), Stroke::new(2.0, t::INK));
         p.text(pos2(xr.min.x - 6.0, xr.center().y), Align2::RIGHT_CENTER, "1", semi(15.0), t::DECK_TINT[0]);
         p.text(pos2(xr.max.x + 6.0, xr.center().y), Align2::LEFT_CENTER, "2", semi(15.0), t::DECK_TINT[1]);
@@ -118,24 +118,24 @@ impl App {
         let p = ui.painter().clone();
         card(&p, r);
         let fx = v.mixer.fx;
-        let h = 32.0;
-        let y = r.center().y - h / 2.0;
+        // One flush strip of keys the height of the bar.
+        let h = r.height();
+        let y = r.min.y;
         let mut x = r.min.x + 12.0;
         p.text(pos2(x, r.center().y), Align2::LEFT_CENTER, "BEAT FX", caption(), t::INK_FAINT);
         x += 58.0;
         // Right-hand block widths, so the effect chips get whatever is left.
         let (beat_w, ch_w, lvl_w, on_w) = (32.0 * 2.0 + 52.0, 3.0 * 38.0, 150.0, 64.0);
-        let right = beat_w + ch_w + lvl_w + on_w + 4.0 * 14.0;
-        let chip_w = ((r.max.x - 12.0 - x - right) / FX_KINDS.len() as f32 - 4.0).clamp(48.0, 92.0);
+        let right = beat_w + ch_w + lvl_w + on_w;
+        let chip_w = ((r.max.x - x - right) / FX_KINDS.len() as f32).max(48.0);
         for (i, k) in FX_KINDS.iter().enumerate() {
             let br = Rect::from_min_size(pos2(x, y), vec2(chip_w, h));
             let lit = (fx.kind == *k).then_some(if fx.on { t::DANGER } else { t::ACCENT });
             if button(ui, &mut self.touches, br, Id::NULL.with(("fxk", i)), k.name(), lit, cond(14.0)).clicked {
                 self.send(Cmd::Mix(MixParam::FxKind(*k)));
             }
-            x += chip_w + 4.0;
+            x += chip_w;
         }
-        x += 10.0;
         // Beat ◀ value ▶
         let l = Rect::from_min_size(pos2(x, y), vec2(32.0, h));
         if button_tip(ui, &mut self.touches, l, Id::NULL.with("fxb-"), icons::CARET_LEFT, None, semi(16.0), "Shorter beat value").clicked {
@@ -147,10 +147,10 @@ impl App {
         if button_tip(ui, &mut self.touches, rr, Id::NULL.with("fxb+"), icons::CARET_RIGHT, None, semi(16.0), "Longer beat value").clicked {
             self.send(Cmd::Mix(MixParam::FxBeat(1)));
         }
-        x += beat_w + 14.0;
+        x += beat_w;
         // Channel: 1 / 2 / MASTER
         for (i, (lab, tg)) in [("1", FxTarget::Ch(0)), ("2", FxTarget::Ch(1)), ("M", FxTarget::Master)].into_iter().enumerate() {
-            let br = Rect::from_min_size(pos2(x + i as f32 * 38.0, y), vec2(34.0, h));
+            let br = Rect::from_min_size(pos2(x + i as f32 * 38.0, y), vec2(38.0, h));
             let col = match tg {
                 FxTarget::Ch(c) => t::DECK_TINT[c],
                 FxTarget::Master => t::INK,
@@ -163,15 +163,15 @@ impl App {
                 self.send(Cmd::Mix(MixParam::FxTarget(tg)));
             }
         }
-        x += ch_w + 14.0;
+        x += ch_w;
         // LEVEL/DEPTH
         let lr = Rect::from_min_size(pos2(x, y), vec2(lvl_w, h));
         if let Some(nv) = hslider(ui, &mut self.touches, lr, Id::NULL.with("fxlvl"), fx.level, if fx.on { t::DANGER } else { t::INK_MUTED }, "Beat FX level/depth") {
             self.send_touched(Cmd::Mix(MixParam::FxLevel(nv)), MidiCtl::FxLevel);
         }
-        x += lvl_w + 14.0;
+        x += lvl_w;
         // ON (blinks red while on, like the hardware)
-        let or = Rect::from_min_size(pos2(x, y), vec2(on_w, h));
+        let or = Rect::from_min_max(pos2(x, y), r.max);
         let blink = (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0;
         let lit = fx.on.then_some(if blink { t::DANGER } else { t::DANGER.gamma_multiply(0.7) });
         if button_tip(ui, &mut self.touches, or, Id::NULL.with("fxon"), "ON", lit, semi(15.0), "Beat FX on/off  ( F )").clicked {

@@ -35,14 +35,17 @@ const ITEMS: [Item; 6] = [
 impl App {
     /// The rail in `r`: the views and SEARCH from the top, EXIT at the bottom.
     pub(crate) fn rail(&mut self, ui: &Ui, r: Rect, v: &EngineView) {
-        let gap = 6.0;
         let exit_h = 56.0;
         let n = ITEMS.len() as f32;
-        let tile_h = ((r.height() - exit_h - 16.0 - gap * (n - 1.0)) / n).clamp(50.0, 80.0);
+        let tile_h = ((r.height() - exit_h) / n).clamp(50.0, 80.0);
         let mut y = r.min.y;
         for it in ITEMS {
             self.rail_tile(ui, Rect::from_min_size(pos2(r.min.x, y), vec2(r.width(), tile_h)), it, v);
-            y += tile_h + gap;
+            y += tile_h;
+        }
+        // The empty stretch between the views and EXIT, so the rail reads as one column.
+        if r.max.y - exit_h > y {
+            tile(ui.painter(), Rect::from_min_max(pos2(r.min.x, y), pos2(r.max.x, r.max.y - exit_h)), t::SURFACE);
         }
         self.rail_tile(ui, Rect::from_min_max(pos2(r.min.x, r.max.y - exit_h), r.max), Item::Exit, v);
     }
@@ -74,18 +77,18 @@ impl App {
         let (c, resp) = control(ui, &mut self.touches, r, Id::NULL.with(("rail", label)), || WidgetInfo::selected(egui::Role::Button, true, on, &name));
         let p = ui.painter();
         let accent = if danger { t::DANGER } else { t::ACCENT };
-        let (fill, stroke) = if on || danger {
-            (accent.gamma_multiply(if c.down { 0.3 } else { 0.2 }), accent)
-        } else if c.down {
-            (t::HOVER, t::INK_FAINT)
-        } else if c.hovered {
-            (t::HOVER, t::BORDER)
+        let fill = if on || danger {
+            accent.gamma_multiply(if c.down { 0.3 } else { 0.2 })
+        } else if c.down || c.hovered {
+            t::HOVER
         } else {
-            (t::SURFACE, t::BORDER)
+            t::SURFACE
         };
-        let radius = CornerRadius::same(t::R_CARD);
-        p.rect_filled(r, radius, fill);
-        p.rect_stroke(r, radius, Stroke::new(1.0, stroke), StrokeKind::Inside);
+        tile(p, r, fill);
+        if on || danger {
+            // The "you are here" mark: a bar down the edge that faces the view.
+            p.rect_filled(Rect::from_min_max(pos2(r.max.x - 3.5, r.min.y + 0.5), r.max - vec2(0.5, 0.5)), CornerRadius::ZERO, accent);
+        }
         focus_ring(p, r, &resp, t::R_CARD);
         let (icon_col, label_col) = if on || danger { (accent, mix(accent, t::INK, 0.55)) } else { (t::INK_MUTED, t::INK_MUTED) };
         let c_y = r.center().y;

@@ -30,8 +30,7 @@ impl App {
 
         // Header: deck badge, title/artist, status chips.
         let badge_c = pos2(inner.min.x + 14.0, y + 20.0);
-        p.circle_filled(badge_c, 14.0, tint.gamma_multiply(0.18));
-        p.circle_stroke(badge_c, 14.0, Stroke::new(1.0, tint));
+        p.rect_filled(Rect::from_center_size(badge_c, vec2(28.0, 28.0)), CornerRadius::ZERO, tint.gamma_multiply(0.25));
         p.text(badge_c, Align2::CENTER_CENTER, format!("{}", d + 1), semi(17.0), tint);
         let mut tx = inner.min.x + 38.0;
         let track = self.decks[d].track.clone().filter(|_| dv.loaded);
@@ -40,7 +39,6 @@ impl App {
             if let Some(tex) = self.art.get(&key) {
                 let ar = Rect::from_min_size(pos2(tx, y + 1.0), vec2(42.0, 42.0));
                 p.image(tex.id(), ar, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
-                p.rect_stroke(ar, CornerRadius::same(3), Stroke::new(1.0, t::BORDER), StrokeKind::Inside);
                 tx += 50.0;
             }
         }
@@ -93,7 +91,7 @@ impl App {
         if fix_bpm {
             // SHIFT: fix a half/double tempo detection.
             for (i, (label, f)) in [("BPM ÷2", 0.5), ("BPM ×2", 2.0)].into_iter().enumerate() {
-                let br = Rect::from_min_size(pos2(inner.max.x - 148.0 + i as f32 * 76.0, y + 6.0), vec2(72.0, 26.0));
+                let br = Rect::from_min_size(pos2(inner.max.x - 148.0 + i as f32 * 74.0, y + 6.0), vec2(74.0, 26.0));
                 if button(ui, &mut self.touches, br, Id::NULL.with(("bpmfix", d, i)), label, None, semi(13.5)).clicked {
                     self.scale_grid(d, f);
                 }
@@ -102,9 +100,9 @@ impl App {
         for (label, col) in chips.iter().filter(|_| !fix_bpm) {
             let w = 52.0;
             let cr = Rect::from_min_size(pos2(chip_x - w, y + sz(8.0, 9.0)), vec2(w, sz(22.0, 26.0)));
-            p.rect_filled(cr, CornerRadius::same(t::R_CONTROL), col.gamma_multiply(0.18));
+            tile(&p, cr, col.gamma_multiply(0.18));
             text_fit(&p, cr.center(), Align2::CENTER_CENTER, label, caption(), mix(*col, t::INK, 0.4), w - 4.0);
-            chip_x -= w + 4.0;
+            chip_x -= w;
         }
         y += head_h + 6.0;
 
@@ -204,10 +202,10 @@ impl App {
                 (if shift { "DELETE" } else { "MEMORY" }, shift.then_some(t::MEMORY_CUE), 17),
             ],
         ];
-        let bw = (inner.width() - 7.0 * 5.0) / 8.0;
+        let bw = inner.width() / 8.0;
         for row in rows {
             for (i, (label, lit, code)) in row.into_iter().enumerate() {
-                let br = Rect::from_min_size(pos2(inner.min.x + i as f32 * (bw + 5.0), y), vec2(bw, 32.0));
+                let br = Rect::from_min_size(pos2(inner.min.x + i as f32 * bw, y), vec2(bw, 34.0));
                 let c = button(ui, &mut self.touches, br, Id::NULL.with(("btn", d, code)), label, lit, semi(sz(13.5, 15.5)));
                 if !c.clicked {
                     continue;
@@ -238,17 +236,17 @@ impl App {
                     self.send(c);
                 }
             }
-            y += 32.0 + 5.0;
+            y += 34.0;
         }
-        y += 1.0;
+        y += 7.0;
 
         // Controls: jog | CUE/PLAY | pads | tempo fader.
         let ctl = Rect::from_min_max(pos2(inner.min.x, y), inner.max);
         // Pads keep a usable width (≥ 44 pt) on narrow windows: the jog gives way first.
         let fader_w = 26.0;
-        let bsize = ((ctl.height() - 8.0) / 2.0).min(if ctl.width() < 400.0 { 54.0 } else { 60.0 });
-        let fixed = 12.0 + bsize + 12.0 + 10.0 + fader_w;
-        let pads_min = 4.0 * 44.0 + 3.0 * 6.0;
+        let bsize = (ctl.height() / 2.0).min(if ctl.width() < 400.0 { 54.0 } else { 60.0 });
+        let fixed = 12.0 + bsize + 10.0 + fader_w;
+        let pads_min = 4.0 * 44.0;
         let jog_max = ctl.height().min(132.0).max(1.0);
         // (not clamp: on a tiny first frame the max can fall below the min)
         let jog_d = (ctl.width() - fixed - pads_min).max(84.0).min(jog_max);
@@ -267,9 +265,15 @@ impl App {
         p.text(pos2(fader.center().x, fader.max.y), Align2::CENTER_BOTTOM, "+", semi(13.0), t::INK_FAINT);
 
         // CUE / PLAY (act on press, like the hardware; two fingers can hold CUE and hit PLAY).
+        // Flush with the pads, so the two read as one block of keys of the pads' height.
         let bx = jog.max.x + 12.0;
-        let cue_r = Rect::from_min_size(pos2(bx, ctl.center().y - bsize - 4.0), vec2(bsize, bsize));
-        let play_r = Rect::from_min_size(pos2(bx, ctl.center().y + 4.0), vec2(bsize, bsize));
+        let gx = bx + bsize;
+        let pw = ((fader.min.x - 10.0 - gx) / 4.0).min(ctl.height() / 2.0);
+        // Narrow pads grow taller instead, up to square-ish 52 pt.
+        let ph = pw.max(52.0f32.min(ctl.height() / 2.0));
+        let gy = ctl.center().y - ph;
+        let cue_r = Rect::from_min_size(pos2(bx, gy), vec2(bsize, ph));
+        let play_r = Rect::from_min_size(pos2(bx, gy + ph), vec2(bsize, ph));
         let blink = (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0;
         let cue_lit = dv.loaded && (dv.playing || dv.at_cue || blink);
         let play_lit = dv.playing || dv.previewing || (dv.loaded && blink);
@@ -288,26 +292,16 @@ impl App {
         self.decks[d].play_held = pc.down;
 
         // Hot cue pads.
-        let px0 = bx + bsize + 12.0;
-        let px1 = fader.min.x - 10.0;
-        let gap = 6.0;
-        let pw = ((px1 - px0 - 3.0 * gap) / 4.0).min((ctl.height() - gap) / 2.0);
-        // Narrow pads grow taller instead, up to square-ish 52 pt.
-        let ph = pw.max(52.0f32.min((ctl.height() - gap) / 2.0));
-        let grid_h = ph * 2.0 + gap;
-        let gy = ctl.center().y - grid_h / 2.0;
-        let gx = px0 + ((px1 - px0) - (pw * 4.0 + gap * 3.0)) / 2.0;
         for i in 0..HOT_CUES {
             let (row, col) = (i / 4, i % 4);
-            let pr = Rect::from_min_size(pos2(gx + col as f32 * (pw + gap), gy + row as f32 * (ph + gap)), vec2(pw, ph));
+            let pr = Rect::from_min_size(pos2(gx + col as f32 * pw, gy + row as f32 * ph), vec2(pw, ph));
             let set = dv.hot[i].is_some();
             let colr = hot_color(i, dv.hot[i].and_then(|h| h.color));
             let (c, resp) = control(ui, &mut self.touches, pr, Id::NULL.with(("pad", d, i)), || {
                 WidgetInfo::selected(egui::Role::Button, true, set, format!("Hot cue {}", HOT_LETTERS[i]))
             });
             let fill = if set { colr.gamma_multiply(if c.down { 0.65 } else { 0.4 }) } else if c.down { t::HOVER } else { t::RAISED };
-            p.rect_filled(pr, CornerRadius::same(t::R_CONTROL), fill);
-            p.rect_stroke(pr, CornerRadius::same(t::R_CONTROL), Stroke::new(1.0, if set { colr } else { t::BORDER }), StrokeKind::Inside);
+            tile(&p, pr, fill);
             focus_ring(&p, pr, &resp, t::R_CONTROL);
             let comment = dv.hot[i].and_then(|h| self.decks[d].track.as_ref().map(|tr| preset_comment(tr, i, h.pos)));
             let sub = match (comment.filter(|c| !c.is_empty()), dv.hot[i].and_then(|h| h.loop_end)) {

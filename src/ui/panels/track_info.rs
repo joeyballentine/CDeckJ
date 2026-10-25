@@ -24,7 +24,7 @@ impl App {
                 p.image(tex.id(), ar, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
             }
             None => {
-                p.rect_filled(ar, CornerRadius::same(4), t::INSET);
+                p.rect_filled(ar, CornerRadius::ZERO, t::INSET);
                 p.text(ar.center() - vec2(0.0, 10.0), Align2::CENTER_CENTER, icons::IMAGE, cond(34.0), t::BORDER.gamma_multiply(1.6));
                 p.text(ar.center() + vec2(0.0, 22.0), Align2::CENTER_CENTER, "NO ARTWORK", caption(), t::INK_FAINT);
             }
@@ -38,7 +38,7 @@ impl App {
         y += sz(24.0, 27.0);
         // Whole-track preview.
         let pr = Rect::from_min_size(pos2(inner.min.x, y), vec2(inner.width(), 40.0));
-        p.rect_filled(pr, CornerRadius::same(3), t::INSET);
+        p.rect_filled(pr, CornerRadius::ZERO, t::INSET);
         let src = self.preview_source(&e);
         if let Some(pv) = self.previews.get(&e.path, self.config.waveform_color, || src) {
             draw_preview(&p, pr, &pv, None);

@@ -28,12 +28,12 @@ impl App {
             x += br.width() + 10.0;
         }
         let search_w = if big { 230.0 } else { 216.0 };
-        let right_w = 2.0 * (load_w + 8.0) + if big { tag_w + 8.0 } else { 0.0 } + search_w + 14.0;
+        let right_w = 2.0 * load_w + if big { tag_w } else { 0.0 } + search_w;
         let g = p.layout_job(crumbs_job(&self.lib.crumbs(), head.max.x - x - right_w - 10.0));
         p.galley(pos2(x, head.center().y - g.size().y / 2.0), g, t::INK);
 
         // Search.
-        let sr = Rect::from_min_size(pos2(head.max.x - right_w, head.min.y + 2.0), vec2(search_w, bh - 2.0));
+        let sr = Rect::from_min_size(pos2(head.max.x - right_w, head.min.y + 1.0), vec2(search_w, bh));
         let resp = search_field(ui, sr, &mut self.search);
         if std::mem::take(&mut self.focus_search) {
             resp.request_focus();
@@ -56,7 +56,7 @@ impl App {
         let can_load = sel.is_some();
         if big {
             let tagged = sel.as_ref().is_some_and(|s| self.lib.is_tagged(&s.path));
-            let tr = Rect::from_min_size(pos2(head.max.x - 2.0 * (load_w + 8.0) - tag_w, head.min.y + 1.0), vec2(tag_w, bh));
+            let tr = Rect::from_min_size(pos2(head.max.x - 2.0 * load_w - tag_w, head.min.y + 1.0), vec2(tag_w, bh));
             let tip = if tagged { "Remove from the tag list  ( T )" } else { "Add to the tag list  ( T )" };
             let label = format!("{}  {}", icons::TAG, if tagged { "TAGGED" } else { "TAG" });
             if button_tip(ui, &mut self.touches, tr, Id::NULL.with("ptag"), &label, tagged.then_some(t::ACCENT), semi(15.0), tip).clicked {
@@ -66,7 +66,7 @@ impl App {
             }
         }
         for d in 0..DECKS {
-            let br = Rect::from_min_size(pos2(head.max.x - (DECKS - d) as f32 * (load_w + 8.0) + 8.0, head.min.y + 1.0), vec2(load_w, bh));
+            let br = Rect::from_min_size(pos2(head.max.x - (DECKS - d) as f32 * load_w, head.min.y + 1.0), vec2(load_w, bh));
             let tip = if d == 0 { "Load the selected track on deck 1  ( Q )" } else { "Load the selected track on deck 2  ( P )" };
             if button_tip(ui, &mut self.touches, br, Id::NULL.with(("load", d)), &format!("LOAD {}", d + 1), can_load.then_some(t::DECK_TINT[d]), semi(15.0), tip).clicked {
                 self.load_selected(d);

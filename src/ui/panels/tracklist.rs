@@ -224,10 +224,10 @@ impl App {
                 let (rr, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
                 let p = ui.painter();
                 if i == selected {
-                    p.rect_filled(rr, CornerRadius::same(t::R_CONTROL), t::ACCENT.gamma_multiply(0.2));
-                    p.rect_stroke(rr, CornerRadius::same(t::R_CONTROL), Stroke::new(1.0, t::ACCENT.gamma_multiply(0.6)), StrokeKind::Inside);
+                    p.rect_filled(rr, CornerRadius::ZERO, t::ACCENT.gamma_multiply(0.2));
+                    p.rect_filled(Rect::from_min_max(rr.min, pos2(rr.min.x + 3.0, rr.max.y)), CornerRadius::ZERO, t::ACCENT);
                 } else if resp.hovered() {
-                    p.rect_filled(rr, CornerRadius::same(t::R_CONTROL), t::RAISED);
+                    p.rect_filled(rr, CornerRadius::ZERO, t::RAISED);
                 } else if i % 2 == 1 {
                     p.rect_filled(rr, 0, t::CHROME.gamma_multiply(0.6));
                 }

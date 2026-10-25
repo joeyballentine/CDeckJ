@@ -301,7 +301,7 @@ impl eframe::App for App {
         } else {
             rail::RAIL_W_NARROW
         };
-        let rail_r = Rect::from_min_max(pos2(full.min.x + 6.0, banner.max.y + 6.0), pos2(full.min.x + 6.0 + rail_w, full.max.y - 6.0));
+        let rail_r = Rect::from_min_max(pos2(full.min.x, banner.max.y), pos2(full.min.x + rail_w, full.max.y));
         let body = Rect::from_min_max(pos2(rail_r.max.x, banner.max.y), full.max);
         self.top_bar(ui, top, &v, body.min.x);
         if banner_h > 0.0 {
@@ -311,11 +311,11 @@ impl eframe::App for App {
         match self.view_mode {
             View::Perform if self.display_layout() => self.perform_display(ui, body, &v),
             View::Perform => self.perform_view(ui, body, &v),
-            View::Wave => self.wave_view(ui, body.shrink2(vec2(6.0, 4.0)), &v),
+            View::Wave => self.wave_view(ui, body, &v),
             View::Browse | View::Tag | View::Settings => {
-                let strip = Rect::from_min_size(body.min + vec2(6.0, 4.0), vec2(body.width() - 12.0, t::sz(58.0, 66.0)));
+                let strip = Rect::from_min_size(body.min, vec2(body.width(), t::sz(58.0, 66.0)));
                 self.now_playing(ui, strip, &v);
-                let rest = Rect::from_min_max(pos2(body.min.x + 6.0, strip.max.y + 6.0), body.max - vec2(6.0, 6.0));
+                let rest = Rect::from_min_max(pos2(body.min.x, strip.max.y), body.max);
                 if self.view_mode == View::Settings {
                     self.settings_view(ui, rest, &v);
                 } else {

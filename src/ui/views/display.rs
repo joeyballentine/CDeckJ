@@ -22,28 +22,27 @@ impl App {
     }
 
     pub(crate) fn perform_display(&mut self, ui: &mut Ui, full: Rect, v: &EngineView) {
-        let gap = 6.0;
         let info_h = sz(206.0, 226.0);
         let wave_h = (full.height() * 0.29).clamp(140.0, 260.0);
-        let waves = Rect::from_min_size(full.min + vec2(gap, gap), vec2(full.width() - gap, wave_h));
+        let waves = Rect::from_min_size(full.min, vec2(full.width(), wave_h));
         for d in 0..DECKS {
             let h = wave_h / 2.0;
             let r = Rect::from_min_size(pos2(waves.min.x, waves.min.y + d as f32 * h), vec2(waves.width(), h));
-            self.waveform(ui, r.shrink2(vec2(0.0, 1.0)), d, &v.decks[d]);
+            self.waveform(ui, r.shrink2(vec2(0.0, 0.5)), d, &v.decks[d]);
         }
         self.zoom_buttons(ui, waves, true);
 
-        let row = Rect::from_min_size(pos2(full.min.x + gap, waves.max.y + gap), vec2(full.width() - 2.0 * gap, info_h));
+        let row = Rect::from_min_size(pos2(full.min.x, waves.max.y), vec2(full.width(), info_h));
         let centre_w = 132.0;
-        let deck_w = (row.width() - centre_w - 2.0 * gap) / 2.0;
+        let deck_w = (row.width() - centre_w) / 2.0;
         let d0 = Rect::from_min_size(row.min, vec2(deck_w, info_h));
-        let c = Rect::from_min_size(pos2(d0.max.x + gap, row.min.y), vec2(centre_w, info_h));
-        let d1 = Rect::from_min_size(pos2(c.max.x + gap, row.min.y), vec2(deck_w, info_h));
+        let c = Rect::from_min_size(pos2(d0.max.x, row.min.y), vec2(centre_w, info_h));
+        let d1 = Rect::from_min_size(pos2(c.max.x, row.min.y), vec2(deck_w, info_h));
         self.display_deck(ui, d0, 0, &v.decks[0]);
         self.display_centre(ui, c, v);
         self.display_deck(ui, d1, 1, &v.decks[1]);
 
-        let list = Rect::from_min_max(pos2(full.min.x + gap, row.max.y + gap), full.max - vec2(gap, gap));
+        let list = Rect::from_min_max(pos2(full.min.x, row.max.y), full.max);
         self.browser(ui, list, true);
     }
 
@@ -69,15 +68,13 @@ impl App {
         // Row 1: badge, artwork, title and artist.
         let y = inner.min.y;
         let badge = pos2(inner.min.x + 16.0, y + 21.0);
-        p.circle_filled(badge, 16.0, tint.gamma_multiply(0.18));
-        p.circle_stroke(badge, 16.0, Stroke::new(1.0, tint));
+        p.rect_filled(Rect::from_center_size(badge, vec2(32.0, 32.0)), CornerRadius::ZERO, tint.gamma_multiply(0.25));
         p.text(badge, Align2::CENTER_CENTER, format!("{}", d + 1), semi(19.0), tint);
         let mut tx = inner.min.x + 42.0;
         if let (Some(key), true) = (self.decks[d].art.clone(), track.is_some()) {
             if let Some(tex) = self.art.get(&key) {
                 let ar = Rect::from_min_size(pos2(tx, y), vec2(42.0, 42.0));
                 p.image(tex.id(), ar, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
-                p.rect_stroke(ar, CornerRadius::same(3), Stroke::new(1.0, t::BORDER), StrokeKind::Inside);
                 tx += 50.0;
             }
         }
@@ -135,7 +132,7 @@ impl App {
         let y4 = ov.max.y + 10.0;
         let chip_h = sz(24.0, 28.0);
         let pad_s = sz(22.0, 26.0);
-        let pads_w = 8.0 * (pad_s + 3.0) - 3.0;
+        let pads_w = 8.0 * pad_s;
         let pads_x = inner.max.x - pads_w;
         let mut x = inner.min.x;
         let key = track.as_ref().map(|t| t.key.clone()).filter(|k| !k.is_empty());
@@ -173,18 +170,15 @@ impl App {
                 break;
             }
             let cr = Rect::from_min_size(pos2(x, y4), vec2(w, chip_h));
-            p.rect_filled(cr, CornerRadius::same(t::R_CONTROL), col.gamma_multiply(0.18));
+            tile(&p, cr, col.gamma_multiply(0.18));
             p.text(cr.center(), Align2::CENTER_CENTER, label, caption(), mix(col, t::INK, 0.4));
-            x += w + 4.0;
+            x += w;
         }
         for i in 0..crate::engine::deck::HOT_CUES {
-            let pr = Rect::from_min_size(pos2(pads_x + i as f32 * (pad_s + 3.0), y4 + (chip_h - pad_s) / 2.0), vec2(pad_s, pad_s));
+            let pr = Rect::from_min_size(pos2(pads_x + i as f32 * pad_s, y4 + (chip_h - pad_s) / 2.0), vec2(pad_s, pad_s));
             let set = dv.hot[i].is_some();
             let col = hot_color(i, dv.hot[i].and_then(|h| h.color));
-            p.rect_filled(pr, CornerRadius::same(4), if set { col.gamma_multiply(0.35) } else { t::INSET });
-            if set {
-                p.rect_stroke(pr, CornerRadius::same(4), Stroke::new(1.0, col), StrokeKind::Inside);
-            }
+            tile(&p, pr, if set { col.gamma_multiply(0.35) } else { t::INSET });
             p.text(pr.center(), Align2::CENTER_CENTER, HOT_LETTERS[i], semi(sz(12.0, 14.0)), if set { t::INK } else { t::INK_FAINT });
         }
     }
@@ -205,7 +199,7 @@ impl App {
                 let sr = Rect::from_min_size(pos2(inner.min.x + b as f32 * (seg_w + 3.0), y), vec2(seg_w, 9.0));
                 let lit = pos.is_some_and(|(k, _)| k == b);
                 let col = if b == 0 { t::DECK_TINT[d] } else { mix(t::DECK_TINT[d], t::INK, 0.4) };
-                p.rect_filled(sr, CornerRadius::same(2), if lit { col.gamma_multiply(0.85) } else { t::INSET });
+                p.rect_filled(sr, CornerRadius::ZERO, if lit { col.gamma_multiply(0.85) } else { t::INSET });
             }
             fr[d] = pos.map(|(k, f)| k as f64 + f);
         }
@@ -244,9 +238,9 @@ impl App {
         }
         // Crossfader position.
         let xr = Rect::from_min_size(pos2(inner.min.x + 6.0, inner.max.y - 26.0), vec2(inner.width() - 12.0, 4.0));
-        p.rect_filled(xr, 2, t::INSET);
+        p.rect_filled(xr, 0, t::INSET);
         let kx = xr.min.x + v.mixer.crossfader * xr.width();
-        p.rect_filled(Rect::from_center_size(pos2(kx, xr.center().y), vec2(6.0, 12.0)), 2, t::INK_MUTED);
+        p.rect_filled(Rect::from_center_size(pos2(kx, xr.center().y), vec2(6.0, 12.0)), 0, t::INK_MUTED);
         // Beat FX in one line: effect, beat, where, lit red while on.
         let fx = v.mixer.fx;
         let target = match fx.target {

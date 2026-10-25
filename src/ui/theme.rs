@@ -63,8 +63,8 @@ pub const HOT_CUE: [Color32; 8] = [
 pub const SP_XS: f32 = 4.0;
 pub const SP_S: f32 = 8.0;
 pub const SP_M: f32 = 12.0;
-pub const R_CONTROL: u8 = 6;
-pub const R_CARD: u8 = 10;
+pub const R_CONTROL: u8 = 0;
+pub const R_CARD: u8 = 0;
 
 pub const COND: &str = "cond";
 pub const COND_SEMI: &str = "cond-semi";
@@ -181,25 +181,26 @@ fn apply(style: &mut Style) {
     v.window_fill = RAISED;
     v.extreme_bg_color = INSET;
     v.faint_bg_color = SURFACE;
-    v.window_stroke = Stroke::new(1.0, BORDER);
+    v.window_stroke = Stroke::NONE;
     v.hyperlink_color = ACCENT;
     v.error_fg_color = DANGER;
     v.warn_fg_color = CUE;
     v.selection.bg_fill = ACCENT.gamma_multiply(0.35);
     v.selection.stroke = Stroke::new(1.0, INK);
-    let w = |bg: Color32, stroke: Color32, fg: Color32| WidgetVisuals {
+    // Flat and square: no outline except on the widget being used.
+    let w = |bg: Color32, stroke: Option<Color32>, fg: Color32| WidgetVisuals {
         bg_fill: bg,
         weak_bg_fill: bg,
-        bg_stroke: Stroke::new(1.0, stroke),
+        bg_stroke: stroke.map_or(Stroke::NONE, |c| Stroke::new(1.0, c)),
         corner_radius: CornerRadius::same(R_CONTROL),
         fg_stroke: Stroke::new(1.0, fg),
         expansion: 0.0,
     };
-    v.widgets.noninteractive = w(SURFACE, BORDER, INK);
-    v.widgets.inactive = w(RAISED, BORDER, INK);
-    v.widgets.hovered = w(HOVER, INK_FAINT, INK);
-    v.widgets.active = w(HOVER, ACCENT, INK);
-    v.widgets.open = w(RAISED, BORDER, INK);
+    v.widgets.noninteractive = w(SURFACE, None, INK);
+    v.widgets.inactive = w(RAISED, None, INK);
+    v.widgets.hovered = w(HOVER, None, INK);
+    v.widgets.active = w(HOVER, Some(ACCENT), INK);
+    v.widgets.open = w(RAISED, None, INK);
 }
 
 pub fn install(ctx: &egui::Context) {

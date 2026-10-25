@@ -70,12 +70,12 @@ impl App {
         let side = Rect::from_min_size(r.min, vec2(190.0, r.height()));
         card(&p, side);
         for (i, (icon, name)) in PAGES.iter().enumerate() {
-            let br = Rect::from_min_size(pos2(side.min.x + 6.0, side.min.y + 8.0 + i as f32 * 44.0), vec2(side.width() - 12.0, 40.0));
+            let br = Rect::from_min_size(pos2(side.min.x, side.min.y + 8.0 + i as f32 * 40.0), vec2(side.width(), 40.0));
             if nav_row(ui, &mut self.touches, br, Id::NULL.with(("spage", i)), icon, name, self.settings.page == i).clicked {
                 self.settings.page = i;
             }
         }
-        let main = Rect::from_min_max(pos2(side.max.x + 6.0, r.min.y), r.max);
+        let main = Rect::from_min_max(pos2(side.max.x, r.min.y), r.max);
         card(&p, main);
         let inner = main.shrink2(vec2(18.0, 14.0));
         let mut rows = Rows { y: inner.min.y, x: inner.min.x, w: inner.width(), bottom: inner.max.y, label_w: 340.0 };
@@ -260,7 +260,7 @@ impl App {
         // The rest of the page, scrolling when there are more devices than fit.
         let list = Rect::from_min_max(pos2(rows.x, rows.y), pos2(rows.x + rows.w.min(720.0), rows.bottom));
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(list));
-        child.spacing_mut().item_spacing.y = 4.0;
+        child.spacing_mut().item_spacing.y = 0.0;
         let mut picked = None;
         egui::ScrollArea::vertical().id_salt("sdevs").auto_shrink([false, false]).show(&mut child, |ui| {
             for (i, (label, dev)) in choices.into_iter().enumerate() {

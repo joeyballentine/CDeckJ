@@ -72,11 +72,11 @@ impl App {
 
         // Right: REC, QUANTIZE, DSP load, master meter. (EXIT is at the foot of the rail.)
         let m = Rect::from_min_size(pos2(r.max.x - 118.0, r.center().y - 4.0), vec2(106.0, 8.0));
-        p.rect_filled(m, 2, t::INSET);
+        p.rect_filled(m, 0, t::INSET);
         let db = 20.0 * v.peak_master.max(1e-6).log10();
         let f = ((db + 42.0) / 42.0).clamp(0.0, 1.0);
         let col = if db > -1.0 { t::DANGER } else if db > -6.0 { t::CUE } else { t::PLAY };
-        p.rect_filled(Rect::from_min_size(m.min, vec2(m.width() * f, m.height())), 2, col);
+        p.rect_filled(Rect::from_min_size(m.min, vec2(m.width() * f, m.height())), 0, col);
         p.text(pos2(m.min.x - 8.0, r.center().y), Align2::RIGHT_CENTER, "MASTER", caption(), t::INK_FAINT);
         let load = (v.dsp_load * 100.0).round() as i32;
         let xr = audio::XRUNS.load(Ordering::Relaxed);
@@ -86,9 +86,9 @@ impl App {
             (format!("DSP {load}%"), if load > 70 { t::CUE } else { t::INK_FAINT })
         };
         p.text(pos2(m.min.x - 64.0, r.center().y), Align2::RIGHT_CENTER, dsp, mono(12.0), dcol);
-        let bh = r.height() - 8.0;
-        self.rec_button(ui, &p, Rect::from_min_size(pos2(r.max.x - right_w + 6.0, r.min.y + 4.0), vec2(104.0, bh)));
-        let qr = Rect::from_min_size(pos2(r.max.x - right_w + 118.0, r.min.y + 4.0), vec2(118.0, bh));
+        let bh = r.height();
+        self.rec_button(ui, &p, Rect::from_min_size(pos2(r.max.x - right_w, r.min.y), vec2(112.0, bh)));
+        let qr = Rect::from_min_size(pos2(r.max.x - right_w + 112.0, r.min.y), vec2(124.0, bh));
         let qtip = if v.quantize { "Quantize on: cues, loops and jumps snap to the beat  ( G )" } else { "Quantize off  ( G )" };
         if button_tip(ui, &mut self.touches, qr, Id::NULL.with("quantize"), &format!("{}  QUANTIZE", icons::MAGNET), v.quantize.then_some(t::ACCENT), semi(14.0), qtip).clicked {
             self.send(Cmd::QuantizeToggle);

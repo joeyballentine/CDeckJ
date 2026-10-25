@@ -24,14 +24,14 @@ impl App {
         let info_w = if !self.config.browse_info { 0.0 } else if narrow { 248.0 } else { 300.0 };
         let side = Rect::from_min_size(r.min, vec2(side_w, r.height()));
         let info = Rect::from_min_max(pos2(r.max.x - info_w, r.min.y), r.max);
-        let main = Rect::from_min_max(pos2(side.max.x + 6.0, r.min.y), pos2(info.min.x - if info_w > 0.0 { 6.0 } else { 0.0 }, r.max.y));
+        let main = Rect::from_min_max(pos2(side.max.x, r.min.y), pos2(info.min.x, r.max.y));
 
         // Side bar: each stick's lists, the music folder, history and the tag list.
         card(&p, side);
         let current = self.lib.root_node();
         let roots = self.lib.roots();
-        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(side.shrink2(vec2(6.0, 8.0))));
-        child.spacing_mut().item_spacing.y = 2.0;
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(side.shrink2(vec2(0.0, 8.0))));
+        child.spacing_mut().item_spacing.y = 0.0;
         let mut picked = None;
         // Scrolls when sticks, playlists and history don't all fit.
         egui::ScrollArea::vertical().id_salt("browse_side").auto_shrink([false, false]).show(&mut child, |ui| {
@@ -43,9 +43,10 @@ impl App {
                 let (c, resp) = control(ui, &mut self.touches, br, Id::NULL.with(("side", i)), || WidgetInfo::selected(egui::Role::Button, true, on, &label));
                 let p = ui.painter();
                 if on {
-                    p.rect_filled(br, CornerRadius::same(t::R_CONTROL), t::ACCENT.gamma_multiply(0.2));
+                    p.rect_filled(br, CornerRadius::ZERO, t::ACCENT.gamma_multiply(0.2));
+                    p.rect_filled(Rect::from_min_max(br.min, pos2(br.min.x + 3.0, br.max.y)), CornerRadius::ZERO, t::ACCENT);
                 } else if c.hovered {
-                    p.rect_filled(br, CornerRadius::same(t::R_CONTROL), t::RAISED);
+                    p.rect_filled(br, CornerRadius::ZERO, t::RAISED);
                 }
                 focus_ring(p, br, &resp, t::R_CONTROL);
                 let font = if indent { cond(sz(15.0, 17.0)) } else { semi(sz(16.0, 18.0)) };
@@ -111,7 +112,7 @@ impl App {
             self.rows_list(ui, list, ListOpts { row_h, title, cols: self.config.browse_cols, art: true });
         }
         if self.keyboard_open {
-            let kr = Rect::from_min_max(pos2(main.min.x + 6.0, main.max.y - kb_h - 4.0), pos2(main.max.x - 6.0, main.max.y - 6.0));
+            let kr = Rect::from_min_max(pos2(main.min.x, main.max.y - kb_h), main.max);
             self.on_screen_keyboard(ui, kr);
         }
         if let Some(pop) = self.browse_popup {
@@ -138,7 +139,7 @@ impl App {
         let search_w = 250.0;
         let g = p.layout_job(crumbs_job(&self.lib.crumbs(), row1.max.x - x - search_w - 70.0));
         p.galley(pos2(x, row1.center().y - g.size().y / 2.0), g, t::INK);
-        let sr = Rect::from_min_size(pos2(row1.max.x - search_w - 64.0, row1.min.y + 2.0), vec2(search_w, 36.0));
+        let sr = Rect::from_min_size(pos2(row1.max.x - search_w - 58.0, row1.min.y + 1.0), vec2(search_w, 38.0));
         let resp = search_field(ui, sr, &mut self.search);
         if std::mem::take(&mut self.focus_search) {
             resp.request_focus();
@@ -172,7 +173,7 @@ impl App {
         };
         let mut tool = |app: &mut App, w: f32, id: &str, label: &str, lit: bool, tip: &str| -> bool {
             let br = Rect::from_min_size(pos2(x, y2), vec2(w, h));
-            x += w + 6.0;
+            x += w;
             button_tip(ui, &mut app.touches, br, Id::NULL.with(id), label, lit.then_some(t::ACCENT), semi(14.0), tip).clicked
         };
         let small = inner.width() < 700.0;
@@ -207,7 +208,7 @@ impl App {
         let mut rx = inner.max.x;
         let lw = if inner.width() < 700.0 { 80.0 } else { 92.0 };
         for d in (0..DECKS).rev() {
-            rx -= lw + 4.0;
+            rx -= lw;
             let br = Rect::from_min_size(pos2(rx, y2), vec2(lw, h));
             let tip = if d == 0 { "Load the selected track on deck 1  ( Q )" } else { "Load the selected track on deck 2  ( P )" };
             if button_tip(ui, &mut self.touches, br, Id::NULL.with(("bload", d)), &format!("LOAD {}", d + 1), sel.is_some().then_some(t::DECK_TINT[d]), semi(15.0), tip).clicked {
@@ -216,7 +217,7 @@ impl App {
         }
         let tagged = sel.as_ref().is_some_and(|s| self.lib.is_tagged(&s.path));
         let tag_w = if tagged { 98.0 } else { 74.0 };
-        rx -= tag_w + 4.0;
+        rx -= tag_w;
         let br = Rect::from_min_size(pos2(rx, y2), vec2(tag_w, h));
         let tip = if tagged { "Remove from the tag list  ( T )" } else { "Add to the tag list  ( T )" };
         if button_tip(ui, &mut self.touches, br, Id::NULL.with("btag"), &format!("{}  {}", icons::TAG, if tagged { "TAGGED" } else { "TAG" }), tagged.then_some(t::ACCENT), semi(14.0), tip).clicked {
@@ -225,7 +226,7 @@ impl App {
             }
         }
         if self.lib.node() == Node::Tag && !self.lib.tags.is_empty() {
-            rx -= 128.0;
+            rx -= 122.0;
             let br = Rect::from_min_size(pos2(rx, y2), vec2(122.0, h));
             let confirm = self.clear_tags_confirm.is_some_and(|t| t.elapsed().as_secs_f32() < 3.0);
             if button_tip(ui, &mut self.touches, br, Id::NULL.with("bclear"), &format!("{}  {}", icons::TRASH, if confirm { "CLEAR ALL?" } else { "CLEAR ALL" }), confirm.then_some(t::DANGER), semi(14.0), "Empty the tag list (press twice)").clicked {
@@ -242,7 +243,7 @@ impl App {
     fn browse_popup_ui(&mut self, ui: &mut Ui, inner: Rect, pop: Popup, v: &EngineView) {
         let p = ui.painter().clone();
         let r = Rect::from_min_size(pos2(inner.min.x, inner.min.y + HEADER_H), vec2(470.0, if pop == Popup::Filter { 196.0 } else { 120.0 }));
-        p.rect_filled(r.expand(4.0), CornerRadius::same(t::R_CARD), Color32::from_black_alpha(120));
+        p.rect_filled(r.expand(4.0), CornerRadius::ZERO, Color32::from_black_alpha(120));
         panel(&p, r);
         // Covers the track rows underneath, so a tap between the popup's buttons doesn't
         // select a row. Registered before the buttons, which stay on top of it.
@@ -291,9 +292,9 @@ impl App {
                 let c = self.config.browse_cols;
                 let items: [(&str, bool); 6] =
                     [("ARTIST", c.artist), ("PREVIEW", c.preview), ("BPM", c.bpm), ("KEY", c.key), ("TIME", c.time), ("TYPE", c.format)];
-                let w = (inner.width() - 5.0 * 6.0) / 6.0;
+                let w = inner.width() / 6.0;
                 for (i, (name, on)) in items.iter().enumerate() {
-                    let br = Rect::from_min_size(inner.min + vec2(i as f32 * (w + 6.0), 22.0), vec2(w, 34.0));
+                    let br = Rect::from_min_size(inner.min + vec2(i as f32 * w, 22.0), vec2(w, 34.0));
                     if button(ui, &mut self.touches, br, Id::NULL.with(("colt", i)), name, on.then_some(t::ACCENT), cond(14.0)).clicked {
                         let c = &mut self.config.browse_cols;
                         match i {

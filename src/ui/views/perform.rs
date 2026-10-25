@@ -13,7 +13,7 @@ impl App {
         let main_h = 396.0f32.min((full.height() - wave_h - fx_h - 140.0).max(330.0));
         let mixer_w = 340.0;
 
-        let waves = Rect::from_min_size(full.min + vec2(6.0, 6.0), vec2(full.width() - 6.0, wave_h - 6.0));
+        let waves = Rect::from_min_size(full.min, vec2(full.width(), wave_h));
         let main = Rect::from_min_size(pos2(full.min.x, waves.max.y), vec2(full.width(), main_h));
         let fx_bar = Rect::from_min_size(pos2(full.min.x, main.max.y), vec2(full.width(), fx_h));
         let browser = Rect::from_min_max(pos2(full.min.x, fx_bar.max.y), full.max);
@@ -27,15 +27,15 @@ impl App {
         for d in 0..DECKS {
             let h = wave_h / 2.0;
             let r = Rect::from_min_size(pos2(waves.min.x, waves.min.y + d as f32 * h), vec2(waves.width(), h));
-            self.waveform(ui, r.shrink2(vec2(0.0, 1.0)), d, &v.decks[d]);
+            self.waveform(ui, r.shrink2(vec2(0.0, 0.5)), d, &v.decks[d]);
         }
         self.zoom_buttons(ui, waves, false);
         for d in 0..DECKS {
-            self.deck_panel(ui, deck_rects[d].shrink(6.0), d, &v.decks[d]);
+            self.deck_panel(ui, deck_rects[d], d, &v.decks[d]);
         }
-        self.mixer_panel(ui, mixer.shrink2(vec2(0.0, 6.0)), v);
-        self.fx_bar(ui, fx_bar.shrink2(vec2(6.0, 2.0)), v);
-        self.browser(ui, browser.shrink(6.0), false);
+        self.mixer_panel(ui, mixer, v);
+        self.fx_bar(ui, fx_bar, v);
+        self.browser(ui, browser, false);
 
     }
 }

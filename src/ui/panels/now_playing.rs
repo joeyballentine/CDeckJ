@@ -7,16 +7,15 @@ impl App {
     /// Both decks at a glance, for the views that hide the decks. Tap it to go back to playing.
     pub(crate) fn now_playing(&mut self, ui: &Ui, r: Rect, v: &EngineView) {
         let p = ui.painter().clone();
-        let w = (r.width() - 6.0) / 2.0;
+        let w = r.width() / 2.0;
         for d in 0..DECKS {
-            let rr = Rect::from_min_size(pos2(r.min.x + d as f32 * (w + 6.0), r.min.y), vec2(w, r.height()));
+            let rr = Rect::from_min_size(pos2(r.min.x + d as f32 * w, r.min.y), vec2(w, r.height()));
             card(&p, rr);
             let dv = &v.decks[d];
             let tint = t::DECK_TINT[d];
             let inner = rr.shrink2(vec2(10.0, 6.0));
             let badge = pos2(inner.min.x + 11.0, inner.center().y);
-            p.circle_filled(badge, 11.0, tint.gamma_multiply(0.18));
-            p.circle_stroke(badge, 11.0, Stroke::new(1.0, tint));
+            p.rect_filled(Rect::from_center_size(badge, vec2(22.0, 22.0)), CornerRadius::ZERO, tint.gamma_multiply(0.25));
             p.text(badge, Align2::CENTER_CENTER, format!("{}", d + 1), semi(14.0), tint);
             let mut x = inner.min.x + 30.0;
             let track = self.decks[d].track.clone().filter(|_| dv.loaded);
@@ -53,7 +52,7 @@ impl App {
             if dv.loaded && dv.length > 0 {
                 let f = (dv.pos / dv.length as f64).clamp(0.0, 1.0) as f32;
                 let bar = Rect::from_min_size(pos2(rr.min.x + 6.0, rr.max.y - 4.0), vec2(rr.width() - 12.0, 2.0));
-                p.rect_filled(bar, 1, t::INSET);
+                p.rect_filled(bar, 0, t::INSET);
                 p.rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * f, 2.0)), 1, mix(tint, t::INK, 0.2));
             }
             let tip = format!("Deck {}: tap to go back to playing", d + 1);
