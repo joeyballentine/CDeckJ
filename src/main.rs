@@ -71,6 +71,8 @@ struct Args {
     install_desktop: bool,
     uninstall_desktop: bool,
     uninstall_autolaunch: bool,
+    /// Started by the in-app installer from the copy it just installed.
+    installed: bool,
     tracks: Vec<PathBuf>,
 }
 
@@ -95,6 +97,7 @@ fn parse_args() -> Result<Args, String> {
             "--install-desktop" => a.install_desktop = true,
             "--uninstall-desktop" => a.uninstall_desktop = true,
             "--uninstall-autolaunch" => a.uninstall_autolaunch = true,
+            "--installed" => a.installed = true,
             "-h" | "--help" => {
                 print!("{HELP}");
                 std::process::exit(0);
@@ -195,6 +198,14 @@ fn main() -> eframe::Result {
         }
     });
 
+    // Opened from the download rather than the installed copy: offer to install it.
+    let install_target = platform::install::target();
+    let install = std::env::current_exe()
+        .ok()
+        .zip(install_target.clone())
+        .and_then(|(exe, t)| platform::install::offer(&exe, &t).map(|o| (o, t)));
+    let installed_note = args.installed.then_some(install_target).flatten().map(|t| platform::install::installed_note(&t));
+
     let native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("CDeckJ")
@@ -233,7 +244,8 @@ fn main() -> eframe::Result {
                     gamepad,
                     locks,
                     config: cfg,
-                    config_warning: cfg_warning,
+                    banner: cfg_warning.or(installed_note),
+                    install,
                     store,
                     fullscreen,
                     preload: args.tracks,

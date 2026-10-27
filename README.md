@@ -51,12 +51,17 @@ The big buttons down the left switch between screens, like the buttons beside a 
 
 ## Install on the Steam Deck
 
-1. In Desktop Mode, download the [latest release](https://github.com/joeyballentine/CDeckJ/releases/latest/download/cdeckj-steamdeck-x86_64.tar.gz), extract it, and run `install.sh` (double-click it and choose *Execute*). It installs CDeckJ to `~/Applications/cdeckj`, adds it to the applications menu, and opens CDeckJ whenever the controller is plugged in.
-2. For Game Mode, add CDeckJ in Steam with *Games → Add a Non-Steam Game to My Library*. CDeckJ gives the shortcut its library artwork the next time it starts.
-3. Put music in `~/Music`, or plug in a rekordbox USB stick.
-4. Plug in the DDJ-GRV6. A powered USB-C hub helps.
+1. In Desktop Mode, download the [latest release](https://github.com/joeyballentine/CDeckJ/releases/latest/download/cdeckj-steamdeck-x86_64.tar.gz) and extract it.
+2. Double-click `cdeckj` in the extracted folder and press **INSTALL**. CDeckJ copies itself to `~/Applications/cdeckj`, adds itself to the applications menu, sets itself to open whenever the controller is plugged in, and restarts from there.
+3. For Game Mode, add CDeckJ in Steam with *Games → Add a Non-Steam Game to My Library*. CDeckJ gives the shortcut its library artwork the next time it starts.
+4. Put music in `~/Music`, or plug in a rekordbox USB stick.
+5. Plug in the DDJ-GRV6. A powered USB-C hub helps.
 
-To update, right-click CDeckJ in the applications menu and choose *Update CDeckJ*. To uninstall, run `~/Applications/cdeckj-install.sh --uninstall`. Your settings, cues, history and recordings are kept.
+![The install screen](docs/screenshots/install.png)
+
+To update, press **UPDATE** in SETTINGS → SYSTEM. It downloads the latest release, installs it and restarts. Opening a newer download also offers to replace the installed copy. **UNINSTALL** (press it twice) on the same page removes CDeckJ. Your settings, cues, history and recordings are kept.
+
+If CDeckJ is already a Steam shortcut, installing replaces the file the shortcut runs, so the shortcut keeps working.
 
 The binary needs glibc 2.35 or newer, `libasound` and `libudev`. SteamOS has all three.
 

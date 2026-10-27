@@ -125,8 +125,8 @@ pub fn rungameid(appid: u32) -> u64 {
     ((appid as u64) << 32) | 0x0200_0000
 }
 
-/// Every Steam user that has CDeckJ as a non-Steam game: (their `config` folder, app id).
-pub fn shortcuts(exe: &Path) -> Vec<(PathBuf, u32)> {
+/// Each Steam user's `config` folder (where `shortcuts.vdf` lives).
+pub fn shortcut_configs() -> Vec<PathBuf> {
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return Vec::new() };
     // ~/.steam/steam is usually a link to ~/.local/share/Steam: count each folder once.
     let mut seen = std::collections::HashSet::new();
@@ -136,21 +136,32 @@ pub fn shortcuts(exe: &Path) -> Vec<(PathBuf, u32)> {
         for user in rd.flatten() {
             let config = user.path().join("config");
             let key = config.canonicalize().unwrap_or_else(|_| config.clone());
-            if !seen.insert(key) {
-                continue;
-            }
-            if let Ok(d) = std::fs::read(config.join("shortcuts.vdf")) {
-                if let Some(id) = shortcut_appid(&d, exe) {
-                    out.push((config, id));
-                }
+            if seen.insert(key) {
+                out.push(config);
             }
         }
     }
     out
 }
 
+/// Every Steam user that has CDeckJ as a non-Steam game: (their `config` folder, app id).
+pub fn shortcuts(exe: &Path) -> Vec<(PathBuf, u32)> {
+    shortcut_configs()
+        .into_iter()
+        .filter_map(|config| {
+            let d = std::fs::read(config.join("shortcuts.vdf")).ok()?;
+            shortcut_appid(&d, exe).map(|id| (config, id))
+        })
+        .collect()
+}
+
 fn find_shortcut(exe: &Path) -> Option<u32> {
     shortcuts(exe).first().map(|s| s.1)
+}
+
+/// CDeckJ is a non-Steam game in Steam.
+pub fn in_steam(exe: &Path) -> bool {
+    find_shortcut(exe).is_some()
 }
 
 fn launch(exe: &Path) {
@@ -243,8 +254,13 @@ fn remove_old_service() {
 }
 
 pub fn install() -> Result<String, String> {
+    install_for(&std::env::current_exe().map_err(|e| e.to_string())?)
+}
+
+/// Set up auto-launch, the menu entry and Steam artwork for the app at `exe`.
+pub fn install_for(exe: &Path) -> Result<String, String> {
     remove_old_service();
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe = exe.to_path_buf();
     let path = unit_path().ok_or("no home directory")?;
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
     std::fs::write(&path, unit_text(&exe)).map_err(|e| format!("writing {}: {e}", path.display()))?;
@@ -258,7 +274,7 @@ pub fn install() -> Result<String, String> {
     } else {
         "CDeckJ isn't in Steam yet: it will open in Desktop Mode only. Add it with \"Add a Non-Steam Game\" for Game Mode too (no need to reinstall this).".to_string()
     };
-    Ok(format!("Auto-launch is on: CDeckJ starts when your controller is plugged in.\n{desktop}{steam}\nIf you move the cdeckj file, run install.sh (or --install-autolaunch) again. Turn it off with --uninstall-autolaunch."))
+    Ok(format!("Auto-launch is on: CDeckJ starts when your controller is plugged in.\n{desktop}{steam}\nIf you move the cdeckj file, open it once and install it again. Turn it off with --uninstall-autolaunch."))
 }
 
 /// `cdeckj --uninstall-autolaunch`

@@ -25,6 +25,11 @@ pub struct SettingsState {
     autolaunch: bool,
     job_rx: Option<Receiver<Result<String, String>>>,
     msg: Option<String>,
+    /// Where the installed copy lives (or would).
+    install_target: Option<std::path::PathBuf>,
+    update_rx: Option<Receiver<Result<(), String>>>,
+    /// First press of the two-press UNINSTALL.
+    uninstall_confirm: Option<std::time::Instant>,
 }
 
 impl App {
@@ -37,6 +42,7 @@ impl App {
         });
         self.settings.devices_rx = Some(rx);
         self.settings.autolaunch = crate::platform::autolaunch::is_installed();
+        self.settings.install_target = crate::platform::install::target();
     }
 
     /// Drop the audio stream and reconnect with the current options.
@@ -307,7 +313,68 @@ impl App {
         );
     }
 
+    /// Installed copy: where it is, UPDATE from the latest release, UNINSTALL (press twice).
+    fn install_rows(&mut self, ui: &mut Ui, rows: &mut Rows) {
+        let p = ui.painter().clone();
+        if let Some(rx) = &self.settings.update_rx {
+            match rx.try_recv() {
+                Ok(Ok(())) => {
+                    self.settings.update_rx = None;
+                    if let Some(t) = self.settings.install_target.clone() {
+                        self.settings.msg = Some(self.restart_into(&t));
+                    }
+                }
+                Ok(Err(e)) => {
+                    self.settings.update_rx = None;
+                    self.settings.msg = Some(e);
+                }
+                Err(_) => ui.ctx().request_repaint_after(std::time::Duration::from_millis(200)),
+            }
+        }
+        let Some(target) = self.settings.install_target.clone().filter(|t| t.exists()) else {
+            rows.text(&p, "Installed", "No");
+            return;
+        };
+        rows.text(&p, "Installed", &target.display().to_string());
+        let busy = self.settings.update_rx.is_some() || self.settings.job_rx.is_some();
+        let mut button_row = |app: &mut App, label: &str, id: &str, text: &str, lit: bool| {
+            rows.label(&p, label);
+            let r = Rect::from_min_size(pos2(rows.x + rows.label_w, rows.y - 2.0), vec2(220.0, 38.0));
+            let c = button(ui, &mut app.touches, r, Id::NULL.with(id), text, lit.then_some(t::DANGER), semi(15.0)).clicked;
+            rows.y += 44.0;
+            c
+        };
+        let updating = self.settings.update_rx.is_some();
+        if button_row(self, "Latest release from GitHub", "supd", if updating { "UPDATING…" } else { "UPDATE" }, false) && !busy {
+            let (tx, rx) = crossbeam_channel::bounded(1);
+            let t = target.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(crate::platform::install::update(&t));
+            });
+            self.settings.update_rx = Some(rx);
+            self.settings.msg = Some("Downloading the latest release…".into());
+        }
+        let armed = self.settings.uninstall_confirm.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3));
+        if button_row(self, "Uninstall (settings, cues and recordings stay)", "suni", if armed { "PRESS AGAIN" } else { "UNINSTALL" }, armed) && !busy {
+            if armed {
+                self.settings.uninstall_confirm = None;
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                std::thread::spawn(move || {
+                    let _ = tx.send(crate::platform::install::uninstall(&target));
+                });
+                self.settings.job_rx = Some(rx);
+                self.settings.msg = Some("Working…".into());
+            } else {
+                self.settings.uninstall_confirm = Some(std::time::Instant::now());
+            }
+        }
+        if armed {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+        }
+    }
+
     fn page_system(&mut self, ui: &mut Ui, rows: &mut Rows) {
+        self.install_rows(ui, rows);
         let p = ui.painter().clone();
         let busy = self.settings.job_rx.is_some();
         if let Some(i) = rows.seg(self, ui, "Open CDeckJ when the controller is plugged in", "sal", &["OFF", "ON"], usize::from(self.settings.autolaunch)) {

@@ -169,7 +169,12 @@ fn screenshots() {
         a.lib.select(2);
         a.scroll_to_selected = true;
     }
-    let shots: [(&str, fn(&mut App)); 11] = [
+    fn install(a: &mut App) {
+        a.config.glance = false;
+        let target = PathBuf::from("/home/deck/Applications/cdeckj");
+        a.install = Some(crate::ui::views::install::Prompt::new(crate::platform::install::Offer::Install, target));
+    }
+    let shots: [(&str, fn(&mut App)); 12] = [
         ("perform", perform),
         ("display", display),
         ("wave", |a| a.set_view(View::Wave)),
@@ -184,6 +189,7 @@ fn screenshots() {
         ("glance-display", display),
         ("glance-wave", |a| a.set_view(View::Wave)),
         ("glance-browse", browse),
+        ("install", install),
     ];
     let mut failed = Vec::new();
     for (name, setup) in shots {
@@ -195,7 +201,9 @@ fn screenshots() {
         if let Err(e) = h.try_snapshot(name) {
             failed.push(e.to_string());
         }
-        failed.extend(hover_shifts(&mut h).into_iter().map(|p| format!("{name}: {p}")));
+        // The install screen has only its two buttons; every other screen has dozens.
+        let min_controls = if name == "install" { 2 } else { 20 };
+        failed.extend(hover_shifts(&mut h, min_controls).into_iter().map(|p| format!("{name}: {p}")));
     }
     let _ = std::fs::remove_dir_all(&root);
     assert!(failed.is_empty(), "{}", failed.join("\n"));
@@ -203,7 +211,7 @@ fn screenshots() {
 
 /// Hover the centre of every control in turn and report any control that moved or resized:
 /// hover may change colours, never layout.
-fn hover_shifts(h: &mut Harness<'_, App>) -> Vec<String> {
+fn hover_shifts(h: &mut Harness<'_, App>, min_controls: usize) -> Vec<String> {
     use egui_kittest::kittest::{By, NodeT as _, Queryable as _};
     let layout = |h: &Harness<'_, App>| {
         let ppp = h.ctx.pixels_per_point();
@@ -224,7 +232,7 @@ fn hover_shifts(h: &mut Harness<'_, App>) -> Vec<String> {
     h.hover_at(away);
     h.run_steps(2);
     let base = layout(h);
-    assert!(base.len() > 20, "only {} accessible nodes", base.len());
+    assert!(base.len() >= min_controls, "only {} accessible nodes", base.len());
     let mut targets: Vec<_> = base.iter().map(|(k, r)| (k.clone(), r.center())).collect();
     targets.sort_by(|a, b| a.0.cmp(&b.0));
     let mut problems = Vec::new();
@@ -269,7 +277,8 @@ fn demo_app(music: PathBuf, store: Store) -> App {
             gamepad: None,
             locks: Default::default(),
             config,
-            config_warning: None,
+            banner: None,
+            install: None,
             store: Arc::new(Mutex::new(store)),
             fullscreen: false,
             preload: Vec::new(),

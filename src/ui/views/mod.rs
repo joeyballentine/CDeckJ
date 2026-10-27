@@ -5,6 +5,7 @@ use crate::ui::App;
 
 pub(crate) mod browse;
 mod display;
+pub(crate) mod install;
 mod perform;
 pub(crate) mod settings;
 mod wave;

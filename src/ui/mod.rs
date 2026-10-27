@@ -46,7 +46,7 @@ mod widgets;
 
 pub use state::restore_commands;
 use chrome::rail;
-use views::{browse, settings, View};
+use views::{browse, install, settings, View};
 
 const JOG_TICKS_PER_REV: f64 = 720.0;
 /// Idle redraw interval: everything that changes state (MIDI, gamepad, loaders) also
@@ -104,7 +104,10 @@ pub struct AppInit {
     pub gamepad: Option<GamepadStatus>,
     pub locks: PickupLocks,
     pub config: Config,
-    pub config_warning: Option<String>,
+    /// A message for the banner at the top (a settings problem, or "installed").
+    pub banner: Option<String>,
+    /// Offer to install: what, and where to.
+    pub install: Option<(crate::platform::install::Offer, PathBuf)>,
     pub store: Arc<Mutex<Store>>,
     pub fullscreen: bool,
     pub preload: Vec<PathBuf>,
@@ -167,6 +170,8 @@ pub struct App {
     browse_popup: Option<browse::Popup>,
     clear_tags_confirm: Option<Instant>,
     settings: settings::SettingsState,
+    /// The install screen, shown over everything when CDeckJ is opened from the download.
+    install: Option<install::Prompt>,
     /// First press of the two-press EXIT.
     exit_confirm: Option<Instant>,
     rec_low_warned: bool,
@@ -224,7 +229,8 @@ impl App {
             config_saved: init.config.clone(),
             config: init.config,
             config_dirty_since: None,
-            banner: init.config_warning,
+            banner: init.banner,
+            install: init.install.map(|(offer, target)| install::Prompt::new(offer, target)),
             store: init.store,
             fullscreen: init.fullscreen,
             key_held: Vec::new(),
@@ -281,6 +287,9 @@ impl eframe::App for App {
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0, t::CHROME);
         fit_to_window(ui.ctx(), full);
+        if self.install_screen(ui, full) {
+            return;
+        }
 
         let top_h = 40.0;
         // Banners wrap (error messages can be long) and grow to fit, up to three lines.
@@ -343,14 +352,7 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        // Close the stream before handing the card back its old profile.
-        self.audio = None;
-        crate::audio::cardprofile::restore_saved();
-        if let Some(f) = self.recorder.stop() {
-            eprintln!("recording: saved {}", f.parts.first().map(|p| p.path.display().to_string()).unwrap_or_default());
-        }
-        let _ = self.config.save();
-        self.store.lock().flush(true);
+        self.shutdown();
     }
 }
 

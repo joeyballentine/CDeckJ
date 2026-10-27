@@ -47,13 +47,6 @@ fn data_home() -> Option<PathBuf> {
 }
 
 pub fn entry_text(exe: &Path) -> String {
-    // install.sh keeps a copy of itself beside the app: offer it as "Update CDeckJ" on the entry's
-    // right-click menu (it reopens itself in a terminal to show progress).
-    let updater = exe.parent().map(|d| d.join("cdeckj-install.sh")).filter(|p| p.exists());
-    let actions = match &updater {
-        Some(u) => format!("Actions=update;\n\n[Desktop Action update]\nName=Update CDeckJ\nExec=\"{}\" --update\n", u.display()),
-        None => String::new(),
-    };
     format!(
         "[Desktop Entry]\n\
          Type=Application\n\
@@ -65,8 +58,7 @@ pub fn entry_text(exe: &Path) -> String {
          Terminal=false\n\
          Categories=AudioVideo;Audio;Player;\n\
          Keywords=DJ;rekordbox;CDJ;mixer;\n\
-         StartupWMClass=cdeckj\n\
-         {actions}",
+         StartupWMClass=cdeckj\n",
         exe.display()
     )
 }
@@ -150,22 +142,6 @@ mod tests {
         assert!(t.contains("Exec=\"/home/deck/Applications/cdeckj\""));
         assert!(t.contains("Icon=cdeckj"));
         assert!(t.contains("StartupWMClass=cdeckj"));
-    }
-
-    #[test]
-    fn entry_offers_update_when_the_installer_is_beside_the_app() {
-        let dir = std::env::temp_dir().join(format!("cdeckj-entry-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let exe = dir.join("cdeckj");
-        assert!(!entry_text(&exe).contains("Actions="));
-        std::fs::write(dir.join("cdeckj-install.sh"), "#!/bin/sh\n").unwrap();
-        let t = entry_text(&exe);
-        assert!(t.contains("Actions=update;"));
-        assert!(t.contains("[Desktop Action update]"));
-        assert!(t.contains("cdeckj-install.sh\" --update"));
-        // The action group comes after every key of the main group.
-        assert!(t.find("Actions=").unwrap() < t.find("[Desktop Action").unwrap());
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

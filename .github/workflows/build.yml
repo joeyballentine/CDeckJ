@@ -67,7 +67,7 @@ jobs:
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           short=$(git rev-parse --short HEAD)
-          notes=$(printf 'CDeckJ %s, built from %s (%s).\n\n%s\n\n**Install or update on the Steam Deck:** download `cdeckj-steamdeck-x86_64.tar.gz`, extract it, and double-click `install.sh` (choose *Execute*). Already installed? Run `./install.sh --update`.' \
+          notes=$(printf 'CDeckJ %s, built from %s (%s).\n\n%s\n\n**Install on the Steam Deck:** download `cdeckj-steamdeck-x86_64.tar.gz`, extract it, open `cdeckj` and press INSTALL. Already installed? SETTINGS → SYSTEM → UPDATE.' \
             "$version" "$short" "$(date -u +%Y-%m-%d)" "$(git log -1 --pretty=%s)")
           git tag -f latest
           git push -f origin refs/tags/latest
