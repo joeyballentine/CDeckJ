@@ -1,0 +1,70 @@
+# Reloop Mixage (Interface Edition MK1/MK2, Controller Edition). Everything is on MIDI channel 1.
+# SHIFT is handled in hardware: a shifted control sends its number plus 0x3F, so knobs and
+# faders are bound to both numbers. Hot cues are SHIFT + SYNC, CUP, CUE and PLAY.
+name = "Reloop Mixage"
+ports = ["Mixage"]
+jog_ticks_per_rev = 620
+invert_tempo = true
+
+[bind]
+"deck1.play" = "90 0C"
+"deck1.cue" = "90 0B"
+"deck1.sync" = "90 09"
+# SHIFT + FX ON
+"deck1.master_tempo" = "90 47"
+"deck1.load" = "90 0D"
+"deck1.tempo" = ["E0", "E2"]
+"deck1.jog_touch" = ["90 24", "90 63"]
+"deck1.jog" = "B0 24"
+"deck1.jog_search" = "B0 63"
+"deck1.loop_4" = "90 05"
+"deck1.reloop" = "90 06"
+"deck1.loop_in" = "90 44"
+"deck1.loop_out" = "90 45"
+"deck1.hotcue1" = "90 48"
+"deck1.hotcue2" = "90 49"
+"deck1.hotcue3" = "90 4A"
+"deck1.hotcue4" = "90 4B"
+"ch1.trim" = ["B0 33", "B0 72"]
+"ch1.hi" = ["B0 35", "B0 74"]
+"ch1.mid" = ["B0 36", "B0 75"]
+"ch1.low" = ["B0 37", "B0 76"]
+# SHIFT + FX AMOUNT
+"ch1.filter" = "B0 73"
+"ch1.fader" = ["B0 38", "B0 77"]
+"ch1.pfl" = "90 0E"
+
+"deck2.play" = "90 1A"
+"deck2.cue" = "90 19"
+"deck2.sync" = "90 17"
+"deck2.master_tempo" = "90 55"
+"deck2.load" = "90 1B"
+"deck2.tempo" = ["E1", "E3"]
+"deck2.jog_touch" = ["90 25", "90 64"]
+"deck2.jog" = "B0 25"
+"deck2.jog_search" = "B0 64"
+"deck2.loop_4" = "90 13"
+"deck2.reloop" = "90 14"
+"deck2.loop_in" = "90 52"
+"deck2.loop_out" = "90 53"
+"deck2.hotcue1" = "90 56"
+"deck2.hotcue2" = "90 57"
+"deck2.hotcue3" = "90 58"
+"deck2.hotcue4" = "90 59"
+"ch2.trim" = ["B0 39", "B0 78"]
+"ch2.hi" = ["B0 3B", "B0 7A"]
+"ch2.mid" = ["B0 3C", "B0 7B"]
+"ch2.low" = ["B0 3D", "B0 7C"]
+"ch2.filter" = "B0 79"
+"ch2.fader" = ["B0 3E", "B0 7D"]
+"ch2.pfl" = "90 1C"
+
+"mixer.crossfader" = "B0 31"
+"mixer.head_mix" = "B0 32"
+"browser.turn" = "B0 1F"
+"browser.press" = "90 1F"
+
+# Both decks' FX buttons drive the one effect.
+"fx.on" = ["90 08", "90 16"]
+"fx.next" = ["90 07", "90 15"]
+"fx.level" = ["B0 34", "B0 3A"]

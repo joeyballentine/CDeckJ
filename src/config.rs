@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::midi::MidiMap;
+use crate::midi::ControllerConfig;
 use crate::rekordbox::settings::{CrossfaderCurve, FaderCurve, WaveColor};
 use crate::track::{SavedCue, Tags};
 
@@ -136,7 +136,8 @@ pub struct Config {
     pub perform_layout: PerformLayout,
     /// Glance mode: bigger type and fewer words, an icon-only rail.
     pub glance: bool,
-    pub midi: MidiMap,
+    /// Controller profile choice and your own MIDI bindings.
+    pub controller: ControllerConfig,
 }
 
 impl Default for Config {
@@ -183,7 +184,7 @@ impl Default for Config {
             browse_info: true,
             perform_layout: PerformLayout::Auto,
             glance: false,
-            midi: MidiMap::default(),
+            controller: ControllerConfig::default(),
         }
     }
 }
@@ -415,9 +416,14 @@ mod tests {
         let s = toml::to_string_pretty(&c).unwrap();
         let back: Config = toml::from_str(&s).unwrap();
         assert_eq!(back, c);
-        let partial: Config = toml::from_str("waveform_seconds = 12.0\n[midi]\nplay = 11\n").unwrap();
+        // An old-style [midi] table is ignored.
+        let partial: Config = toml::from_str("waveform_seconds = 12.0\n[midi]\nplay = 11\n[controller.bind]\n\"deck1.play\" = \"90 20\"\n").unwrap();
         assert_eq!(partial.waveform_seconds, 12.0);
         assert!(partial.quantize);
+        assert_eq!(partial.controller.bind.len(), 1);
+        c.controller.bind.insert("deck1.cue".into(), crate::midi::Msgs::Many(vec!["90 0C".into(), "92 0C".into()]));
+        let back: Config = toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
+        assert_eq!(back, c);
     }
 
     #[test]

@@ -3,7 +3,7 @@
 
 use super::dsp::Smooth;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum FxKind {
     Delay,
     Echo,

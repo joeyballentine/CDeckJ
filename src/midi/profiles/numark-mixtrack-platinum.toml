@@ -1,0 +1,91 @@
+# Numark Mixtrack Platinum (the original, without FX). Deck switch: decks 1-4 on MIDI channels
+# 1-4 (pads on 5-8), so decks 3/4 are listed with decks 1/2. The mixer strip sends on the
+# channel of the selected deck, so its 3/4 messages go to mixer channels 1/2.
+# One SHIFT button on channel 16. It changes the notes of PLAY, CUE, SYNC and the pads in
+# hardware; the jog wheel sends the same CC either way, so SHIFT is bound for SHIFT + jog.
+# Pad mode buttons change the notes the pads send: hot cue, auto loop and manual loop modes
+# are bound.
+name = "Numark Mixtrack Platinum"
+ports = ["Mixtrack Platinum"]
+jog_ticks_per_rev = 1240
+invert_tempo = false
+led_off = 0x01
+# Leave the demo light show.
+init = ["F0 00 01 3F 7F 3A 60 00 04 04 01 00 00 F7"]
+
+[bind]
+"deck1.shift" = "9F 32"
+"deck1.play" = ["90 00", "92 00"]
+"deck1.cue" = ["90 01", "92 01"]
+"deck1.sync" = ["90 02", "92 02"]
+"deck1.to_start" = ["90 05", "92 05"]
+"deck1.load" = ["90 10", "92 10"]
+"deck1.tempo" = ["B0 09 77", "B2 09 77"]
+"deck1.jog_touch" = ["90 06", "92 06"]
+"deck1.jog" = ["B0 06", "B2 06"]
+"deck1.jog_search" = ["shift B0 06", "shift B2 06"]
+"deck1.loop_in" = ["94 38", "96 38"]
+"deck1.loop_out" = ["94 39", "96 39"]
+"deck1.reloop" = ["94 32", "96 32"]
+"deck1.loop_half" = ["94 34", "96 34"]
+"deck1.loop_double" = ["94 35", "96 35"]
+"deck1.hotcue1" = ["94 18", "96 18"]
+"deck1.hotcue2" = ["94 19", "96 19"]
+"deck1.hotcue3" = ["94 1A", "96 1A"]
+"deck1.hotcue4" = ["94 1B", "96 1B"]
+"deck1.hotcue1_delete" = ["94 20", "96 20"]
+"deck1.hotcue2_delete" = ["94 21", "96 21"]
+"deck1.hotcue3_delete" = ["94 22", "96 22"]
+"deck1.hotcue4_delete" = ["94 23", "96 23"]
+# Auto loop mode: pads 1-4 loop 1, 2, 4 and 8 beats.
+"deck1.beatloop3" = ["94 14", "96 14"]
+"deck1.beatloop4" = ["94 15", "96 15"]
+"deck1.beatloop5" = ["94 16", "96 16"]
+"deck1.beatloop6" = ["94 17", "96 17"]
+"ch1.trim" = ["B0 16", "B2 16"]
+"ch1.hi" = ["B0 17", "B2 17"]
+"ch1.mid" = ["B0 18", "B2 18"]
+"ch1.low" = ["B0 19", "B2 19"]
+"ch1.filter" = ["B0 1A", "B2 1A"]
+"ch1.fader" = ["B0 1C", "B2 1C"]
+"ch1.pfl" = ["90 1B", "92 1B"]
+"deck2.play" = ["91 00", "93 00"]
+"deck2.cue" = ["91 01", "93 01"]
+"deck2.sync" = ["91 02", "93 02"]
+"deck2.to_start" = ["91 05", "93 05"]
+"deck2.load" = ["91 10", "93 10"]
+"deck2.tempo" = ["B1 09 77", "B3 09 77"]
+"deck2.jog_touch" = ["91 06", "93 06"]
+"deck2.jog" = ["B1 06", "B3 06"]
+"deck2.jog_search" = ["shift B1 06", "shift B3 06"]
+"deck2.loop_in" = ["95 38", "97 38"]
+"deck2.loop_out" = ["95 39", "97 39"]
+"deck2.reloop" = ["95 32", "97 32"]
+"deck2.loop_half" = ["95 34", "97 34"]
+"deck2.loop_double" = ["95 35", "97 35"]
+"deck2.hotcue1" = ["95 18", "97 18"]
+"deck2.hotcue2" = ["95 19", "97 19"]
+"deck2.hotcue3" = ["95 1A", "97 1A"]
+"deck2.hotcue4" = ["95 1B", "97 1B"]
+"deck2.hotcue1_delete" = ["95 20", "97 20"]
+"deck2.hotcue2_delete" = ["95 21", "97 21"]
+"deck2.hotcue3_delete" = ["95 22", "97 22"]
+"deck2.hotcue4_delete" = ["95 23", "97 23"]
+"deck2.beatloop3" = ["95 14", "97 14"]
+"deck2.beatloop4" = ["95 15", "97 15"]
+"deck2.beatloop5" = ["95 16", "97 16"]
+"deck2.beatloop6" = ["95 17", "97 17"]
+"ch2.trim" = ["B1 16", "B3 16"]
+"ch2.hi" = ["B1 17", "B3 17"]
+"ch2.mid" = ["B1 18", "B3 18"]
+"ch2.low" = ["B1 19", "B3 19"]
+"ch2.filter" = ["B1 1A", "B3 1A"]
+"ch2.fader" = ["B1 1C", "B3 1C"]
+"ch2.pfl" = ["91 1B", "93 1B"]
+"mixer.crossfader" = "BF 08"
+"mixer.head_mix" = "BF 0D"
+"mixer.head_level" = "BF 0C"
+"browser.turn" = "BF 00"
+"browser.press" = "9F 1F"
+# Dry/wet of the left and right FX units; CDeckJ has one.
+"fx.level" = ["B8 03", "B9 03"]

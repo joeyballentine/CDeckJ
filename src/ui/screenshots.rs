@@ -161,7 +161,13 @@ fn screenshots() {
         a.lib.select(2);
         a.scroll_to_selected = true;
         a.config.perform_layout = PerformLayout::Display;
-        *a.midi.lock() = Some("DDJ-GRV6".into());
+        let profiles = crate::midi::builtin();
+        let grv6 = profiles.iter().find(|p| p.name == "AlphaTheta DDJ-GRV6");
+        *a.midi.lock() = Some(crate::midi::Connected {
+            port: "DDJ-GRV6".into(),
+            profile: std::sync::Arc::new(crate::midi::resolve(&profiles, grv6, &Default::default()).0),
+            known: true,
+        });
     }
     fn browse(a: &mut App) {
         a.set_view(View::Browse);
@@ -169,12 +175,27 @@ fn screenshots() {
         a.lib.select(2);
         a.scroll_to_selected = true;
     }
+    fn controller(a: &mut App) {
+        a.config.glance = false;
+        a.set_view(View::Settings);
+        a.settings.page = 3;
+        let profiles = crate::midi::builtin();
+        let grv6 = profiles.iter().find(|p| p.name == "AlphaTheta DDJ-GRV6");
+        let mut user = crate::midi::ControllerConfig::default();
+        user.bind.insert("deck1.master_tempo".into(), crate::midi::Msgs::One("90 1A".into()));
+        *a.midi.lock() = Some(crate::midi::Connected {
+            port: "DDJ-GRV6:DDJ-GRV6 MIDI 1 20:0".into(),
+            profile: std::sync::Arc::new(crate::midi::resolve(&profiles, grv6, &user).0),
+            known: true,
+        });
+        a.settings.learning = Some(crate::midi::Control::Sync(0));
+    }
     fn install(a: &mut App) {
         a.config.glance = false;
         let target = PathBuf::from("/home/deck/Applications/cdeckj");
         a.install = Some(crate::ui::views::install::Prompt::new(crate::platform::install::Offer::Install, target));
     }
-    let shots: [(&str, fn(&mut App)); 12] = [
+    let shots: [(&str, fn(&mut App)); 13] = [
         ("perform", perform),
         ("display", display),
         ("wave", |a| a.set_view(View::Wave)),
@@ -189,6 +210,7 @@ fn screenshots() {
         ("glance-display", display),
         ("glance-wave", |a| a.set_view(View::Wave)),
         ("glance-browse", browse),
+        ("controller", controller),
         ("install", install),
     ];
     let mut failed = Vec::new();
@@ -274,6 +296,7 @@ fn demo_app(music: PathBuf, store: Store) -> App {
             audio: Err("no sound card in tests".into()),
             audio_opts: AudioOptions { device: None, force_alsa: false, buffer_frames: 256, split_cue: false, cue_profile_hints: None, direct_hints: None },
             midi: Default::default(),
+            midi_user: Default::default(),
             gamepad: None,
             locks: Default::default(),
             config,

@@ -7,6 +7,7 @@ use crate::ui::App;
 use crossbeam_channel::Receiver;
 
 use crate::engine::{Cmd, EngineView, MixParam, DECKS};
+use crate::midi::{Bound, Control, Msgs};
 use crate::rekordbox::settings::{CrossfaderCurve, FaderCurve, WaveColor};
 
 const PAGES: [(&str, &str); 5] = [
@@ -30,6 +31,8 @@ pub struct SettingsState {
     update_rx: Option<Receiver<Result<(), String>>>,
     /// First press of the two-press UNINSTALL.
     uninstall_confirm: Option<std::time::Instant>,
+    /// MIDI learn is waiting for this control.
+    pub learning: Option<Control>,
 }
 
 impl App {
@@ -237,7 +240,7 @@ impl App {
         let di = usize::from(self.audio_opts.direct_hints.is_some());
         if let Some(i) = rows.seg(self, ui, "Use the controller's sound card directly", "sdir", &["OFF", "ON"], di) {
             self.config.direct_audio = i == 1;
-            self.audio_opts.direct_hints = (i == 1).then(|| self.config.midi.port_hints.clone());
+            self.audio_opts.direct_hints = (i == 1).then(|| crate::midi::device_hints(&crate::midi::builtin(), self.config.midi_port.as_deref()));
             crate::audio::DIRECT_FAILED.store(false, std::sync::atomic::Ordering::Relaxed);
             // Close the stream and hand the card back before reconnecting either way.
             self.audio = None;
@@ -251,7 +254,7 @@ impl App {
                 self.audio = None;
                 crate::audio::cardprofile::restore_saved();
             }
-            self.audio_opts.cue_profile_hints = (i == 1).then(|| self.config.midi.port_hints.clone());
+            self.audio_opts.cue_profile_hints = (i == 1).then(|| crate::midi::device_hints(&crate::midi::builtin(), self.config.midi_port.as_deref()));
             self.restart_audio();
         }
         if let Some(i) = rows.seg(self, ui, "Stereo output: cue in right ear", "ssc", &["OFF", "ON"], usize::from(self.audio_opts.split_cue)) {
@@ -301,33 +304,147 @@ impl App {
         }
     }
 
+    /// Set (Some) or reset to the profile's (None) a control's binding, save it and hand it to
+    /// the MIDI thread.
+    fn bind_control(&mut self, c: Control, b: Option<Bound>) {
+        let bind = &mut self.config.controller.bind;
+        let name = c.name();
+        match b {
+            Some(b) => {
+                // The message leaves any other control you bound it to.
+                let s = b.to_string();
+                for (k, v) in bind.iter_mut() {
+                    if *k != name {
+                        if let Msgs::Many(list) = v {
+                            list.retain(|m| m.parse::<Bound>().map(|x| x.to_string()) != Ok(s.clone()));
+                        }
+                    }
+                }
+                bind.retain(|k, v| *k == name || !matches!(v, Msgs::One(m) if m.parse::<Bound>().map(|x| x.to_string()) == Ok(s.clone())));
+                bind.retain(|_, v| !matches!(v, Msgs::Many(l) if l.is_empty()));
+                bind.insert(name, Msgs::One(s));
+            }
+            None => {
+                bind.remove(&name);
+            }
+        }
+        let mut u = self.midi_user.lock();
+        u.0 += 1;
+        u.1 = self.config.controller.clone();
+    }
+
     fn page_controller(&mut self, ui: &mut Ui, rows: &mut Rows, inner: Rect) {
         let p = ui.painter().clone();
-        let name = self.midi.lock().clone().unwrap_or_else(|| "No DJ controller connected".into());
+        let conn = self.midi.lock().clone();
+        let name = conn.as_ref().map(|c| c.port.clone()).unwrap_or_else(|| "No DJ controller connected".into());
         rows.text(&p, "Controller", &name);
+        if let Some(c) = &conn {
+            let mine = c.profile.user.len();
+            let profile = match (c.known || self.config.controller.profile.is_some(), mine) {
+                (true, 0) => c.profile.name.clone(),
+                (true, n) => format!("{}, {n} changed", c.profile.name),
+                (false, n) => format!("None: {n} controls bound"),
+            };
+            rows.text(&p, "Profile", &profile);
+        }
         let pad = self.gamepad.as_ref().and_then(|g| g.lock().clone()).unwrap_or_else(|| "Not in use".into());
         rows.text(&p, "Steam Deck controls", &pad);
-        heading(&p, pos2(rows.x, rows.y + 8.0), "CONTROLLER TEST: MOVE OR PRESS ANYTHING; EACH MESSAGE AND WHAT IT DOES APPEARS HERE");
-        rows.y += 30.0;
+
+        // Left: what arrives. Right: what each control is bound to.
+        let top = rows.y + 4.0;
+        let split = rows.x + (rows.w * 0.42).round();
+        heading(&p, pos2(rows.x, top + 4.0), "CONTROLLER TEST");
         let log = crate::midi::MIDI_LOG.lock().clone();
-        let lines = ((inner.max.y - rows.y - 40.0) / 21.0).max(1.0) as usize;
+        let log_y = top + 30.0;
+        let lines = ((inner.max.y - log_y - 44.0) / 21.0).max(1.0) as usize;
         if log.is_empty() {
-            p.text(pos2(rows.x, rows.y), Align2::LEFT_TOP, "Nothing received yet.", t::small(), t::INK_FAINT);
+            p.text(pos2(rows.x, log_y), Align2::LEFT_TOP, "Nothing received yet.", t::small(), t::INK_FAINT);
         }
         for (i, l) in log.iter().rev().take(lines).enumerate() {
-            text_fit(&p, pos2(rows.x, rows.y + i as f32 * 21.0), Align2::LEFT_TOP, l, t::mono_small(), if i == 0 { t::INK } else { t::INK_MUTED }, rows.w);
+            text_fit(&p, pos2(rows.x, log_y + i as f32 * 21.0), Align2::LEFT_TOP, l, t::mono_small(), if i == 0 { t::INK } else { t::INK_MUTED }, split - rows.x - 16.0);
         }
-        let cr = Rect::from_min_size(pos2(inner.max.x - 90.0, inner.max.y - 34.0), vec2(90.0, 32.0));
+        let cr = Rect::from_min_size(pos2(rows.x, inner.max.y - 34.0), vec2(90.0, 32.0));
         if button(ui, &mut self.touches, cr, Id::NULL.with("sclr"), "CLEAR", None, t::button_font()).clicked {
             crate::midi::MIDI_LOG.lock().clear();
         }
-        p.text(
-            pos2(rows.x, inner.max.y - 18.0),
-            Align2::LEFT_CENTER,
-            "Wrong control? Note the bytes and set the number in [midi] in ~/.config/cdeckj/config.toml.",
-            t::small(),
-            t::INK_FAINT,
-        );
+
+        let Some(conn) = conn else {
+            self.settings.learning = None;
+            *crate::midi::LEARN.lock() = None;
+            return;
+        };
+        // MIDI learn: once the control has been pressed or moved, bind it.
+        if let Some(c) = self.settings.learning {
+            let caught = crate::midi::LEARN.lock().clone().unwrap_or_default();
+            if let Some(b) = crate::midi::learned(c, &caught, &conn.profile, std::time::Instant::now()) {
+                *crate::midi::LEARN.lock() = None;
+                self.settings.learning = None;
+                self.bind_control(c, Some(b));
+            } else {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+            }
+        }
+        heading(&p, pos2(split, top + 4.0), "BINDINGS: TAP ONE, THEN PRESS OR MOVE IT ON THE CONTROLLER");
+        let list = Rect::from_min_max(pos2(split, top + 30.0), pos2(rows.x + rows.w, inner.max.y));
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(list));
+        child.spacing_mut().item_spacing.y = 0.0;
+        let learning = self.settings.learning;
+        let mut tapped = None;
+        let mut reset = None;
+        egui::ScrollArea::vertical().id_salt("sbind").auto_shrink([false, false]).show(&mut child, |ui| {
+            let mut group = String::new();
+            for c in Control::all() {
+                if c.kind() == crate::midi::Kind::Output {
+                    continue;
+                }
+                let p = ui.painter().clone();
+                if c.group() != group {
+                    group = c.group();
+                    let (hr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
+                    heading(&p, pos2(hr.min.x, hr.min.y + 10.0), &group);
+                }
+                let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::hover());
+                let mine = conn.profile.user.contains(&c);
+                let row = Rect::from_min_max(r.min, pos2(r.max.x - if mine { 96.0 } else { 0.0 }, r.max.y - 2.0));
+                let on = learning == Some(c);
+                // The label is drawn beside the messages, so name the button for screen readers.
+                let (ctl, resp) = button_resp(ui, &mut self.touches, row, Id::NULL.with(("sbind", c.name())), "", on.then_some(t::ACCENT), t::strong());
+                let label = format!("{} {}", c.group(), c.label());
+                resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, on, &label));
+                if ctl.clicked {
+                    tapped = Some(c);
+                }
+                text_fit(&p, pos2(row.min.x + 12.0, row.center().y), Align2::LEFT_CENTER, &c.label(), t::strong(), t::INK, row.width() * 0.5);
+                let msgs: Vec<String> = conn.profile.messages(c).iter().map(|b| b.to_string()).collect();
+                let (value, col) = if on {
+                    ("PRESS OR MOVE IT NOW".to_string(), t::INK)
+                } else if msgs.is_empty() {
+                    ("—".to_string(), t::INK_FAINT)
+                } else {
+                    (msgs.join(", "), if mine { t::INK } else { t::INK_MUTED })
+                };
+                let font = if on { t::button_font() } else { t::mono_small() };
+                text_fit(&p, pos2(row.max.x - 12.0, row.center().y), Align2::RIGHT_CENTER, &value, font, col, row.width() * 0.48);
+                if mine {
+                    let rr = Rect::from_min_max(pos2(row.max.x + 6.0, row.min.y), pos2(r.max.x, row.max.y));
+                    if button(ui, &mut self.touches, rr, Id::NULL.with(("sreset", c.name())), "RESET", None, t::button_font()).clicked {
+                        reset = Some(c);
+                    }
+                }
+            }
+        });
+        if let Some(c) = tapped {
+            if learning == Some(c) {
+                self.settings.learning = None;
+                *crate::midi::LEARN.lock() = None;
+            } else {
+                self.settings.learning = Some(c);
+                *crate::midi::LEARN.lock() = Some(Vec::new());
+            }
+        }
+        if let Some(c) = reset {
+            self.bind_control(c, None);
+        }
     }
 
     /// Installed copy: where it is, UPDATE from the latest release, UNINSTALL (press twice).

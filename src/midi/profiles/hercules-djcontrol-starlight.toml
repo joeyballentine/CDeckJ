@@ -1,0 +1,63 @@
+# Hercules DJControl Starlight. Hardware SHIFT: deck A moves from channel 2 to 5, deck B from
+# 3 to 6. Pads are on channels 7-8: the pad mode picks the note range, SHIFT adds 8 to the note.
+# 4 pads per deck; BASS and FILTER knobs only.
+name = "Hercules DJControl Starlight"
+ports = ["DJControl Starlight"]
+jog_ticks_per_rev = 248
+invert_tempo = true
+# Makes the controller send every knob and fader position.
+init = ["B0 7F 7F"]
+
+[bind]
+"deck1.play" = "91 07"
+"deck1.cue" = "91 06"
+"deck1.sync" = "91 05"
+"deck1.to_start" = "94 06"
+"deck1.tempo" = "B1 08 28"
+"deck1.jog_touch" = ["91 08", "94 08"]
+"deck1.jog_scratch" = "B1 0A"
+"deck1.jog_bend" = "B1 09"
+"deck1.jog_search" = "B4 0A"
+"deck1.hotcue1" = "96 00"
+"deck1.hotcue2" = "96 01"
+"deck1.hotcue3" = "96 02"
+"deck1.hotcue4" = "96 03"
+"deck1.hotcue1_delete" = "96 08"
+"deck1.hotcue2_delete" = "96 09"
+"deck1.hotcue3_delete" = "96 0A"
+"deck1.hotcue4_delete" = "96 0B"
+# LOOP pad mode: pads 1-4 loop 1, 2, 4 and 8 beats. Bound by loop length.
+"deck1.beatloop3" = "96 10"
+"deck1.beatloop4" = "96 11"
+"deck1.beatloop5" = "96 12"
+"deck1.beatloop6" = "96 13"
+"ch1.low" = "B1 02"
+"ch1.filter" = "B1 01"
+"ch1.fader" = "B1 00"
+"ch1.pfl" = "91 0C"
+"deck2.play" = "92 07"
+"deck2.cue" = "92 06"
+"deck2.sync" = "92 05"
+"deck2.to_start" = "95 06"
+"deck2.tempo" = "B2 08 28"
+"deck2.jog_touch" = ["92 08", "95 08"]
+"deck2.jog_scratch" = "B2 0A"
+"deck2.jog_bend" = "B2 09"
+"deck2.jog_search" = "B5 0A"
+"deck2.hotcue1" = "97 00"
+"deck2.hotcue2" = "97 01"
+"deck2.hotcue3" = "97 02"
+"deck2.hotcue4" = "97 03"
+"deck2.hotcue1_delete" = "97 08"
+"deck2.hotcue2_delete" = "97 09"
+"deck2.hotcue3_delete" = "97 0A"
+"deck2.hotcue4_delete" = "97 0B"
+"deck2.beatloop3" = "97 10"
+"deck2.beatloop4" = "97 11"
+"deck2.beatloop5" = "97 12"
+"deck2.beatloop6" = "97 13"
+"ch2.low" = "B2 02"
+"ch2.filter" = "B2 01"
+"ch2.fader" = "B2 00"
+"ch2.pfl" = "92 0C"
+"mixer.crossfader" = "B0 00"

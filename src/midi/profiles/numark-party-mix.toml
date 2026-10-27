@@ -1,0 +1,47 @@
+# Numark Party Mix. Decks on MIDI channels 1-2, pads on 5-6, browser and globals on 16.
+# No SHIFT button and no touch-sensitive platters: the jog wheels always bend.
+# Pad modes are tracked in software: the pads send the same notes in every mode.
+name = "Numark Party Mix"
+ports = ["Party Mix"]
+jog_ticks_per_rev = 340
+invert_tempo = true
+led_off = 0x01
+# Ask for the current knob and fader positions.
+init = ["F0 00 01 3F 38 48 F7"]
+
+[bind]
+"deck1.play" = "90 00"
+"deck1.cue" = "90 01"
+"deck1.sync" = "90 02"
+"deck1.load" = "9F 02"
+"deck1.tempo" = "B0 09"
+"deck1.jog" = "B0 06"
+"deck1.hotcue1" = "94 14"
+"deck1.hotcue2" = "94 15"
+"deck1.hotcue3" = "94 16"
+"deck1.hotcue4" = "94 17"
+"ch1.trim" = "B0 17"
+"ch1.hi" = "B0 18"
+"ch1.low" = "B0 19"
+"ch1.fader" = "B0 1C"
+"ch1.pfl" = "90 1B"
+"deck2.play" = "91 00"
+"deck2.cue" = "91 01"
+"deck2.sync" = "91 02"
+"deck2.load" = "9F 03"
+"deck2.tempo" = "B1 09"
+"deck2.jog" = "B1 06"
+"deck2.hotcue1" = "95 14"
+"deck2.hotcue2" = "95 15"
+"deck2.hotcue3" = "95 16"
+"deck2.hotcue4" = "95 17"
+"ch2.trim" = "B1 17"
+"ch2.hi" = "B1 18"
+"ch2.low" = "B1 19"
+"ch2.fader" = "B1 1C"
+"ch2.pfl" = "91 1B"
+"mixer.crossfader" = "BF 08"
+"mixer.head_mix" = "BF 0D"
+"mixer.head_level" = "BF 0C"
+"browser.turn" = "BF 00"
+"browser.press" = "9F 00"

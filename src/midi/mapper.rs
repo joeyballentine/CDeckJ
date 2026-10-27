@@ -2,6 +2,9 @@
 //! faders that were last moved on screen.
 
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::engine::fx::FxTarget;
 use crate::engine::{Cmd, EngineView, MixParam, DECKS};
 
 use super::*;
@@ -36,66 +39,57 @@ impl Pickup {
     }
 }
 
-/// Decoder: remembers 14-bit MSBs and soft-takeover state.
+/// Encoder ticks from a relative value. Controllers send either 64 ± n or two's complement
+/// (n, or 128 − n backwards); the reading with the smaller magnitude is the right one for
+/// anything under 32 ticks per message.
+pub(crate) fn rel(v: u8) -> f64 {
+    let offset = v as f64 - 64.0;
+    let twos = if v < 64 { v as f64 } else { v as f64 - 128.0 };
+    if twos.abs() < offset.abs() { twos } else { offset }
+}
+
+/// Decoder: remembers 14-bit MSBs, held buttons, SHIFT and jog touch, and soft-takeover state.
 pub struct Mapper {
-    pub map: MidiMap,
+    pub profile: Arc<Resolved>,
+    table: Table,
     msb: [[u8; 128]; 16],
     pickup: Pickup,
-}
-
-impl Default for Mapper {
-    fn default() -> Self {
-        Self::new(MidiMap::default(), PickupLocks::default())
-    }
-}
-
-pub(crate) fn rel(v: u8) -> f64 {
-    v as f64 - 64.0
+    shift: [bool; DECKS],
+    touched: [bool; DECKS],
+    /// Buttons down, so the release goes to the control the press went to.
+    held: HashMap<(u8, u8), Control>,
 }
 
 impl Mapper {
-    pub fn new(map: MidiMap, locks: PickupLocks) -> Self {
-        Self { map, msb: [[0; 128]; 16], pickup: Pickup { hw: HashMap::new(), locks } }
-    }
-}
-
-impl Mapper {
-    /// 14-bit value 0..=1 for a CC pair; called for both the MSB and LSB message.
-    fn hires(&mut self, ch: u8, cc: u8, value: u8, is_lsb: bool) -> f32 {
-        let msb_cc = if is_lsb { cc - 0x20 } else { cc };
-        if !is_lsb {
-            self.msb[ch as usize][msb_cc as usize] = value;
-            return (value as u32 * 128) as f32 / 16383.0;
+    pub fn new(profile: Arc<Resolved>, locks: PickupLocks) -> Self {
+        let table = Table::new(&profile);
+        Self {
+            profile,
+            table,
+            msb: [[0; 128]; 16],
+            pickup: Pickup { hw: HashMap::new(), locks },
+            shift: [false; DECKS],
+            touched: [false; DECKS],
+            held: HashMap::new(),
         }
-        let m = self.msb[ch as usize][msb_cc as usize] as u32;
-        ((m << 7) | value as u32) as f32 / 16383.0
+    }
+
+    pub fn set_profile(&mut self, profile: Arc<Resolved>) {
+        self.table = Table::new(&profile);
+        self.profile = profile;
+        self.held.clear();
+    }
+
+    /// A software SHIFT button is down.
+    pub fn shifted(&self) -> bool {
+        self.shift.iter().any(|&s| s)
     }
 
     /// Like [`Self::decode`], applying soft takeover against the engine's current values.
     pub fn decode_with(&mut self, msg: &[u8], view: Option<&EngineView>) -> Option<Action> {
-        let (action, ctl) = self.decode_inner(msg)?;
-        if let (Some(ctl), Some(v), Action::Engine(cmd)) = (ctl, view, &action) {
-            let value = match cmd {
-                Cmd::TempoFader(_, f) => {
-                    let f = *f as f32;
-                    if self.map.invert_tempo { (1.0 - f) / 2.0 } else { (f + 1.0) / 2.0 }
-                }
-                Cmd::Mix(p) => match *p {
-                    MixParam::Trim(_, x)
-                    | MixParam::Hi(_, x)
-                    | MixParam::Mid(_, x)
-                    | MixParam::Low(_, x)
-                    | MixParam::Filter(_, x)
-                    | MixParam::Fader(_, x)
-                    | MixParam::Crossfader(x)
-                    | MixParam::HeadMix(x)
-                    | MixParam::HeadLevel(x)
-                    | MixParam::FxLevel(x) => x,
-                    _ => return Some(action),
-                },
-                _ => return Some(action),
-            };
-            let current = ctl.current(v, self.map.invert_tempo);
+        let (action, pick) = self.decode_inner(msg)?;
+        if let (Some((ctl, value)), Some(v)) = (pick, view) {
+            let current = ctl.current(v, self.profile.invert_tempo);
             if !self.pickup.allow(ctl, value, current) {
                 return None;
             }
@@ -107,176 +101,151 @@ impl Mapper {
         self.decode_inner(msg).map(|(a, _)| a)
     }
 
-    fn decode_inner(&mut self, msg: &[u8]) -> Option<(Action, Option<Ctl>)> {
-        if msg.len() < 3 {
-            return None;
-        }
-        let (status, d1, d2) = (msg[0], msg[1], msg[2]);
+    /// The action, and for knobs and faders the soft-takeover control with its 0..1 value.
+    fn decode_inner(&mut self, msg: &[u8]) -> Option<(Action, Option<(Ctl, f32)>)> {
+        let (&status, rest) = msg.split_first()?;
         let kind = status & 0xF0;
         let ch = status & 0x0F;
-        let pressed = kind == 0x90 && d2 > 0;
-        let is_note = kind == 0x90 || kind == 0x80;
-        let m = self.map.clone();
+        let (d1, d2) = match (kind, rest) {
+            (0xE0, &[lsb, msb, ..]) => (lsb, msb),
+            (_, &[a, b, ..]) => (a, b),
+            _ => return None,
+        };
+        let key = match kind {
+            0x80 | 0x90 => (0x90 | ch, d1),
+            0xB0 => (0xB0 | ch, d1),
+            0xE0 => (0xE0 | ch, 0),
+            _ => return None,
+        };
+        let is_note = kind == 0x80 || kind == 0x90;
+        let pressed = match kind {
+            0x90 | 0xB0 => d2 > 0,
+            _ => false,
+        };
+
+        // A release goes wherever its press went, even if SHIFT changed in between.
+        let held = if is_note || kind == 0xB0 {
+            if pressed { None } else { self.held.remove(&key) }
+        } else {
+            None
+        };
+        let (control, bound) = match held {
+            Some(c) => (c, self.table.by_key.get(&key).and_then(|v| v.iter().find(|(x, _)| *x == c)).map(|(_, b)| *b)?),
+            None => {
+                let entries = self.table.by_key.get(&key)?;
+                let shift = self.shifted();
+                let pick = entries.iter().find(|(_, b)| b.shift == shift).or_else(|| if shift { entries.iter().find(|(_, b)| !b.shift) } else { None });
+                *pick?
+            }
+        };
+
         let e = |c: Cmd| Some((Action::Engine(c), None));
-        let ec = |c: Cmd, ctl: Ctl| Some((Action::Engine(c), Some(ctl)));
-        let u = |a: UiAction| Some((Action::Ui(a), None));
+        let u = |a: UiAction| if pressed { Some((Action::Ui(a), None)) } else { None };
+        let on = |c: Cmd| if pressed { e(c) } else { None };
+        let mx = |p: MixParam| on(Cmd::Mix(p));
 
-        // Performance pads.
-        if is_note && (m.pad_status..m.pad_status.saturating_add(8)).contains(&status) {
-            let idx = status - m.pad_status;
-            let deck = (idx / 2) as usize % DECKS;
-            let shift = idx % 2 == 1;
-            let pad = (d1 & 0x07) as usize;
-            let group = d1 & 0xF8;
-            return if group == m.pad_hot_cue {
-                if shift {
-                    if pressed { e(Cmd::HotCueDelete(deck, pad)) } else { None }
-                } else {
-                    e(Cmd::HotCue(deck, pad, pressed))
+        match control.kind() {
+            Kind::Output => None,
+            Kind::Button => {
+                if pressed {
+                    self.held.insert(key, control);
                 }
-            } else if group == m.pad_beat_jump {
-                if pressed { e(Cmd::BeatJump(deck, BEAT_JUMPS[pad])) } else { None }
-            } else if group == m.pad_beat_loop {
-                if pressed { e(Cmd::AutoLoop(deck, BEAT_LOOPS[pad])) } else { None }
-            } else {
-                None
-            };
-        }
-
-        // Beat FX section.
-        if ch == m.fx_channel {
-            use crate::engine::fx::FxTarget;
-            if is_note {
-                if !pressed {
+                use Control::*;
+                match control {
+                    Play(d) => on(Cmd::Play(d)),
+                    Cue(d) => e(Cmd::Cue(d, pressed)),
+                    Sync(d) => on(Cmd::SyncToggle(d)),
+                    TempoRange(d) => on(Cmd::TempoRangeCycle(d)),
+                    MasterTempo(d) => on(Cmd::MasterTempoToggle(d)),
+                    Reverse(d) => e(Cmd::Reverse(d, pressed)),
+                    ToStart(d) => on(Cmd::ToStart(d)),
+                    Shift(d) => {
+                        self.shift[d] = pressed;
+                        None
+                    }
+                    JogTouch(d) => {
+                        self.touched[d] = pressed;
+                        e(Cmd::JogTouch(d, pressed))
+                    }
+                    LoopIn(d) => on(Cmd::LoopIn(d)),
+                    LoopOut(d) => on(Cmd::LoopOut(d)),
+                    Reloop(d) => on(Cmd::ReloopExit(d)),
+                    Loop4(d) => on(Cmd::AutoLoop(d, 4.0)),
+                    LoopHalf(d) => on(Cmd::LoopScale(d, 0.5)),
+                    LoopDouble(d) => on(Cmd::LoopScale(d, 2.0)),
+                    Load(d) => u(UiAction::Load(d)),
+                    HotCue(d, i) => e(Cmd::HotCue(d, i, pressed)),
+                    HotCueDelete(d, i) => on(Cmd::HotCueDelete(d, i)),
+                    BeatJump(d, i) => on(Cmd::BeatJump(d, BEAT_JUMPS[i])),
+                    BeatLoop(d, i) => on(Cmd::AutoLoop(d, BEAT_LOOPS[i])),
+                    Pfl(c) => mx(MixParam::PflToggle(c)),
+                    BrowsePress => u(UiAction::BrowsePress),
+                    Back => u(UiAction::Back),
+                    // VIEW: next screen, like a CDJ's screen buttons.
+                    ViewNext => u(UiAction::CycleView(1)),
+                    ViewPrev => u(UiAction::CycleView(-1)),
+                    FxNext => mx(MixParam::FxNext(1)),
+                    FxKind(k) => mx(MixParam::FxKind(k)),
+                    FxBeatDown => mx(MixParam::FxBeat(-1)),
+                    FxBeatUp => mx(MixParam::FxBeat(1)),
+                    FxCh(c) => mx(MixParam::FxTarget(FxTarget::Ch(c))),
+                    FxMaster => mx(MixParam::FxTarget(FxTarget::Master)),
+                    FxOn => mx(MixParam::FxToggle),
+                    _ => None,
+                }
+            }
+            Kind::Relative => {
+                if is_note {
                     return None;
                 }
-                let mx = |p: MixParam| e(Cmd::Mix(p));
-                return match d1 {
-                    n if n == m.fx_select => mx(MixParam::FxNext(1)),
-                    n if n >= m.fx_kind_base && ((n - m.fx_kind_base) as usize) < m.fx_kinds.len() => {
-                        mx(MixParam::FxKind(m.fx_kinds[(n - m.fx_kind_base) as usize]))
-                    }
-                    n if n == m.fx_beat_left => mx(MixParam::FxBeat(-1)),
-                    n if n == m.fx_beat_right => mx(MixParam::FxBeat(1)),
-                    n if n == m.fx_ch1 => mx(MixParam::FxTarget(FxTarget::Ch(0))),
-                    n if n == m.fx_ch2 => mx(MixParam::FxTarget(FxTarget::Ch(1))),
-                    n if n == m.fx_master => mx(MixParam::FxTarget(FxTarget::Master)),
-                    n if n == m.fx_on => mx(MixParam::FxToggle),
+                let ticks = rel(d2);
+                // Scratch ticks scale so one platter turn is one 33⅓ rpm record turn.
+                let tick = 720.0 / self.profile.jog_ticks_per_rev.max(1.0);
+                use Control::*;
+                match control {
+                    Jog(d) if self.touched[d] => e(Cmd::JogScratch(d, ticks * tick)),
+                    Jog(d) | JogBend(d) => e(Cmd::JogBend(d, ticks * tick)),
+                    JogScratch(d) => e(Cmd::JogScratch(d, ticks * tick)),
+                    JogSearch(d) => e(Cmd::JogSearch(d, ticks * tick)),
+                    Browse => Some((Action::Ui(UiAction::Browse(ticks as i32)), None)),
                     _ => None,
-                };
-            }
-            if kind == 0xB0 && (d1 == m.cc_fx_level || d1 == m.cc_fx_level + 0x20) {
-                let v = self.hires(ch, d1, d2, d1 != m.cc_fx_level);
-                return ec(Cmd::Mix(MixParam::FxLevel(v)), Ctl::FxLevel);
-            }
-            return None;
-        }
-
-        // Global section.
-        if ch == m.global_channel {
-            if is_note {
-                if !pressed {
-                    return None;
                 }
-                return match d1 {
-                    n if n == m.browse_press => u(UiAction::BrowsePress),
-                    n if n == m.shift_browse_press => u(UiAction::Back),
-                    n if n == m.back || n == m.shift_back => u(UiAction::Back),
-                    // VIEW: next screen, like a CDJ's screen buttons; SHIFT + VIEW goes back one.
-                    n if n == m.view => u(UiAction::CycleView(1)),
-                    n if n == m.shift_view => u(UiAction::CycleView(-1)),
-                    n if (m.load_base..m.load_base + 4).contains(&n) => u(UiAction::Load((n - m.load_base) as usize % DECKS)),
-                    _ => None,
-                };
             }
-            if kind == 0xB0 {
-                let lsb = d1 >= 0x20 && d1 < 0x40;
-                let base = if lsb { d1 - 0x20 } else { d1 };
-                if d1 == m.cc_browse {
-                    return u(UiAction::Browse(if d2 < 64 { d2 as i32 } else { d2 as i32 - 128 }));
+            Kind::Absolute => {
+                let v = match bound.msg {
+                    Msg::Cc(..) => d2 as f32 / 127.0,
+                    Msg::Cc14(_, m, l) => {
+                        if d1 == m {
+                            self.msb[ch as usize][m as usize] = d2;
+                            (d2 as u32 * 128) as f32 / 16383.0
+                        } else {
+                            debug_assert_eq!(d1, l);
+                            let hi = self.msb[ch as usize][m as usize] as u32;
+                            ((hi << 7) | d2 as u32) as f32 / 16383.0
+                        }
+                    }
+                    Msg::PitchBend(_) => (((d2 as u32) << 7) | d1 as u32) as f32 / 16383.0,
+                    Msg::Note(..) => return None,
+                };
+                let mix = |p: MixParam, ctl: Ctl| Some((Action::Engine(Cmd::Mix(p)), Some((ctl, v))));
+                use Control::*;
+                match control {
+                    Tempo(d) => {
+                        let f = if self.profile.invert_tempo { 1.0 - 2.0 * v as f64 } else { 2.0 * v as f64 - 1.0 };
+                        Some((Action::Engine(Cmd::TempoFader(d, f)), Some((Ctl::Tempo(d), v))))
+                    }
+                    Trim(c) => mix(MixParam::Trim(c, v), Ctl::Trim(c)),
+                    Hi(c) => mix(MixParam::Hi(c, v), Ctl::Hi(c)),
+                    Mid(c) => mix(MixParam::Mid(c, v), Ctl::Mid(c)),
+                    Low(c) => mix(MixParam::Low(c, v), Ctl::Low(c)),
+                    Filter(c) => mix(MixParam::Filter(c, v), Ctl::Filter(c)),
+                    Fader(c) => mix(MixParam::Fader(c, v), Ctl::Fader(c)),
+                    Crossfader => mix(MixParam::Crossfader(v), Ctl::Crossfader),
+                    HeadMix => mix(MixParam::HeadMix(v), Ctl::HeadMix),
+                    HeadLevel => mix(MixParam::HeadLevel(v), Ctl::HeadLevel),
+                    FxLevel => mix(MixParam::FxLevel(v), Ctl::FxLevel),
+                    _ => None,
                 }
-                return match base {
-                    c if c == m.cc_crossfader => {
-                        let v = self.hires(ch, d1, d2, lsb);
-                        ec(Cmd::Mix(MixParam::Crossfader(v)), Ctl::Crossfader)
-                    }
-                    c if c == m.cc_head_mix => {
-                        let v = self.hires(ch, d1, d2, lsb);
-                        ec(Cmd::Mix(MixParam::HeadMix(v)), Ctl::HeadMix)
-                    }
-                    c if c == m.cc_head_level => {
-                        let v = self.hires(ch, d1, d2, lsb);
-                        ec(Cmd::Mix(MixParam::HeadLevel(v)), Ctl::HeadLevel)
-                    }
-                    c if (m.cc_color_fx_base..m.cc_color_fx_base + 2).contains(&c) => {
-                        let v = self.hires(ch, d1, d2, lsb);
-                        let chan = (c - m.cc_color_fx_base) as usize;
-                        ec(Cmd::Mix(MixParam::Filter(chan, v)), Ctl::Filter(chan))
-                    }
-                    _ => None,
-                };
-            }
-            return None;
-        }
-
-        // Deck / mixer channels 1-4.
-        if ch > 3 {
-            return None;
-        }
-        let deck = ch as usize % DECKS;
-        let mixer_ch = (ch < 2).then_some(ch as usize);
-
-        if is_note {
-            let on = |c: Cmd| if pressed { e(c) } else { None };
-            return match d1 {
-                n if n == m.play => on(Cmd::Play(deck)),
-                n if n == m.shift_play => e(Cmd::Reverse(deck, pressed)),
-                n if n == m.cue => e(Cmd::Cue(deck, pressed)),
-                n if n == m.shift_cue => on(Cmd::ToStart(deck)),
-                n if n == m.sync => on(Cmd::SyncToggle(deck)),
-                n if n == m.shift_sync => on(Cmd::TempoRangeCycle(deck)),
-                n if n == m.jog_touch || n == m.shift_jog_touch => e(Cmd::JogTouch(deck, pressed)),
-                n if n == m.loop_in => on(Cmd::LoopIn(deck)),
-                n if n == m.loop_out => on(Cmd::LoopOut(deck)),
-                n if n == m.reloop => on(Cmd::ReloopExit(deck)),
-                n if n == m.shift_loop_in => on(Cmd::AutoLoop(deck, 4.0)),
-                n if n == m.shift_loop_out => on(Cmd::LoopScale(deck, 0.5)),
-                n if n == m.shift_reloop => on(Cmd::LoopScale(deck, 2.0)),
-                n if n == m.pfl => match (pressed, mixer_ch) {
-                    (true, Some(c)) => e(Cmd::Mix(MixParam::PflToggle(c))),
-                    _ => None,
-                },
-                _ => None,
-            };
-        }
-        if kind != 0xB0 {
-            return None;
-        }
-        // Scratch ticks scale so one platter turn is one 33⅓ rpm record turn.
-        let tick = 720.0 / m.jog_ticks_per_rev.max(1.0);
-        match d1 {
-            c if c == m.cc_jog_scratch => e(Cmd::JogScratch(deck, rel(d2) * tick)),
-            c if c == m.cc_jog_bend || c == m.cc_jog_bend_top => e(Cmd::JogBend(deck, rel(d2) * tick)),
-            c if m.cc_jog_search.contains(&c) => e(Cmd::JogSearch(deck, rel(d2) * tick)),
-            c if c == m.cc_tempo || c == m.cc_tempo + 0x20 => {
-                let v = self.hires(ch, c, d2, c >= 0x20) as f64;
-                let f = if m.invert_tempo { 1.0 - 2.0 * v } else { 2.0 * v - 1.0 };
-                ec(Cmd::TempoFader(deck, f), Ctl::Tempo(deck))
-            }
-            c => {
-                let mc = mixer_ch?;
-                let is_lsb = (0x20..0x40).contains(&c);
-                let base = if is_lsb { c - 0x20 } else { c };
-                let (param, ctl): (fn(usize, f32) -> MixParam, Ctl) = match base {
-                    b if b == m.cc_trim => (MixParam::Trim, Ctl::Trim(mc)),
-                    b if b == m.cc_hi => (MixParam::Hi, Ctl::Hi(mc)),
-                    b if b == m.cc_mid => (MixParam::Mid, Ctl::Mid(mc)),
-                    b if b == m.cc_low => (MixParam::Low, Ctl::Low(mc)),
-                    b if b == m.cc_fader => (MixParam::Fader, Ctl::Fader(mc)),
-                    _ => return None,
-                };
-                let v = self.hires(ch, c, d2, is_lsb);
-                ec(Cmd::Mix(param(mc, v)), ctl)
             }
         }
     }

@@ -22,7 +22,7 @@ use crate::config::{Config, Store};
 use crate::engine::deck::{HotCue, HOT_CUES};
 use crate::engine::{Cmd, EngineView, SharedEngine, SharedView, DECKS};
 use crate::library::{self, LibEvent, LibTrack, Library};
-use crate::midi::{MidiStatus, PickupLocks, UiAction};
+use crate::midi::{MidiStatus, MidiUser, PickupLocks, UiAction};
 use crate::platform::{GamepadStatus, KeepAwake};
 use crate::track::{self, Track};
 use theme::{self as t};
@@ -101,6 +101,7 @@ pub struct AppInit {
     pub audio: Result<AudioOut, String>,
     pub audio_opts: AudioOptions,
     pub midi: MidiStatus,
+    pub midi_user: MidiUser,
     pub gamepad: Option<GamepadStatus>,
     pub locks: PickupLocks,
     pub config: Config,
@@ -140,6 +141,7 @@ pub struct App {
     /// A reconnect attempt running off the UI thread (device probing can block).
     reconnecting: Option<crossbeam_channel::Receiver<Result<AudioOut, String>>>,
     midi: MidiStatus,
+    midi_user: MidiUser,
     gamepad: Option<GamepadStatus>,
     locks: PickupLocks,
     config: Config,
@@ -224,6 +226,7 @@ impl App {
             last_reconnect: Instant::now(),
             reconnecting: None,
             midi: init.midi,
+            midi_user: init.midi_user,
             gamepad: init.gamepad,
             locks: init.locks,
             config_saved: init.config.clone(),
@@ -277,7 +280,11 @@ impl eframe::App for App {
         self.keyboard(ui);
         let v: EngineView = *self.view.lock();
         // The controller test (SETTINGS) is the only reader of the MIDI log.
-        crate::midi::MIDI_LOG_ON.store(self.view_mode == View::Settings && self.settings.page == 3, Ordering::Relaxed);
+        let controller_page = self.view_mode == View::Settings && self.settings.page == 3;
+        crate::midi::MIDI_LOG_ON.store(controller_page, Ordering::Relaxed);
+        if !controller_page && self.settings.learning.take().is_some() {
+            *crate::midi::LEARN.lock() = None;
+        }
         self.persist(&v);
         let seed = self.suggest_seed(&v);
         self.lib.set_seed(seed);

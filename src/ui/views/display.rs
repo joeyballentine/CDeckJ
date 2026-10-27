@@ -15,7 +15,8 @@ impl App {
     /// Whether PERFORM shows the display layout now.
     pub(crate) fn display_layout(&self) -> bool {
         match self.config.perform_layout {
-            PerformLayout::Auto => self.midi.lock().is_some(),
+            // A MIDI device with nothing bound yet doesn't replace the on-screen controls.
+            PerformLayout::Auto => self.midi.lock().as_ref().is_some_and(|c| !c.profile.bindings.is_empty()),
             PerformLayout::Full => false,
             PerformLayout::Display => true,
         }

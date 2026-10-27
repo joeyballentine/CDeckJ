@@ -1,0 +1,97 @@
+# Reloop Beatmix 2 MK2 and Beatmix 4 MK2. Decks on MIDI channels 2-5: 1 and 3 on the left,
+# 2 and 4 on the right; decks 3/4 drive CDeckJ's decks 1/2. Browser and globals on channel 6.
+# Mixer channels 3/4 are left out. SHIFT is handled in hardware: shifted controls send their own
+# numbers (transport +0x40, pads +0x08).
+# The SYNC, CUE and PLAY LEDs sit one note below their buttons (0x20, 0x22, 0x23); see [leds].
+# Not checked on hardware.
+name = "Reloop Beatmix MK2"
+ports = ["Beatmix 2", "Beatmix 4"]
+jog_ticks_per_rev = 800
+invert_tempo = false
+# Asks the controller to report its knob and fader positions.
+init = ["F0 00 20 7F 03 01 F7"]
+
+[bind]
+"deck1.play" = ["91 24", "93 24"]
+"deck1.cue" = ["91 23", "93 23"]
+"deck1.sync" = ["91 21", "93 21"]
+# SHIFT + CUP
+"deck1.tempo_range" = ["91 62", "93 62"]
+# SHIFT + PLAY
+"deck1.reverse" = ["91 64", "93 64"]
+"deck1.load" = ["91 50", "93 50"]
+"deck1.tempo" = ["E1", "E3"]
+"deck1.jog_touch" = ["91 3F", "93 3F"]
+"deck1.jog" = ["B1 60", "B3 60"]
+"deck1.jog_search" = ["B1 70", "B3 70"]
+# Pads 1-4: hot cues. Pads 5-8: 1, 2, 4 and 8 beat loops; SHIFT + pads 6-8: x1/2, x2, exit.
+"deck1.hotcue1" = ["91 00", "93 00"]
+"deck1.hotcue2" = ["91 01", "93 01"]
+"deck1.hotcue3" = ["91 02", "93 02"]
+"deck1.hotcue4" = ["91 03", "93 03"]
+"deck1.hotcue1_delete" = ["91 08", "93 08"]
+"deck1.hotcue2_delete" = ["91 09", "93 09"]
+"deck1.hotcue3_delete" = ["91 0A", "93 0A"]
+"deck1.hotcue4_delete" = ["91 0B", "93 0B"]
+"deck1.beatloop3" = ["91 04", "93 04"]
+"deck1.beatloop4" = ["91 05", "93 05"]
+"deck1.beatloop5" = ["91 06", "93 06"]
+"deck1.beatloop6" = ["91 07", "93 07"]
+"deck1.loop_half" = ["91 0D", "93 0D"]
+"deck1.loop_double" = ["91 0E", "93 0E"]
+"deck1.reloop" = ["91 0F", "93 0F"]
+"ch1.trim" = "B1 10"
+"ch1.hi" = "B1 11"
+"ch1.mid" = "B1 12"
+"ch1.low" = "B1 13"
+"ch1.fader" = "B1 14"
+"ch1.pfl" = "91 52"
+
+"deck2.play" = ["92 24", "94 24"]
+"deck2.cue" = ["92 23", "94 23"]
+"deck2.sync" = ["92 21", "94 21"]
+"deck2.tempo_range" = ["92 62", "94 62"]
+"deck2.reverse" = ["92 64", "94 64"]
+"deck2.load" = ["92 50", "94 50"]
+"deck2.tempo" = ["E2", "E4"]
+"deck2.jog_touch" = ["92 3F", "94 3F"]
+"deck2.jog" = ["B2 60", "B4 60"]
+"deck2.jog_search" = ["B2 70", "B4 70"]
+"deck2.hotcue1" = ["92 00", "94 00"]
+"deck2.hotcue2" = ["92 01", "94 01"]
+"deck2.hotcue3" = ["92 02", "94 02"]
+"deck2.hotcue4" = ["92 03", "94 03"]
+"deck2.hotcue1_delete" = ["92 08", "94 08"]
+"deck2.hotcue2_delete" = ["92 09", "94 09"]
+"deck2.hotcue3_delete" = ["92 0A", "94 0A"]
+"deck2.hotcue4_delete" = ["92 0B", "94 0B"]
+"deck2.beatloop3" = ["92 04", "94 04"]
+"deck2.beatloop4" = ["92 05", "94 05"]
+"deck2.beatloop5" = ["92 06", "94 06"]
+"deck2.beatloop6" = ["92 07", "94 07"]
+"deck2.loop_half" = ["92 0D", "94 0D"]
+"deck2.loop_double" = ["92 0E", "94 0E"]
+"deck2.reloop" = ["92 0F", "94 0F"]
+"ch2.trim" = "B2 10"
+"ch2.hi" = "B2 11"
+"ch2.mid" = "B2 12"
+"ch2.low" = "B2 13"
+"ch2.fader" = "B2 14"
+"ch2.pfl" = "92 52"
+
+"mixer.crossfader" = "B5 2F"
+"mixer.head_mix" = "B5 02"
+"browser.turn" = "B5 60"
+"browser.press" = "95 09"
+"browser.back" = "95 08"
+
+# FX encoder push, from whichever deck is active on each side.
+"fx.on" = ["91 25", "92 25", "93 25", "94 25"]
+
+[leds]
+"deck1.play" = ["91 23", "93 23"]
+"deck1.cue" = ["91 22", "93 22"]
+"deck1.sync" = ["91 20", "93 20"]
+"deck2.play" = ["92 23", "94 23"]
+"deck2.cue" = ["92 22", "94 22"]
+"deck2.sync" = ["92 20", "94 20"]

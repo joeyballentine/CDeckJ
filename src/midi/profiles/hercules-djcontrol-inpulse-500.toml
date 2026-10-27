@@ -1,0 +1,132 @@
+# Hercules DJControl Inpulse 500. Hardware SHIFT: deck A moves from channel 2 to 5, deck B from
+# 3 to 6, the browser from 1 to 4. Pads are on channels 7-8: the pad mode picks the note range,
+# SHIFT adds 8 to the note. Faders and EQ knobs are 14-bit. Decks 3/4 are selected in software
+# (FX 1-4 buttons) and arrive on the deck 1/2 channels, so only decks 1/2 are mapped.
+name = "Hercules DJControl Inpulse 500"
+ports = ["DJControl Inpulse 500"]
+jog_ticks_per_rev = 720
+invert_tempo = true
+# Makes the controller send every knob and fader position.
+init = ["B0 7F 7F"]
+
+[bind]
+"deck1.play" = "91 07"
+"deck1.cue" = "91 06"
+"deck1.sync" = "91 05"
+"deck1.to_start" = "94 06"
+# SHIFT + Q
+"deck1.master_tempo" = "94 02"
+"deck1.load" = "91 0D"
+# The pitch fader and volume fader also send on the SHIFT channel.
+"deck1.tempo" = ["B1 08 28", "B4 08 28"]
+"deck1.jog_touch" = ["91 08", "94 08"]
+"deck1.jog_scratch" = "B1 0A"
+"deck1.jog_bend" = "B1 09"
+"deck1.jog_search" = ["B4 0A", "B4 09"]
+"deck1.loop_in" = "91 09"
+"deck1.loop_out" = "91 0A"
+# LOOP knob push; SHIFT + push.
+"deck1.reloop" = "91 2C"
+"deck1.loop_4" = "94 2C"
+"deck1.hotcue1" = "96 00"
+"deck1.hotcue2" = "96 01"
+"deck1.hotcue3" = "96 02"
+"deck1.hotcue4" = "96 03"
+"deck1.hotcue5" = "96 04"
+"deck1.hotcue6" = "96 05"
+"deck1.hotcue7" = "96 06"
+"deck1.hotcue8" = "96 07"
+"deck1.hotcue1_delete" = "96 08"
+"deck1.hotcue2_delete" = "96 09"
+"deck1.hotcue3_delete" = "96 0A"
+"deck1.hotcue4_delete" = "96 0B"
+"deck1.hotcue5_delete" = "96 0C"
+"deck1.hotcue6_delete" = "96 0D"
+"deck1.hotcue7_delete" = "96 0E"
+"deck1.hotcue8_delete" = "96 0F"
+"deck1.beatjump1" = "96 70"
+"deck1.beatjump2" = "96 71"
+"deck1.beatjump3" = "96 72"
+"deck1.beatjump4" = "96 73"
+"deck1.beatjump5" = "96 74"
+"deck1.beatjump6" = "96 75"
+"deck1.beatjump7" = "96 76"
+"deck1.beatjump8" = "96 77"
+# LOOP pad mode: pads 1-8 loop 1/8 to 16 beats, SHIFT + pad 3 loops 32. Bound by loop length,
+# so pad 2 is beatloop1 (1/4 beat).
+"deck1.beatloop1" = "96 11"
+"deck1.beatloop2" = "96 12"
+"deck1.beatloop3" = "96 13"
+"deck1.beatloop4" = "96 14"
+"deck1.beatloop5" = "96 15"
+"deck1.beatloop6" = "96 16"
+"deck1.beatloop7" = "96 17"
+"deck1.beatloop8" = "96 1A"
+"deck1.meter" = "B1 40"
+"ch1.trim" = "B1 05 25"
+"ch1.hi" = "B1 04 24"
+"ch1.mid" = "B1 03 23"
+"ch1.low" = "B1 02 22"
+"ch1.filter" = "B1 01"
+"ch1.fader" = ["B1 00 20", "B4 00 20"]
+"ch1.pfl" = "91 0C"
+"deck2.play" = "92 07"
+"deck2.cue" = "92 06"
+"deck2.sync" = "92 05"
+"deck2.to_start" = "95 06"
+"deck2.master_tempo" = "95 02"
+"deck2.load" = "92 0D"
+"deck2.tempo" = ["B2 08 28", "B5 08 28"]
+"deck2.jog_touch" = ["92 08", "95 08"]
+"deck2.jog_scratch" = "B2 0A"
+"deck2.jog_bend" = "B2 09"
+"deck2.jog_search" = ["B5 0A", "B5 09"]
+"deck2.loop_in" = "92 09"
+"deck2.loop_out" = "92 0A"
+"deck2.reloop" = "92 2C"
+"deck2.loop_4" = "95 2C"
+"deck2.hotcue1" = "97 00"
+"deck2.hotcue2" = "97 01"
+"deck2.hotcue3" = "97 02"
+"deck2.hotcue4" = "97 03"
+"deck2.hotcue5" = "97 04"
+"deck2.hotcue6" = "97 05"
+"deck2.hotcue7" = "97 06"
+"deck2.hotcue8" = "97 07"
+"deck2.hotcue1_delete" = "97 08"
+"deck2.hotcue2_delete" = "97 09"
+"deck2.hotcue3_delete" = "97 0A"
+"deck2.hotcue4_delete" = "97 0B"
+"deck2.hotcue5_delete" = "97 0C"
+"deck2.hotcue6_delete" = "97 0D"
+"deck2.hotcue7_delete" = "97 0E"
+"deck2.hotcue8_delete" = "97 0F"
+"deck2.beatjump1" = "97 70"
+"deck2.beatjump2" = "97 71"
+"deck2.beatjump3" = "97 72"
+"deck2.beatjump4" = "97 73"
+"deck2.beatjump5" = "97 74"
+"deck2.beatjump6" = "97 75"
+"deck2.beatjump7" = "97 76"
+"deck2.beatjump8" = "97 77"
+"deck2.beatloop1" = "97 11"
+"deck2.beatloop2" = "97 12"
+"deck2.beatloop3" = "97 13"
+"deck2.beatloop4" = "97 14"
+"deck2.beatloop5" = "97 15"
+"deck2.beatloop6" = "97 16"
+"deck2.beatloop7" = "97 17"
+"deck2.beatloop8" = "97 1A"
+"deck2.meter" = "B2 40"
+"ch2.trim" = "B2 05 25"
+"ch2.hi" = "B2 04 24"
+"ch2.mid" = "B2 03 23"
+"ch2.low" = "B2 02 22"
+"ch2.filter" = "B2 01"
+"ch2.fader" = ["B2 00 20", "B5 00 20"]
+"ch2.pfl" = "92 0C"
+"mixer.crossfader" = "B0 00"
+"browser.turn" = "B0 01"
+# BROWSER button; SHIFT + BROWSER goes back.
+"browser.press" = "90 00"
+"browser.back" = "93 00"

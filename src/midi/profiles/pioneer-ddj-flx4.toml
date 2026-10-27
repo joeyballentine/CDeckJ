@@ -1,0 +1,11 @@
+# Pioneer DDJ-FLX4: the DDJ-400 layout. Sources disagree on SHIFT + PLAY (0x0E or 0x47) and
+# on the channel of the BEAT FX CH2 and ON buttons, so both are bound.
+name = "Pioneer DDJ-FLX4"
+ports = ["DDJ-FLX4"]
+extends = "Pioneer DDJ-400"
+
+[bind]
+"deck1.reverse" = ["90 0E", "90 47"]
+"deck2.reverse" = ["91 0E", "91 47"]
+"fx.ch2" = ["94 11", "95 11"]
+"fx.on" = ["94 47", "95 47"]

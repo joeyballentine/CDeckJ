@@ -27,7 +27,7 @@ impl App {
         let status_icon = |x: f32, icon: &str, ok: bool| {
             p.text(pos2(x + 5.0, r.center().y), Align2::CENTER_CENTER, icon, cond(16.0), if ok { t::PLAY } else { t::DANGER });
         };
-        let midi = self.midi.lock().clone();
+        let midi = self.midi.lock().as_ref().map(|c| c.port.clone());
         let pad = self.gamepad.as_ref().and_then(|g| g.lock().clone());
         let audio_desc = self.audio.as_ref().map(|a| &a.description);
         #[cfg(test)]

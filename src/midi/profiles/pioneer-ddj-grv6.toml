@@ -1,0 +1,29 @@
+# AlphaTheta DDJ-GRV6: the DDJ-400 layout plus a browse knob that tilts (BACK, VIEW) and a
+# BEAT FX type knob. Tested on hardware.
+name = "AlphaTheta DDJ-GRV6"
+ports = ["DDJ-GRV6", "GRV6"]
+extends = "Pioneer DDJ-400"
+
+[bind]
+# SHIFT + BEAT SYNC. 0x60 on the DDJ-400; 0x5C is a long press of BEAT SYNC there.
+"deck1.tempo_range" = ["90 60", "90 5C"]
+"deck2.tempo_range" = ["91 60", "91 5C"]
+"deck1.jog_search" = ["B0 26", "B0 29"]
+"deck2.jog_search" = ["B1 26", "B1 29"]
+"deck1.loop_half" = "90 77"
+"deck2.loop_half" = "91 77"
+# Browse knob tilt: BACK (SHIFT 0x66) and VIEW (SHIFT 0x67: the previous view).
+"browser.back" = ["96 42", "96 65", "96 66"]
+"browser.view_next" = "96 7A"
+"browser.view_prev" = "96 67"
+# FX type knob: one note per position from 0x20. DELAY, ECHO, LC ECHO, SPIRAL, HELIX, REVERB,
+# FLANGER, PHASER, FILTER, TRANS, PITCH, ROLL, MOBIUS (SAW), MOBIUS (TRI). Effects CDeckJ
+# lacks get the nearest it has.
+"fx.delay" = "94 20"
+"fx.echo" = ["94 21", "94 22"]
+"fx.ping_pong" = "94 23"
+"fx.roll" = ["94 24", "94 2B"]
+"fx.reverb" = "94 25"
+"fx.flanger" = ["94 26", "94 2A", "94 2D"]
+"fx.phaser" = ["94 27", "94 28", "94 2C"]
+"fx.trans" = "94 29"

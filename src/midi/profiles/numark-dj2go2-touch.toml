@@ -1,0 +1,65 @@
+# Numark DJ2GO2 Touch. Decks on MIDI channels 1-2, pads on 5-6, browser and globals on 16.
+# No SHIFT button. The pads send different notes per pad mode; holding PAD MODE in hot cue
+# mode adds 8 to the pad notes (delete). The LEVEL knobs are the channel volumes.
+name = "Numark DJ2GO2 Touch"
+ports = ["DJ2GO2 Touch"]
+jog_ticks_per_rev = 236
+invert_tempo = false
+# Ask for the current knob and fader positions.
+init = ["F0 00 01 3F 3C 48 F7"]
+
+[bind]
+"deck1.play" = "90 00"
+"deck1.cue" = "90 01"
+"deck1.sync" = "90 02"
+"deck1.load" = "9F 02"
+"deck1.tempo" = "B0 09"
+"deck1.jog_touch" = "90 06"
+"deck1.jog" = "B0 06"
+"deck1.hotcue1" = "94 01"
+"deck1.hotcue2" = "94 02"
+"deck1.hotcue3" = "94 03"
+"deck1.hotcue4" = "94 04"
+"deck1.hotcue1_delete" = "94 09"
+"deck1.hotcue2_delete" = "94 0A"
+"deck1.hotcue3_delete" = "94 0B"
+"deck1.hotcue4_delete" = "94 0C"
+# Auto loop mode: pads 1-4 loop 1, 2, 4 and 8 beats.
+"deck1.beatloop3" = "94 11"
+"deck1.beatloop4" = "94 12"
+"deck1.beatloop5" = "94 13"
+"deck1.beatloop6" = "94 14"
+# Manual loop mode: pads 1-3.
+"deck1.loop_in" = "94 21"
+"deck1.loop_out" = "94 22"
+"deck1.reloop" = "94 23"
+"ch1.fader" = "B0 16"
+"ch1.pfl" = "90 1B"
+"deck2.play" = "91 00"
+"deck2.cue" = "91 01"
+"deck2.sync" = "91 02"
+"deck2.load" = "9F 03"
+"deck2.tempo" = "B1 09"
+"deck2.jog_touch" = "91 06"
+"deck2.jog" = "B1 06"
+"deck2.hotcue1" = "95 01"
+"deck2.hotcue2" = "95 02"
+"deck2.hotcue3" = "95 03"
+"deck2.hotcue4" = "95 04"
+"deck2.hotcue1_delete" = "95 09"
+"deck2.hotcue2_delete" = "95 0A"
+"deck2.hotcue3_delete" = "95 0B"
+"deck2.hotcue4_delete" = "95 0C"
+"deck2.beatloop3" = "95 11"
+"deck2.beatloop4" = "95 12"
+"deck2.beatloop5" = "95 13"
+"deck2.beatloop6" = "95 14"
+"deck2.loop_in" = "95 21"
+"deck2.loop_out" = "95 22"
+"deck2.reloop" = "95 23"
+"ch2.fader" = "B1 16"
+"ch2.pfl" = "91 1B"
+"mixer.crossfader" = "BF 08"
+"mixer.head_level" = "BF 0C"
+"browser.turn" = "BF 00"
+"browser.press" = "9F 06"

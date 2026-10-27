@@ -1,6 +1,6 @@
 # CDeckJ
 
-A two-deck DJ player that works like a pair of CDJs and a two-channel mixer. It's made for the Steam Deck's touchscreen and the AlphaTheta (Pioneer DJ) DDJ-GRV6, and also works with touch or a keyboard alone.
+A two-deck DJ player that works like a pair of CDJs and a two-channel mixer. It's made for the Steam Deck's touchscreen and the AlphaTheta (Pioneer DJ) DDJ-GRV6. Other DJ controllers work through built-in profiles or MIDI learn, and it also works with touch or a keyboard alone.
 
 ![PERFORM: both decks, the mixer, Beat FX and the library](docs/screenshots/perform.png)
 
@@ -41,7 +41,7 @@ The big buttons down the left switch between screens, like the buttons beside a 
 
 ![Suggested](docs/screenshots/suggest.png)
 
-**SETTINGS** holds the player and mixer options, the audio output, a live controller test and system options.
+**SETTINGS** holds the player and mixer options, the audio output, controller bindings with a live test, and system options.
 
 ![SETTINGS](docs/screenshots/settings.png)
 
@@ -55,7 +55,7 @@ The big buttons down the left switch between screens, like the buttons beside a 
 2. Double-click `cdeckj` in the extracted folder and press **INSTALL**. CDeckJ copies itself to `~/Applications/cdeckj`, adds itself to the applications menu, sets itself to open whenever the controller is plugged in, and restarts from there.
 3. For Game Mode, add CDeckJ in Steam with *Games → Add a Non-Steam Game to My Library*. CDeckJ gives the shortcut its library artwork the next time it starts.
 4. Put music in `~/Music`, or plug in a rekordbox USB stick.
-5. Plug in the DDJ-GRV6. A powered USB-C hub helps.
+5. Plug in the controller. A powered USB-C hub helps.
 
 ![The install screen](docs/screenshots/install.png)
 
@@ -116,7 +116,46 @@ Recordings go to `~/Music/CDeckJ Recordings/` as 24-bit WAV, with a `tracklist.t
 
 The mixer, crossfader and headphone knobs work as labelled. Effects the GRV6 has and CDeckJ doesn't map to the closest one.
 
-If a control does the wrong thing, run `cdeckj --midi-monitor`, move the control, and set its number in the `[midi]` section of the settings file. SETTINGS → CONTROLLER shows each message live.
+### Other controllers
+
+CDeckJ picks a profile from the controller's MIDI port name. Built-in profiles:
+
+| Brand | Models |
+|---|---|
+| AlphaTheta / Pioneer DJ | DDJ-GRV6, DDJ-FLX4, DDJ-400, DDJ-200, DDJ-SB, DDJ-SB2, DDJ-SB3, DDJ-SX |
+| Numark | Mixtrack Pro FX, Mixtrack Platinum FX, Mixtrack Pro 3, Mixtrack Platinum, Party Mix, DJ2GO2 Touch, Mixstream Pro (no jog wheels) |
+| Hercules | DJControl Inpulse 200, 300 and 500, DJControl Starlight, DJControl MIX |
+| Denon DJ | MC4000, MC7000 |
+| Reloop | Beatmix 2 MK2 and 4 MK2, Mixage, Terminal Mix 2 and 4 |
+| Roland | DJ-505 |
+| Behringer | CMD STUDIO 4a |
+
+Controllers with four decks drive CDeckJ's two decks from either layer. Effects units with several slots drive the one Beat FX.
+
+Only the DDJ-GRV6 profile has been tested on hardware. The others come from the manufacturers' MIDI message lists and Mixxx's mappings. A DDJ model without its own profile gets the DDJ-400's, which most DDJs share.
+
+Any other MIDI controller connects without a profile. Bind its controls in SETTINGS → CONTROLLER: tap a control in the list, then press or move it on the controller. Hold the controller's SHIFT while pressing to bind the SHIFT function, once SHIFT itself is bound. RESET puts a control back to the profile's binding. The same page shows each incoming message and what it does.
+
+![SETTINGS → CONTROLLER, waiting for SYNC to be pressed](docs/screenshots/controller.png)
+
+Bindings are saved in the settings file:
+
+```toml
+[controller]
+# profile = "Pioneer DDJ-400"  # use this profile whatever the port is called
+# invert_tempo = true          # tempo fader upside down
+# jog_ticks_per_rev = 720      # scratch sensitivity
+
+[controller.bind]
+"deck1.play" = "90 0B"                # note 0x0B on MIDI channel 1
+"ch1.fader" = "B0 13 33"              # 14-bit CC: MSB 0x13, LSB 0x33
+"deck2.tempo" = "E1"                  # pitch bend on channel 2
+"browser.back" = ["96 42", "96 65"]   # several messages
+"deck1.reverse" = "shift 90 0B"       # while deck1.shift is held
+"deck2.sync" = ""                     # unbind
+```
+
+Messages are written as `cdeckj --midi-monitor` prints them. The control names are listed in [src/midi/map.rs](src/midi/map.rs) (`Control::name`), and the profiles in [src/midi/profiles/](src/midi/profiles/) use the same format.
 
 ### Steam Deck controls
 
@@ -180,11 +219,9 @@ recording_dir = "/home/deck/Music/CDeckJ Recordings"
 
 [grid_offset_ms]              # nudge rekordbox grids per file type if they're off
 # mp3 = 0.0
-
-[midi]                        # override any note or CC number
-invert_tempo = false
-port_hints = ["GRV6", "DDJ", "AlphaTheta", "Pioneer"]
 ```
+
+`[controller]` holds the controller profile choice and your own bindings; see [Other controllers](#other-controllers).
 
 Cues, BPM fixes, tags and analysis are saved in `~/.local/share/cdeckj/`.
 

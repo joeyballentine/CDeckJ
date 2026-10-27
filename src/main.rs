@@ -36,7 +36,7 @@ OPTIONS:
     --alsa               Use ALSA directly instead of PipeWire/PulseAudio
     --buffer <FRAMES>    Audio buffer size (default: 256)
     --split-cue          On a stereo device, send master to the left ear and cue to the right
-    --midi <NAME>        MIDI port to use (default: first port matching GRV6/DDJ/Pioneer)
+    --midi <NAME>        MIDI port to use (default: the first controller with a profile)
     --windowed           Don't start fullscreen
     --list               List audio devices and MIDI ports, then exit
     --midi-monitor       Print incoming MIDI messages and their mapping, then exit with Ctrl+C
@@ -129,6 +129,7 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     let midi_port = args.midi.clone().or(cfg.midi_port.clone());
+    let device_hints = midi::device_hints(&midi::builtin(), midi_port.as_deref());
     if args.install_autolaunch || args.uninstall_autolaunch || args.install_desktop || args.uninstall_desktop {
         let r = if args.install_autolaunch {
             autolaunch::install()
@@ -149,10 +150,10 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     if args.watch {
-        autolaunch::watch(&cfg.midi.port_hints);
+        autolaunch::watch(&device_hints);
     }
     if args.monitor {
-        midi::monitor(midi_port.as_deref(), cfg.midi.clone());
+        midi::monitor(midi_port.as_deref(), &cfg.controller);
         return Ok(());
     }
 
@@ -180,8 +181,8 @@ fn main() -> eframe::Result {
         force_alsa: alsa,
         buffer_frames: args.buffer.unwrap_or(cfg.buffer_frames),
         split_cue: args.split_cue || cfg.split_cue,
-        cue_profile_hints: cfg.cue_profile.then(|| cfg.midi.port_hints.clone()),
-        direct_hints: cfg.direct_audio.then(|| cfg.midi.port_hints.clone()),
+        cue_profile_hints: cfg.cue_profile.then(|| device_hints.clone()),
+        direct_hints: cfg.direct_audio.then(|| device_hints.clone()),
     };
     let audio = audio::start(&audio_opts, &engine);
     match &audio {
@@ -225,7 +226,8 @@ fn main() -> eframe::Result {
             let ctx = cc.egui_ctx.clone();
             let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(move || ctx.request_repaint());
             let locks = midi::PickupLocks::default();
-            let midi = midi::spawn(midi_port, cfg.midi.clone(), locks.clone(), cmd_tx.clone(), ui_tx.clone(), repaint.clone(), view.clone());
+            let midi_user: midi::MidiUser = Arc::new(Mutex::new((0, cfg.controller.clone())));
+            let midi = midi::spawn(midi_port, midi_user.clone(), locks.clone(), cmd_tx.clone(), ui_tx.clone(), repaint.clone(), view.clone());
             let gamepad = cfg.gamepad.then(|| platform::spawn_gamepad(cmd_tx.clone(), ui_tx, repaint, view.clone()));
             let keep_awake = cfg.keep_awake.then(platform::keep_awake);
             let keep: Vec<Box<dyn Any>> = Vec::new();
@@ -241,6 +243,7 @@ fn main() -> eframe::Result {
                     audio,
                     audio_opts,
                     midi,
+                    midi_user,
                     gamepad,
                     locks,
                     config: cfg,

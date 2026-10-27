@@ -1,0 +1,95 @@
+# Behringer CMD STUDIO 4a. Decks A-D on MIDI channels 1-4; C uses A's notes and D uses B's.
+# Decks C/D drive CDeckJ's decks 1/2. The two mixer strips follow the deck layer too, so each
+# strip is bound on both of its channels.
+# DEL acts as the shift for the hot cue buttons: hold it and press a hot cue to delete it.
+# LEDs light with 0x01.
+name = "Behringer CMD STUDIO 4a"
+ports = ["CMD Studio 4a"]
+jog_ticks_per_rev = 600
+invert_tempo = true
+led_on = 0x01
+
+[bind]
+"deck1.shift" = ["90 2A", "92 2A"]
+"deck1.play" = ["90 2C", "92 2C"]
+"deck1.cue" = ["90 2B", "92 2B"]
+"deck1.sync" = ["90 2D", "92 2D"]
+"deck1.master_tempo" = ["90 1B", "92 1B"]
+"deck1.load" = ["90 50", "92 50"]
+"deck1.tempo" = ["E0", "E2"]
+"deck1.jog_touch" = ["90 1A", "92 1A"]
+"deck1.jog" = ["B0 1A", "B2 1A"]
+"deck1.loop_in" = ["90 17", "92 17"]
+"deck1.loop_out" = ["90 18", "92 18"]
+"deck1.reloop" = ["90 19", "92 19"]
+"deck1.hotcue1" = ["90 22", "92 22"]
+"deck1.hotcue2" = ["90 23", "92 23"]
+"deck1.hotcue3" = ["90 24", "92 24"]
+"deck1.hotcue4" = ["90 25", "92 25"]
+"deck1.hotcue5" = ["90 26", "92 26"]
+"deck1.hotcue6" = ["90 27", "92 27"]
+"deck1.hotcue7" = ["90 28", "92 28"]
+"deck1.hotcue8" = ["90 29", "92 29"]
+"deck1.hotcue1_delete" = ["shift 90 22", "shift 92 22"]
+"deck1.hotcue2_delete" = ["shift 90 23", "shift 92 23"]
+"deck1.hotcue3_delete" = ["shift 90 24", "shift 92 24"]
+"deck1.hotcue4_delete" = ["shift 90 25", "shift 92 25"]
+"deck1.hotcue5_delete" = ["shift 90 26", "shift 92 26"]
+"deck1.hotcue6_delete" = ["shift 90 27", "shift 92 27"]
+"deck1.hotcue7_delete" = ["shift 90 28", "shift 92 28"]
+"deck1.hotcue8_delete" = ["shift 90 29", "shift 92 29"]
+"ch1.trim" = ["B0 10", "B2 10"]
+"ch1.hi" = ["B0 60", "B2 60"]
+"ch1.mid" = ["B0 61", "B2 61"]
+"ch1.low" = ["B0 62", "B2 62"]
+# FX knob 4
+"ch1.filter" = ["B0 13", "B2 13"]
+"ch1.fader" = ["B0 70", "B2 70"]
+"ch1.pfl" = ["90 6A", "92 6A"]
+
+"deck2.shift" = ["91 4A", "93 4A"]
+"deck2.play" = ["91 4C", "93 4C"]
+"deck2.cue" = ["91 4B", "93 4B"]
+"deck2.sync" = ["91 4D", "93 4D"]
+"deck2.master_tempo" = ["91 3B", "93 3B"]
+"deck2.load" = ["91 51", "93 51"]
+"deck2.tempo" = ["E1", "E3"]
+"deck2.jog_touch" = ["91 3A", "93 3A"]
+"deck2.jog" = ["B1 3A", "B3 3A"]
+"deck2.loop_in" = ["91 38", "93 38"]
+"deck2.loop_out" = ["91 37", "93 37"]
+"deck2.reloop" = ["91 39", "93 39"]
+"deck2.hotcue1" = ["91 42", "93 42"]
+"deck2.hotcue2" = ["91 43", "93 43"]
+"deck2.hotcue3" = ["91 44", "93 44"]
+"deck2.hotcue4" = ["91 45", "93 45"]
+"deck2.hotcue5" = ["91 46", "93 46"]
+"deck2.hotcue6" = ["91 47", "93 47"]
+"deck2.hotcue7" = ["91 48", "93 48"]
+"deck2.hotcue8" = ["91 49", "93 49"]
+"deck2.hotcue1_delete" = ["shift 91 42", "shift 93 42"]
+"deck2.hotcue2_delete" = ["shift 91 43", "shift 93 43"]
+"deck2.hotcue3_delete" = ["shift 91 44", "shift 93 44"]
+"deck2.hotcue4_delete" = ["shift 91 45", "shift 93 45"]
+"deck2.hotcue5_delete" = ["shift 91 46", "shift 93 46"]
+"deck2.hotcue6_delete" = ["shift 91 47", "shift 93 47"]
+"deck2.hotcue7_delete" = ["shift 91 48", "shift 93 48"]
+"deck2.hotcue8_delete" = ["shift 91 49", "shift 93 49"]
+"ch2.trim" = ["B1 30", "B3 30"]
+"ch2.hi" = ["B1 63", "B3 63"]
+"ch2.mid" = ["B1 64", "B3 64"]
+"ch2.low" = ["B1 65", "B3 65"]
+"ch2.filter" = ["B1 33", "B3 33"]
+"ch2.fader" = ["B1 71", "B3 71"]
+"ch2.pfl" = ["91 6B", "93 6B"]
+
+"mixer.crossfader" = "B0 72"
+"mixer.head_mix" = "B0 7A"
+"mixer.head_level" = "B0 7B"
+"browser.turn" = "B0 01"
+"browser.press" = "90 01"
+
+# FX ASSIGN 1 on each deck picks the channel; FX knob 2 sets the level.
+"fx.ch1" = ["90 52", "92 52"]
+"fx.ch2" = ["91 54", "93 54"]
+"fx.level" = ["B0 11", "B1 31", "B2 11", "B3 31"]
