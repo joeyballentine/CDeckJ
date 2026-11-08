@@ -25,24 +25,24 @@ const RATE: u32 = 44100;
 
 /// (artist, title, BPM, key, seconds). The first two are synthesised in full and loaded.
 const TRACKS: [(&str, &str, f64, &str, f64); 18] = [
-    ("Kessler Drift", "Low Tide Signal", 124.0, "8A", 156.0 * 240.0 / 124.0),
-    ("Ona Marrow", "Glasshouse", 126.0, "9A", 168.0 * 240.0 / 126.0),
-    ("Halden Vale", "Night Ferry", 122.0, "7A", 388.0),
-    ("Pell & Arkady", "Copper Wire", 125.0, "8B", 341.0),
-    ("Mirelle Oduya", "Slow Orbit", 120.0, "5A", 412.0),
-    ("Tamsin Roe", "Undertow", 128.0, "10A", 365.0),
-    ("Kessler Drift", "Salt Flats", 124.0, "8A", 297.0),
-    ("Brann Okoro", "Fieldwork", 123.0, "6A", 356.0),
-    ("Lucent Hall", "Paper Lanterns", 118.0, "11B", 402.0),
-    ("Ona Marrow", "Parallax", 127.0, "9B", 334.0),
-    ("Ivo Sendra", "Marrowbone", 124.0, "12A", 371.0),
-    ("The Quiet Ward", "Signal Box", 126.0, "8A", 318.0),
-    ("Halden Vale", "Weathervane", 121.0, "7B", 393.0),
-    ("Juno Castell", "Night Bus", 130.0, "4A", 305.0),
-    ("Pell & Arkady", "Reed Organ", 122.0, "3A", 428.0),
-    ("Sefa Lindqvist", "Coastline", 125.0, "9A", 347.0),
-    ("Mirelle Oduya", "Afterimage", 119.0, "2A", 381.0),
-    ("Tamsin Roe", "Bellwether", 128.0, "10B", 359.0),
+    ("Marco Vell", "Late Shift (Extended Mix)", 124.0, "8A", 156.0 * 240.0 / 124.0),
+    ("Ruth Malone & Sid K", "Hold That Thought (Original Mix)", 126.0, "9A", 168.0 * 240.0 / 126.0),
+    ("Okafor", "Rental Car (Dub)", 122.0, "7A", 388.0),
+    ("Halfway House", "Backroom (Extended Mix)", 125.0, "8B", 341.0),
+    ("Lena Brandt", "Slow Burner (Club Mix)", 120.0, "5A", 412.0),
+    ("Pasko", "Concrete (Original Mix)", 128.0, "10A", 365.0),
+    ("Marco Vell", "Cash Only (Extended Mix)", 124.0, "8A", 297.0),
+    ("Tessa Ray", "Overtime (Original Mix)", 123.0, "6A", 356.0),
+    ("Hollis Grant", "Sunday Service (Edit)", 118.0, "11B", 402.0),
+    ("Ruth Malone", "Ground Floor (Extended Mix)", 127.0, "9B", 334.0),
+    ("Kemba Nile", "Tight Spot (Original Mix)", 124.0, "12A", 371.0),
+    ("Northside Social", "Last Orders (Extended Mix)", 126.0, "8A", 318.0),
+    ("Okafor", "Delivery (Original Mix)", 121.0, "7B", 393.0),
+    ("Jules Fern", "Bus Lane (Dub)", 130.0, "4A", 305.0),
+    ("Halfway House", "Cold Brew (Extended Mix)", 122.0, "3A", 428.0),
+    ("Sam Ellis feat. Nadia Ruiz", "Tell Me Twice (Vocal Mix)", 125.0, "9A", 347.0),
+    ("Lena Brandt", "Afters (Original Mix)", 119.0, "2A", 381.0),
+    ("Pasko", "Floor Two (Extended Mix)", 128.0, "10B", 359.0),
 ];
 
 #[test]
@@ -88,7 +88,10 @@ fn screenshots() {
         }
     }
 
-    let mut app = demo_app(music, store);
+    let mut app = demo_app(music.clone(), store);
+    for (i, &(artist, title, ..)) in TRACKS.iter().enumerate() {
+        app.art.provide(crate::ui::cache::art::ArtKey::Embedded(music.join(format!("{artist} - {title}.wav"))), cover(i));
+    }
     for (d, lt) in deck_tracks.iter().enumerate() {
         app.load(d, lt);
     }
@@ -122,16 +125,16 @@ fn screenshots() {
     app.lib.jump_to(Node::Folder);
     app.lib.select(2);
     app.scroll_to_selected = true;
-    let tagged: Vec<_> = app.lib.local.clone().unwrap_or_default().into_iter().filter(|t| ["Night Ferry", "Signal Box", "Coastline"].contains(&t.title.as_str())).collect();
+    let tagged: Vec<_> = app.lib.local.clone().unwrap_or_default().into_iter().filter(|t| ["Rental Car (Dub)", "Last Orders (Extended Mix)", "Tell Me Twice (Vocal Mix)"].contains(&t.title.as_str())).collect();
     for t in &tagged {
         app.lib.toggle_tag(t);
     }
-    // A past set in which Undertow followed Low Tide Signal, for the suggestions.
+    // A past set in which Concrete followed Late Shift, for the suggestions.
     let past = |title: &str| {
         let t = app.lib.local.iter().flatten().find(|t| t.title == title).unwrap();
         crate::library::history::HistEntry { title: t.title.clone(), artist: t.artist.clone(), path: t.path.clone(), ..Default::default() }
     };
-    let session = crate::library::history::Session { started: "2026-10-17 22-00".into(), entries: vec![past("Low Tide Signal"), past("Undertow")] };
+    let session = crate::library::history::Session { started: "2026-10-17 22-00".into(), entries: vec![past("Late Shift (Extended Mix)"), past("Concrete (Original Mix)")] };
     app.lib.handle(LibEvent::History(vec![session]));
 
     let options = SnapshotOptions::new().output_path(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/screenshots"));
@@ -325,6 +328,69 @@ fn wait(app: &mut App, what: &str, done: impl Fn(&App, &EngineView) -> bool) {
         assert!(Instant::now() < deadline, "timed out waiting for {what}");
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// A made-up sleeve for track `i`: a flat colour and one bold shape, like a small label's
+/// house design.
+fn cover(i: usize) -> egui::ColorImage {
+    type Rgb = [u8; 3];
+    // (background, shape, detail)
+    const PALETTES: [(Rgb, Rgb, Rgb); 8] = [
+        ([0xE9, 0xE4, 0xD8], [0x1A, 0x1A, 0x1A], [0xD6, 0x45, 0x2B]),
+        ([0x14, 0x2D, 0x4C], [0xF0, 0xC2, 0x4B], [0xE8, 0x6A, 0x3F]),
+        ([0x2B, 0x2B, 0x2B], [0x9A, 0xD8, 0xCB], [0xF5, 0xF5, 0xF0]),
+        ([0xC4, 0x4F, 0x37], [0xF2, 0xE6, 0xD5], [0x23, 0x1F, 0x20]),
+        ([0x5E, 0x7D, 0x64], [0xF1, 0xEE, 0xDF], [0x1E, 0x2A, 0x22]),
+        ([0xF2, 0xF0, 0xEB], [0x29, 0x4C, 0x9B], [0xE3, 0x3B, 0x5A]),
+        ([0x31, 0x24, 0x5C], [0xFF, 0x8A, 0x5C], [0xF4, 0xE9, 0xD8]),
+        ([0xF4, 0xD3, 0x5E], [0x0D, 0x3B, 0x66], [0xFA, 0xF0, 0xCA]),
+    ];
+    let (bg, fg, detail) = PALETTES[(i * 3) % PALETTES.len()];
+    let motif = i % 6;
+    let paint = |u: f32, v: f32| -> Rgb {
+        let near = |cx: f32, cy: f32, r: f32| (u - cx).hypot(v - cy) < r;
+        let r = (u - 0.5).hypot(v - 0.5);
+        match motif {
+            // A big disc off centre, a small one below.
+            0 if near(0.62, 0.42, 0.3) => fg,
+            0 if near(0.28, 0.76, 0.08) => detail,
+            // Diagonal stripes with a corner block.
+            1 if u < 0.3 && v < 0.3 => detail,
+            1 if ((u + v) * 6.0) as i32 % 2 == 0 => fg,
+            // A sun on the horizon.
+            2 if v > 0.62 => fg,
+            2 if near(0.5, 0.62, 0.22) => detail,
+            // A grid of dots, one picked out.
+            3 if near((u * 4.0).floor() / 4.0 + 0.125, (v * 4.0).floor() / 4.0 + 0.125, 0.07) => {
+                if (u * 4.0) as i32 == 2 && (v * 4.0) as i32 == 1 { detail } else { fg }
+            }
+            // Rings round a centre spot.
+            4 if r < 0.06 => detail,
+            4 if r < 0.46 && (r * 14.0) as i32 % 2 == 0 => fg,
+            // Blocks.
+            5 if u < 0.5 => fg,
+            5 if v > 0.5 => detail,
+            _ => bg,
+        }
+    };
+    let n = crate::ui::cache::art::SIZE as usize;
+    let mut px = Vec::with_capacity(n * n * 4);
+    for y in 0..n {
+        for x in 0..n {
+            // 3 × 3 samples a pixel smooth the edges.
+            let mut sum = [0u32; 3];
+            for s in 0..9 {
+                let u = (x as f32 + (s % 3) as f32 / 3.0 + 1.0 / 6.0) / n as f32;
+                let v = (y as f32 + (s / 3) as f32 / 3.0 + 1.0 / 6.0) / n as f32;
+                for (acc, c) in sum.iter_mut().zip(paint(u, v)) {
+                    *acc += c as u32;
+                }
+            }
+            px.extend(sum.map(|c| (c / 9) as u8));
+            px.push(255);
+        }
+    }
+    egui::ColorImage::from_rgba_unmultiplied([n, n], &px)
 }
 
 fn bar(bpm: f64, n: f64) -> f64 {

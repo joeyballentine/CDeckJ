@@ -8,7 +8,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 
 /// Covers are decoded to this many pixels square: crisp at 2× for the deck header.
-const SIZE: u32 = 96;
+pub const SIZE: u32 = 96;
 const MAX_TEXTURES: usize = 400;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -25,12 +25,16 @@ pub struct ArtCache {
     order: Vec<ArtKey>,
     req: Sender<ArtKey>,
     done: Receiver<(ArtKey, Option<ColorImage>)>,
+    #[cfg(test)]
+    done_tx: Sender<(ArtKey, Option<ColorImage>)>,
 }
 
 impl ArtCache {
     pub fn new(repaint: impl Fn() + Send + 'static) -> ArtCache {
         let (req, rx) = unbounded::<ArtKey>();
         let (tx, done) = unbounded();
+        #[cfg(test)]
+        let done_tx = tx.clone();
         std::thread::Builder::new()
             .name("artwork".into())
             .spawn(move || {
@@ -43,7 +47,23 @@ impl ArtCache {
                 }
             })
             .ok();
-        ArtCache { textures: HashMap::new(), pending: HashSet::new(), order: Vec::new(), req, done }
+        ArtCache {
+            textures: HashMap::new(),
+            pending: HashSet::new(),
+            order: Vec::new(),
+            req,
+            done,
+            #[cfg(test)]
+            done_tx,
+        }
+    }
+
+    /// Hand over a decoded cover for `key`, as if the worker had read it. The screenshot
+    /// test's WAV files can't carry artwork.
+    #[cfg(test)]
+    pub fn provide(&mut self, key: ArtKey, img: ColorImage) {
+        self.pending.insert(key.clone());
+        let _ = self.done_tx.send((key, Some(img)));
     }
 
     /// Upload finished decodes. Call once per frame.
