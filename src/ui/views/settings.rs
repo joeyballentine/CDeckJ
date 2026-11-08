@@ -358,6 +358,9 @@ impl App {
         if button_row(self, "Uninstall (settings, cues and recordings stay)", "suni", if armed { "PRESS AGAIN" } else { "UNINSTALL" }, armed) && !busy {
             if armed {
                 self.settings.uninstall_confirm = None;
+                if self.banner.as_deref() == Some(&crate::platform::install::installed_note(&target)) {
+                    self.banner = None;
+                }
                 let (tx, rx) = crossbeam_channel::bounded(1);
                 std::thread::spawn(move || {
                     let _ = tx.send(crate::platform::install::uninstall(&target));

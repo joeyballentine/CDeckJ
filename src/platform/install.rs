@@ -77,7 +77,7 @@ pub fn installed_note(target: &Path) -> String {
     if autolaunch::in_steam(target) {
         "CDeckJ is installed. It opens when you plug in the controller, in Game Mode and Desktop Mode.".into()
     } else {
-        "CDeckJ is installed. It's in the applications menu and opens when you plug in the controller. For Game Mode, add it in Steam: Games → Add a Non-Steam Game to My Library.".into()
+        "CDeckJ is installed. It's in the applications menu and opens when you plug in the controller. For Game Mode, add it in Steam: Games > Add a Non-Steam Game to My Library.".into()
     }
 }
 
