@@ -240,6 +240,11 @@ fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
     std::fs::rename(tmp, path)
 }
 
+/// Versions before controller profiles kept MIDI overrides in a `[midi]` table.
+fn has_old_midi_table(settings: &str) -> bool {
+    settings.parse::<toml::Table>().is_ok_and(|t| t.contains_key("midi"))
+}
+
 impl Config {
     pub fn path() -> PathBuf {
         config_dir().join("config.toml")
@@ -250,6 +255,15 @@ impl Config {
         let p = Self::path();
         match std::fs::read_to_string(&p) {
             Ok(s) => match toml::from_str(&s) {
+                Ok(c) if has_old_midi_table(&s) => {
+                    // The next save drops [midi], so keep the file for its numbers.
+                    let old = p.with_extension("toml.old");
+                    let kept = match std::fs::copy(&p, &old) {
+                        Ok(_) => format!("The old file is kept as {}.", old.display()),
+                        Err(e) => format!("Keeping a copy of the old file failed: {e}"),
+                    };
+                    (c, Some(format!("[midi] in the settings file is from an older version and is ignored. Bind those controls again in SETTINGS > CONTROLLER. {kept}")))
+                }
                 Ok(c) => (c, None),
                 Err(e) => {
                     let bad = p.with_extension("toml.broken");
@@ -424,6 +438,14 @@ mod tests {
         c.controller.bind.insert("deck1.cue".into(), crate::midi::Msgs::Many(vec!["90 0C".into(), "92 0C".into()]));
         let back: Config = toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
         assert_eq!(back, c);
+    }
+
+    #[test]
+    fn finds_an_old_midi_table() {
+        assert!(has_old_midi_table("waveform_seconds = 12.0\n[midi]\nplay = 11\n"));
+        assert!(!has_old_midi_table("waveform_seconds = 12.0\n[controller.bind]\n\"deck1.play\" = \"90 20\"\n"));
+        // A control named midi inside [controller] is not the old table.
+        assert!(!has_old_midi_table("[controller]\nmidi = 1\n"));
     }
 
     #[test]
