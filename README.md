@@ -263,4 +263,4 @@ UPDATE_SNAPSHOTS=1 cargo test screenshots
 
 ## Licences
 
-Code: MIT. Test fixtures in `tests/fixtures/rekordbox` come from the [rekordcrate](https://github.com/Holzhaus/rekordcrate) project (MPL-2.0). Fonts: Barlow Condensed and JetBrains Mono, SIL Open Font License 1.1. Icons: [Phosphor](https://phosphoricons.com), MIT.
+Code: MIT. Test fixtures in `tests/fixtures/rekordbox` come from the [rekordcrate](https://github.com/Holzhaus/rekordcrate) project (MPL-2.0). Fonts: Barlow Condensed and Roboto Mono, SIL Open Font License 1.1. Icons: [Phosphor](https://phosphoricons.com), MIT.

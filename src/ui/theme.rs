@@ -146,7 +146,7 @@ fn install_fonts(ctx: &egui::Context) {
     fonts.font_data.insert(
         "mono".into(),
         Arc::new(
-            FontData::from_static(include_bytes!("../../assets/fonts/JetBrainsMono.ttf")).tweak(FontTweak {
+            FontData::from_static(include_bytes!("../../assets/fonts/RobotoMono.ttf")).tweak(FontTweak {
                 coords: VariationCoords::new([(b"wght", 560.0)]),
                 ..Default::default()
             }),

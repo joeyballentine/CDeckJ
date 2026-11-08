@@ -12,7 +12,7 @@ rm -rf "$stage"
 mkdir -p "$stage"
 cp "$bin" "$stage/cdeckj"
 cp README.md LICENSE "$stage/"
-cp assets/fonts/OFL-Barlow.txt assets/fonts/OFL-JetBrainsMono.txt assets/fonts/LICENSE-Phosphor.txt "$stage/"
+cp assets/fonts/OFL-Barlow.txt assets/fonts/OFL-RobotoMono.txt assets/fonts/LICENSE-Phosphor.txt "$stage/"
 chmod 755 "$stage/cdeckj"
 tar -C dist -czf dist/cdeckj-steamdeck-x86_64.tar.gz cdeckj-steamdeck
 echo "dist/cdeckj-steamdeck-x86_64.tar.gz"
