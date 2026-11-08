@@ -35,11 +35,11 @@ impl App {
         self.store.lock().flush(true);
     }
 
-    /// Shut down and start `exe` (the installed copy) in this process's place. Returns the
-    /// error if it couldn't start.
-    pub(crate) fn restart_into(&mut self, exe: &std::path::Path) -> String {
+    /// Shut down and start `exe` (the installed copy) in this process's place, telling it what
+    /// was `done`. Returns the error if it couldn't start.
+    pub(crate) fn restart_into(&mut self, exe: &std::path::Path, done: Offer) -> String {
         self.shutdown();
-        install::restart(exe, &["--installed"])
+        install::restart(exe, &[done.flag()])
     }
 
     /// Draw the install screen over `full`. Returns false once it's dismissed.
@@ -49,8 +49,8 @@ impl App {
             match rx.try_recv() {
                 Ok(Ok(())) => {
                     prompt.job = None;
-                    let target = prompt.target.clone();
-                    let err = self.restart_into(&target);
+                    let (target, done) = (prompt.target.clone(), prompt.offer);
+                    let err = self.restart_into(&target, done);
                     if let Some(p) = self.install.as_mut() {
                         p.error = Some(err);
                     }

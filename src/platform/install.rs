@@ -11,12 +11,30 @@ use super::{autolaunch, desktop};
 
 pub const LATEST_URL: &str = "https://github.com/joeyballentine/CDeckJ/releases/latest/download/cdeckj-steamdeck-x86_64.tar.gz";
 
-/// What the start screen offers.
+/// What the start screen offers, and what a restart after it reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Offer {
     Install,
     /// Another copy is installed: replace it with this one.
     Update,
+}
+
+impl Offer {
+    /// Passed to the installed copy when restarting into it, so it can say what happened.
+    pub fn flag(self) -> &'static str {
+        match self {
+            Offer::Install => "--installed",
+            Offer::Update => "--updated",
+        }
+    }
+}
+
+/// The version and, in release builds, the commit it was built from.
+pub fn version() -> String {
+    match option_env!("CDECKJ_BUILD") {
+        Some(b) if b.len() >= 7 => format!("{} (build {})", env!("CARGO_PKG_VERSION"), &b[..7]),
+        _ => env!("CARGO_PKG_VERSION").to_string(),
+    }
 }
 
 /// The file CDeckJ's Steam shortcut runs, from `shortcuts.vdf`: the first quoted path ending
@@ -72,9 +90,11 @@ pub fn install(exe: &Path, target: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// What to tell the user after installing.
-pub fn installed_note(target: &Path) -> String {
-    if autolaunch::in_steam(target) {
+/// What to tell the user after installing or updating.
+pub fn note(done: Offer, target: &Path) -> String {
+    if done == Offer::Update {
+        format!("CDeckJ is updated to {}.", version())
+    } else if autolaunch::in_steam(target) {
         "CDeckJ is installed. It opens when you plug in the controller, in Game Mode and Desktop Mode.".into()
     } else {
         "CDeckJ is installed. It's in the applications menu and opens when you plug in the controller. For Game Mode, add it in Steam: Games > Add a Non-Steam Game to My Library.".into()
@@ -121,7 +141,7 @@ pub fn uninstall(target: &Path) -> Result<String, String> {
 
 /// Replace this process with `exe`, passing this one's arguments and `extra`.
 pub fn restart(exe: &Path, extra: &[&str]) -> String {
-    let args: Vec<String> = std::env::args().skip(1).filter(|a| a != "--installed").collect();
+    let args: Vec<String> = std::env::args().skip(1).filter(|a| a != Offer::Install.flag() && a != Offer::Update.flag()).collect();
     let e = Command::new(exe).args(args).args(extra).exec();
     format!("couldn't start {}: {e}", exe.display())
 }

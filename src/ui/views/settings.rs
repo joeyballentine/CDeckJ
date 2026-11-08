@@ -8,6 +8,7 @@ use crossbeam_channel::Receiver;
 
 use crate::engine::{Cmd, EngineView, MixParam, DECKS};
 use crate::midi::{Bound, Control, Msgs};
+use crate::platform::install::{self, Offer};
 use crate::rekordbox::settings::{CrossfaderCurve, FaderCurve, WaveColor};
 
 const PAGES: [(&str, &str); 5] = [
@@ -29,6 +30,9 @@ pub struct SettingsState {
     /// Where the installed copy lives (or would).
     install_target: Option<std::path::PathBuf>,
     update_rx: Option<Receiver<Result<(), String>>>,
+    uninstall_rx: Option<Receiver<Result<String, String>>>,
+    /// Progress or result of UPDATE or UNINSTALL, shown under those buttons.
+    install_msg: Option<String>,
     /// First press of the two-press UNINSTALL.
     uninstall_confirm: Option<std::time::Instant>,
     /// MIDI learn is waiting for this control.
@@ -45,7 +49,7 @@ impl App {
         });
         self.settings.devices_rx = Some(rx);
         self.settings.autolaunch = crate::platform::autolaunch::is_installed();
-        self.settings.install_target = crate::platform::install::target();
+        self.settings.install_target = install::target();
     }
 
     /// Drop the audio stream and reconnect with the current options.
@@ -455,22 +459,34 @@ impl App {
                 Ok(Ok(())) => {
                     self.settings.update_rx = None;
                     if let Some(t) = self.settings.install_target.clone() {
-                        self.settings.msg = Some(self.restart_into(&t));
+                        self.settings.install_msg = Some(self.restart_into(&t, Offer::Update));
                     }
                 }
                 Ok(Err(e)) => {
                     self.settings.update_rx = None;
-                    self.settings.msg = Some(e);
+                    self.settings.install_msg = Some(e);
                 }
                 Err(_) => ui.ctx().request_repaint_after(std::time::Duration::from_millis(200)),
             }
         }
+        if let Some(rx) = &self.settings.uninstall_rx {
+            if let Ok(res) = rx.try_recv() {
+                self.settings.uninstall_rx = None;
+                self.settings.install_msg = Some(match res {
+                    Ok(m) | Err(m) => m,
+                });
+                self.settings.autolaunch = crate::platform::autolaunch::is_installed();
+            }
+        }
         let Some(target) = self.settings.install_target.clone().filter(|t| t.exists()) else {
             rows.text(&p, "Installed", "No");
+            if let Some(m) = &self.settings.install_msg {
+                rows.note(&p, m);
+            }
             return;
         };
         rows.text(&p, "Installed", &target.display().to_string());
-        let busy = self.settings.update_rx.is_some() || self.settings.job_rx.is_some();
+        let busy = self.settings.update_rx.is_some() || self.settings.uninstall_rx.is_some() || self.settings.job_rx.is_some();
         let mut button_row = |app: &mut App, label: &str, id: &str, text: &str, lit: bool| {
             rows.label(&p, label);
             let r = Rect::from_min_size(pos2(rows.x + rows.label_w, rows.y - 2.0), vec2(220.0, 38.0));
@@ -483,30 +499,33 @@ impl App {
             let (tx, rx) = crossbeam_channel::bounded(1);
             let t = target.clone();
             std::thread::spawn(move || {
-                let _ = tx.send(crate::platform::install::update(&t));
+                let _ = tx.send(install::update(&t));
             });
             self.settings.update_rx = Some(rx);
-            self.settings.msg = Some("Downloading the latest release…".into());
+            self.settings.install_msg = Some("Downloading the latest release…".into());
         }
         let armed = self.settings.uninstall_confirm.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3));
         if button_row(self, "Uninstall (settings, cues and recordings stay)", "suni", if armed { "PRESS AGAIN" } else { "UNINSTALL" }, armed) && !busy {
             if armed {
                 self.settings.uninstall_confirm = None;
-                if self.banner.as_deref() == Some(&crate::platform::install::installed_note(&target)) {
+                if [Offer::Install, Offer::Update].iter().any(|&o| self.banner.as_deref() == Some(&install::note(o, &target))) {
                     self.banner = None;
                 }
                 let (tx, rx) = crossbeam_channel::bounded(1);
                 std::thread::spawn(move || {
-                    let _ = tx.send(crate::platform::install::uninstall(&target));
+                    let _ = tx.send(install::uninstall(&target));
                 });
-                self.settings.job_rx = Some(rx);
-                self.settings.msg = Some("Working…".into());
+                self.settings.uninstall_rx = Some(rx);
+                self.settings.install_msg = Some("Working…".into());
             } else {
                 self.settings.uninstall_confirm = Some(std::time::Instant::now());
             }
         }
         if armed {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+        }
+        if let Some(m) = &self.settings.install_msg {
+            rows.note(&p, m);
         }
     }
 
@@ -525,10 +544,7 @@ impl App {
             }
         }
         if let Some(m) = &self.settings.msg {
-            let g = p.layout(m.clone(), t::small(), t::INK_MUTED, rows.w - rows.label_w);
-            let h = g.size().y;
-            p.galley(pos2(rows.x + rows.label_w, rows.y), g, t::INK_MUTED);
-            rows.y += h + 10.0;
+            rows.note(&p, m);
         }
         if let Some(i) = rows.seg(self, ui, "Keep the screen awake (next start)", "ska", &["OFF", "ON"], usize::from(self.config.keep_awake)) {
             self.config.keep_awake = i == 1;
@@ -545,11 +561,7 @@ impl App {
         rows.text(&p, "Music folder", &self.lib.local_root.display().to_string());
         rows.text(&p, "Settings file", &crate::config::Config::path().display().to_string());
         rows.text(&p, "Saved data", &crate::config::data_dir().display().to_string());
-        let version = match option_env!("CDECKJ_BUILD") {
-            Some(b) if b.len() >= 7 => format!("{} (build {})", env!("CARGO_PKG_VERSION"), &b[..7]),
-            _ => env!("CARGO_PKG_VERSION").to_string(),
-        };
-        rows.text(&p, "Version", &version);
+        rows.text(&p, "Version", &install::version());
     }
 }
 
@@ -590,5 +602,13 @@ impl Rows {
         self.label(p, label);
         text_fit(p, pos2(self.x + self.label_w, self.y + 17.0), Align2::LEFT_CENTER, value, t::small(), t::INK_MUTED, self.w - self.label_w);
         self.y += 36.0;
+    }
+
+    /// A message under the row above it, in the value column.
+    fn note(&mut self, p: &egui::Painter, m: &str) {
+        let g = p.layout(m.to_string(), t::small(), t::INK_MUTED, self.w - self.label_w);
+        let h = g.size().y;
+        p.galley(pos2(self.x + self.label_w, self.y), g, t::INK_MUTED);
+        self.y += h + 10.0;
     }
 }
