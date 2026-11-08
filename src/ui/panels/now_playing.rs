@@ -31,12 +31,12 @@ impl App {
             let title_w = (inner.max.x - right_w - x).max(40.0);
             match &track {
                 Some(tr) => {
-                    text_fit(&p, pos2(x, inner.min.y), Align2::LEFT_TOP, &tr.title, semi(sz(16.0, 20.0)), t::INK, title_w);
-                    text_fit(&p, pos2(x, inner.min.y + sz(20.0, 25.0)), Align2::LEFT_TOP, &tr.artist, cond(sz(14.0, 16.0)), t::INK_MUTED, title_w);
+                    text_fit(&p, pos2(x, inner.min.y), Align2::LEFT_TOP, &tr.title, t::strong(), t::INK, title_w);
+                    text_fit(&p, pos2(x, inner.min.y + sz(20.0, 25.0)), Align2::LEFT_TOP, &tr.artist, t::small(), t::INK_MUTED, title_w);
                 }
                 None => {
                     let s = self.decks[d].loading.clone().map(|n| format!("Loading {n}…")).unwrap_or_else(|| "Empty deck".into());
-                    text_fit(&p, pos2(x, inner.center().y), Align2::LEFT_CENTER, &s, semi(sz(16.0, 20.0)), t::INK_FAINT, title_w);
+                    text_fit(&p, pos2(x, inner.center().y), Align2::LEFT_CENTER, &s, t::strong(), t::INK_FAINT, title_w);
                 }
             }
             let rx = inner.max.x - right_w + 10.0;

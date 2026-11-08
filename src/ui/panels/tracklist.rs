@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use egui::Mesh;
 use crate::config::BrowseCols;
-use crate::library::{LibTrack, Row, SortKey};
+use crate::library::{LibTrack, Node, Row, SortKey, TrackFilter};
 use crate::ui::App;
 
 pub struct ListOpts {
@@ -221,7 +221,9 @@ impl App {
         let small = (o.title - 3.0).max(12.0);
         let out = area.show_rows(&mut child, row_h, rows.len(), |ui, range| {
             for i in range {
-                let (rr, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
+                // Not focusable: the arrow keys move the highlight (`App::browse`), and a
+                // focused row would take them for egui's focus navigation instead.
+                let (rr, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::CLICK);
                 let p = ui.painter();
                 if i == selected {
                     p.rect_filled(rr, CornerRadius::ZERO, t::ACCENT.gamma_multiply(0.2));
@@ -231,7 +233,6 @@ impl App {
                 } else if i % 2 == 1 {
                     p.rect_filled(rr, 0, t::CHROME.gamma_multiply(0.6));
                 }
-                focus_ring(p, rr, &resp, t::R_CONTROL);
                 let y = rr.center().y;
                 match &rows[i] {
                     Row::Nav { label, detail, kind, .. } => {
@@ -345,6 +346,87 @@ impl App {
             self.load_selected(d);
         }
     }
+
+    /// What an empty list says: what is missing, why, and the one thing to do about it.
+    fn empty_message(&self) -> (&'static str, String, String, Option<(&'static str, EmptyAction)>) {
+        let lib = &self.lib;
+        if lib.track_filter.is_active() {
+            return (icons::FILTER, "No tracks match the filter".into(), "Only tracks that mix with the leading deck are shown.".into(), Some(("CLEAR FILTER", EmptyAction::ClearFilter)));
+        }
+        if !lib.filter.is_empty() {
+            return (icons::SEARCH, "No matches".into(), format!("Nothing here matches \u{201c}{}\u{201d}.", lib.filter), Some(("CLEAR SEARCH", EmptyAction::ClearSearch)));
+        }
+        match lib.node() {
+            Node::Tag => (icons::TAG, "The tag list is empty".into(), "Tag tracks with TAG (or T) while browsing; they collect here for the set.".into(), Some(("BROWSE", EmptyAction::Browse))),
+            Node::Suggest if lib.seed.is_none() => (icons::SPARKLE, "No suggestions yet".into(), "Load a track on a deck: tracks that mix with it show up here.".into(), None),
+            Node::Suggest => (icons::SPARKLE, "No suggestions".into(), "Nothing in the library is close in tempo with a key that mixes.".into(), None),
+            Node::Folder if lib.local.is_none() => (icons::FOLDER, "Scanning your music folder\u{2026}".into(), String::new(), None),
+            Node::Folder => (
+                icons::FOLDER,
+                "No tracks in this folder".into(),
+                format!("Add MP3, FLAC, WAV, OGG or M4A files to {}, or start with --music <folder>.", lib.local_root.display()),
+                None,
+            ),
+            Node::HistoryCurrent => (icons::HISTORY, "Nothing played yet".into(), "Tracks you play this session show up here.".into(), None),
+            _ => (icons::PLAYLIST, "Nothing here".into(), "This list is empty on the drive.".into(), None),
+        }
+    }
+
+    /// The message for an empty list, centred in `r`. Short lists (PERFORM's library panel)
+    /// get one line of explanation and a smaller button.
+    pub(crate) fn empty_list(&mut self, ui: &Ui, r: Rect) {
+        let (icon, title, line, action) = self.empty_message();
+        let p = ui.painter().clone();
+        let compact = r.height() < 140.0;
+        let gap = if compact { 4.0 } else { 8.0 };
+        let mut head = LayoutJob::default();
+        head.append(&format!("{icon}  "), 0.0, egui::TextFormat::simple(t::title(), t::INK_FAINT));
+        head.append(&title, 0.0, egui::TextFormat::simple(t::title(), t::INK));
+        head.wrap = TextWrapping::truncate_at_width((r.width() - 24.0).max(40.0));
+        let head = p.layout_job(head);
+        let mut body = LayoutJob::simple(line.clone(), t::body(), t::INK_MUTED, (r.width() - 40.0).clamp(100.0, 560.0));
+        body.halign = egui::Align::Center;
+        body.wrap.max_rows = if compact { 1 } else { 3 };
+        let body = p.layout_job(body);
+        let button_h = if compact { 30.0 } else { 36.0 };
+        let mut h = head.size().y;
+        if !line.is_empty() {
+            h += gap + body.size().y;
+        }
+        if action.is_some() {
+            h += 2.0 * gap + button_h;
+        }
+        let mut y = (r.center().y - h / 2.0).max(r.min.y);
+        p.galley(pos2(r.center().x - head.size().x / 2.0, y), head.clone(), t::INK);
+        y += head.size().y;
+        if !line.is_empty() {
+            // A centred job lays out around x = 0.
+            p.galley(pos2(r.center().x, y + gap), body.clone(), t::INK_MUTED);
+            y += gap + body.size().y;
+        }
+        if let Some((label, a)) = action {
+            let w = p.layout_no_wrap(label.into(), t::button_font(), t::INK).size().x + 32.0;
+            let br = Rect::from_min_size(pos2(r.center().x - w / 2.0, y + 2.0 * gap), vec2(w, button_h));
+            if button(ui, &mut self.touches, br, Id::NULL.with("empty_action"), label, None, t::button_font()).clicked {
+                match a {
+                    EmptyAction::ClearFilter => self.lib.set_track_filter(TrackFilter::default()),
+                    EmptyAction::ClearSearch => {
+                        self.search.clear();
+                        self.lib.set_filter("");
+                    }
+                    EmptyAction::Browse => self.set_view(View::Browse),
+                }
+                self.scroll_to_selected = true;
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum EmptyAction {
+    ClearFilter,
+    ClearSearch,
+    Browse,
 }
 
 /// Draw a whole-track preview into `r` (bars from the bottom), with a playhead if given.

@@ -68,7 +68,7 @@ impl App {
         let title_w = inner.max.x - tx - chips_w;
         let du = &self.decks[d];
         let sub_y = y + sz(26.0, 31.0);
-        let sub_font = cond(sz(15.0, 17.0));
+        let sub_font = t::body();
         if let Some(name) = &du.loading {
             text_fit(&p, pos2(tx, y + 2.0), Align2::LEFT_TOP, &format!("Loading {name}…"), t::title(), t::INK_MUTED, title_w);
             text_fit(&p, pos2(tx, sub_y), Align2::LEFT_TOP, "Opening the file", sub_font.clone(), t::INK_FAINT, title_w);
@@ -92,7 +92,7 @@ impl App {
             // SHIFT: fix a half/double tempo detection.
             for (i, (label, f)) in [("BPM ÷2", 0.5), ("BPM ×2", 2.0)].into_iter().enumerate() {
                 let br = Rect::from_min_size(pos2(inner.max.x - 148.0 + i as f32 * 74.0, y + 6.0), vec2(74.0, 26.0));
-                if button(ui, &mut self.touches, br, Id::NULL.with(("bpmfix", d, i)), label, None, semi(13.5)).clicked {
+                if button(ui, &mut self.touches, br, Id::NULL.with(("bpmfix", d, i)), label, None, t::button_font()).clicked {
                     self.scale_grid(d, f);
                 }
             }
@@ -117,7 +117,7 @@ impl App {
         let (cap, small) = if remain_mode { ("REMAIN", fmt_time(elapsed)) } else { ("ELAPSED", format!("-{}", fmt_time(remain))) };
         p.text(pos2(inner.min.x, cap_y), Align2::LEFT_TOP, cap, caption(), t::INK_FAINT);
         if !t::glance() {
-            p.text(pos2(inner.min.x + 60.0, cap_y + 1.0), Align2::LEFT_TOP, small, mono(11.5), t::INK_FAINT);
+            p.text(pos2(inner.min.x + 60.0, cap_y + 1.0), Align2::LEFT_TOP, small, t::mono_small(), t::INK_FAINT);
         }
         let low_time = dv.loaded && remain < 30.0 && dv.playing && dv.complete;
         let time_col = if low_time && (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0 { t::DANGER } else { t::INK };
@@ -206,7 +206,7 @@ impl App {
         for row in rows {
             for (i, (label, lit, code)) in row.into_iter().enumerate() {
                 let br = Rect::from_min_size(pos2(inner.min.x + i as f32 * bw, y), vec2(bw, 34.0));
-                let c = button(ui, &mut self.touches, br, Id::NULL.with(("btn", d, code)), label, lit, semi(sz(13.5, 15.5)));
+                let c = button(ui, &mut self.touches, br, Id::NULL.with(("btn", d, code)), label, lit, t::button_font());
                 if !c.clicked {
                     continue;
                 }
@@ -300,8 +300,7 @@ impl App {
             let (c, resp) = control(ui, &mut self.touches, pr, Id::NULL.with(("pad", d, i)), || {
                 WidgetInfo::selected(egui::Role::Button, true, set, format!("Hot cue {}", HOT_LETTERS[i]))
             });
-            let fill = if set { colr.gamma_multiply(if c.down { 0.65 } else { 0.4 }) } else if c.down { t::HOVER } else { t::RAISED };
-            tile(&p, pr, fill);
+            let ink = pad_face(&p, pr, set.then_some(colr), c.down);
             focus_ring(&p, pr, &resp, t::R_CONTROL);
             let comment = dv.hot[i].and_then(|h| self.decks[d].track.as_ref().map(|tr| preset_comment(tr, i, h.pos)));
             let sub = match (comment.filter(|c| !c.is_empty()), dv.hot[i].and_then(|h| h.loop_end)) {
@@ -309,7 +308,6 @@ impl App {
                 (None, Some(_)) => Some("LOOP".to_string()),
                 _ => None,
             };
-            let ink = if set { t::INK } else { t::INK_FAINT };
             if let Some(sub) = sub {
                 p.text(pr.center() - vec2(0.0, sz(7.0, 8.0)), Align2::CENTER_CENTER, HOT_LETTERS[i], semi(sz(16.0, 19.0)), ink);
                 // Full ink: muted ink falls below 4.5:1 on most pad colours.

@@ -2,7 +2,7 @@
 //! track list.
 
 use crate::ui::prelude::*;
-use crate::library::{self, Row};
+use crate::library::Row;
 use super::tracklist::ListOpts;
 use crate::ui::App;
 
@@ -59,7 +59,7 @@ impl App {
             let tr = Rect::from_min_size(pos2(head.max.x - 2.0 * load_w - tag_w, head.min.y + 1.0), vec2(tag_w, bh));
             let tip = if tagged { "Remove from the tag list  ( T )" } else { "Add to the tag list  ( T )" };
             let label = format!("{}  {}", icons::TAG, if tagged { "TAGGED" } else { "TAG" });
-            if button_tip(ui, &mut self.touches, tr, Id::NULL.with("ptag"), &label, tagged.then_some(t::ACCENT), semi(15.0), tip).clicked {
+            if button_tip(ui, &mut self.touches, tr, Id::NULL.with("ptag"), &label, tagged.then_some(t::ACCENT), t::button_font(), tip).clicked {
                 if let Some(s) = sel.clone() {
                     self.lib.toggle_tag(&s);
                 }
@@ -68,7 +68,7 @@ impl App {
         for d in 0..DECKS {
             let br = Rect::from_min_size(pos2(head.max.x - (DECKS - d) as f32 * load_w, head.min.y + 1.0), vec2(load_w, bh));
             let tip = if d == 0 { "Load the selected track on deck 1  ( Q )" } else { "Load the selected track on deck 2  ( P )" };
-            if button_tip(ui, &mut self.touches, br, Id::NULL.with(("load", d)), &format!("LOAD {}", d + 1), can_load.then_some(t::DECK_TINT[d]), semi(15.0), tip).clicked {
+            if button_tip(ui, &mut self.touches, br, Id::NULL.with(("load", d)), &format!("LOAD {}", d + 1), can_load.then_some(t::DECK_TINT[d]), t::button_font(), tip).clicked {
                 self.load_selected(d);
             }
         }
@@ -79,25 +79,9 @@ impl App {
             text_fit(&p, pos2(list.max.x, r.max.y - 2.0), Align2::RIGHT_BOTTOM, &format!("Analysing BPM {done}/{total}"), caption(), t::INK_FAINT, 200.0);
         }
         if self.lib.rows.is_empty() {
-            let (icon, title, line) = match self.lib.node() {
-                _ if !self.lib.filter.is_empty() => (icons::SEARCH, "No matches".to_string(), format!("Nothing here matches \u{201c}{}\u{201d}. BACK clears the search.", self.lib.filter)),
-                library::Node::Suggest if self.lib.seed.is_none() => (icons::SPARKLE, "No suggestions yet".to_string(), "Load a track on a deck: tracks that mix with it show up here.".to_string()),
-                library::Node::Suggest => (icons::SPARKLE, "No suggestions".to_string(), "Nothing in the library is close in tempo with a key that mixes.".to_string()),
-                library::Node::Folder if self.lib.local.is_none() => (icons::FOLDER, "Scanning your music folder…".to_string(), String::new()),
-                library::Node::Folder => (
-                    icons::FOLDER,
-                    "No tracks in this folder".to_string(),
-                    format!("Add MP3, FLAC, WAV, OGG or M4A files to {} or start with --music <folder>", self.lib.local_root.display()),
-                ),
-                _ => (icons::PLAYLIST, "Nothing here".to_string(), "This list is empty on the drive.".to_string()),
-            };
-            let tw = p.layout_no_wrap(title.clone(), t::title(), t::INK).size().x;
-            p.text(list.center() - vec2(tw / 2.0 + 10.0, 12.0), Align2::RIGHT_CENTER, icon, cond(24.0), t::INK_FAINT);
-            p.text(list.center() - vec2(0.0, 12.0), Align2::CENTER_CENTER, title, t::title(), t::INK);
-            p.text(list.center() + vec2(0.0, 14.0), Align2::CENTER_CENTER, line, t::body(), t::INK_MUTED);
-            return;
+            self.empty_list(ui, list);
+        } else {
+            self.rows_list(ui, list, opts);
         }
-
-        self.rows_list(ui, list, opts);
     }
 }

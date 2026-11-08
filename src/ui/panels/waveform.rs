@@ -14,7 +14,7 @@ impl App {
         // Waveform colour (BLUE / RGB / 3BAND), as WAVEFORM COLOR on a CDJ.
         let mode = self.config.waveform_color;
         let mr = Rect::from_min_size(pos2(waves.max.x - 2.0 * w - mw, waves.min.y), vec2(mw, h));
-        if button_tip(ui, &mut self.touches, mr, Id::NULL.with("wavemode"), crate::track::wave::mode_name(mode), None, semi(if big { 14.0 } else { 13.0 }), "Waveform colour: Blue / RGB / 3-Band  ( W )").clicked {
+        if button_tip(ui, &mut self.touches, mr, Id::NULL.with("wavemode"), crate::track::wave::mode_name(mode), None, t::button_font(), "Waveform colour: Blue / RGB / 3-Band  ( W )").clicked {
             self.config.waveform_color = crate::track::wave::next_mode(mode);
         }
         for (i, (label, dir)) in [(icons::ZOOM_OUT, 1), (icons::ZOOM_IN, -1)].into_iter().enumerate() {

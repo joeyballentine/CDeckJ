@@ -99,12 +99,29 @@ pub fn sz(detailed: f32, glance: f32) -> f32 {
     if self::glance() { glance } else { detailed }
 }
 
-// Text roles.
+// Text roles. View code picks one of these for labels, prose and buttons; only badges,
+// glyphs, readouts and headings fitted to a fixed box size their own type.
 pub fn caption() -> FontId {
     semi(sz(12.5, 14.0))
 }
+/// Small numbers: DSP load, levels, the controller log.
+pub fn mono_small() -> FontId {
+    mono(sz(12.5, 14.0))
+}
+/// Secondary text: status, hints, messages, values beside a label.
+pub fn small() -> FontId {
+    cond(sz(14.0, 16.0))
+}
+/// Labels on buttons.
+pub fn button_font() -> FontId {
+    semi(sz(14.0, 16.0))
+}
 pub fn body() -> FontId {
     cond(sz(16.0, 18.0))
+}
+/// Body with weight: list and side-bar labels, the current breadcrumb.
+pub fn strong() -> FontId {
+    semi(sz(16.0, 18.0))
 }
 pub fn title() -> FontId {
     semi(sz(21.0, 25.0))
@@ -162,9 +179,9 @@ fn install_fonts(ctx: &egui::Context) {
 fn apply(style: &mut Style) {
     use egui::TextStyle;
     style.text_styles = [
-        (TextStyle::Small, cond(13.0)),
+        (TextStyle::Small, small()),
         (TextStyle::Body, body()),
-        (TextStyle::Button, semi(16.0)),
+        (TextStyle::Button, button_font()),
         (TextStyle::Monospace, mono(14.0)),
         (TextStyle::Heading, title()),
     ]

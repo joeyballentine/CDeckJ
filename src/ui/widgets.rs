@@ -40,6 +40,10 @@ pub(crate) fn lit_bar(p: &Painter, r: Rect, col: Color32) {
 pub(crate) fn control(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, info: impl Fn() -> WidgetInfo) -> (crate::ui::touch::Ctl, egui::Response) {
     let resp = ui.interact(r, id, Sense::click_and_drag());
     resp.widget_info(info);
+    // Tab into a scrolled-away control (SETTINGS, the BROWSE side bar): bring it into view.
+    if resp.gained_focus() {
+        resp.scroll_to_me(None);
+    }
     // Only the visible part takes touches (a control scrolled out of view takes none).
     let mut c = tc.ctl(r.intersect(ui.clip_rect()), id, &resp);
     c.key = resp.has_focus() && ui.input(|i| i.key_pressed(Key::Enter) || i.key_pressed(Key::Space));
@@ -149,7 +153,7 @@ pub(crate) fn round_button(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, label: &s
     let ink = if lit { col } else { t::INK_MUTED };
     match icon {
         Some(i) => p.text(center, Align2::CENTER_CENTER, i, icons::fill(rad * 0.78), ink),
-        None => p.text(center, Align2::CENTER_CENTER, label, semi(sz(15.0, 17.0)), ink),
+        None => p.text(center, Align2::CENTER_CENTER, label, t::strong(), ink),
     };
     if resp.has_focus() {
         p.circle_stroke(center, rad + 3.0, Stroke::new(2.0, t::ACCENT));
@@ -253,7 +257,7 @@ pub(crate) fn hslider(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, value: f32, co
     p.rect_filled(fill, CornerRadius::same(t::R_CONTROL), color.gamma_multiply(0.25));
     p.vline(fill.max.x, r.y_range().shrink(4.0), Stroke::new(2.0, color));
     p.text(r.left_center() + vec2(8.0, 0.0), Align2::LEFT_CENTER, "LEVEL", caption(), t::INK_MUTED);
-    p.text(r.right_center() - vec2(8.0, 0.0), Align2::RIGHT_CENTER, format!("{:.0}", value * 100.0), mono(12.0), t::INK_MUTED);
+    p.text(r.right_center() - vec2(8.0, 0.0), Align2::RIGHT_CENTER, format!("{:.0}", value * 100.0), t::mono_small(), t::INK_MUTED);
     focus_ring(p, r, &resp, t::R_CONTROL);
     if c.down || c.clicked {
         if let Some(pos) = c.pos {
@@ -265,6 +269,22 @@ pub(crate) fn hslider(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, value: f32, co
         return Some((value + step as f32 * 0.05).clamp(0.0, 1.0));
     }
     None
+}
+
+/// A hot cue pad's face: tinted in the cue's colour when set, ringed while pressed. A brighter
+/// pressed fill would put the letter under 4.5:1 on the yellow and teal pads. Returns the
+/// colour for the letter.
+pub(crate) fn pad_face(p: &Painter, r: Rect, set: Option<Color32>, down: bool) -> Color32 {
+    let fill = match set {
+        Some(col) => col.gamma_multiply(0.4),
+        None if down => t::HOVER,
+        None => t::RAISED,
+    };
+    tile(p, r, fill);
+    if down {
+        p.rect_stroke(r.shrink(0.5), CornerRadius::ZERO, Stroke::new(2.0, t::INK), StrokeKind::Inside);
+    }
+    if set.is_some() || down { t::INK } else { t::INK_FAINT }
 }
 
 pub(crate) fn meter(p: &Painter, r: Rect, level: f32) {
@@ -321,7 +341,7 @@ pub(crate) fn nav_row(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, icon: &str, la
     focus_ring(p, r, &resp, t::R_CONTROL);
     let ink = if on { t::INK } else { t::INK_MUTED };
     p.text(pos2(r.min.x + 18.0, r.center().y), Align2::CENTER_CENTER, icon, cond(sz(18.0, 20.0)), if on { t::ACCENT } else { t::INK_FAINT });
-    text_fit(p, pos2(r.min.x + 38.0, r.center().y), Align2::LEFT_CENTER, label, semi(sz(15.0, 17.0)), ink, r.width() - 44.0);
+    text_fit(p, pos2(r.min.x + 38.0, r.center().y), Align2::LEFT_CENTER, label, t::strong(), ink, r.width() - 44.0);
     c
 }
 
@@ -329,7 +349,7 @@ pub(crate) fn nav_row(ui: &Ui, tc: &mut Touches, r: Rect, id: Id, icon: &str, la
 pub(crate) fn search_field(ui: &mut Ui, r: Rect, text: &mut String) -> egui::Response {
     let te = egui::TextEdit::singleline(text)
         .hint_text("Search  ( / )")
-        .font(cond(sz(16.0, 18.0)))
+        .font(t::body())
         .margin(egui::Margin { left: 30, right: 6, top: 3, bottom: 3 })
         .desired_width(r.width());
     let resp = ui.put(r, te);
@@ -343,7 +363,7 @@ pub(crate) fn crumbs_job(crumbs: &[String], max_w: f32) -> LayoutJob {
     let last = crumbs.len().saturating_sub(1);
     let mut job = LayoutJob::default();
     for (i, c) in crumbs.iter().enumerate() {
-        let (font, col) = if i == last { (semi(sz(16.0, 18.0)), t::INK) } else { (cond(sz(16.0, 18.0)), t::INK_FAINT) };
+        let (font, col) = if i == last { (t::strong(), t::INK) } else { (t::body(), t::INK_FAINT) };
         job.append(c, 0.0, egui::TextFormat::simple(font, col));
         if i != last {
             job.append(&format!("  {}  ", icons::CARET_RIGHT), 0.0, egui::TextFormat::simple(cond(13.0), t::INK_FAINT));
@@ -370,7 +390,7 @@ pub(crate) fn segmented(app: &mut App, ui: &Ui, r: Rect, id: &str, labels: &[&st
     let mut out = None;
     for (i, l) in labels.iter().enumerate() {
         let br = Rect::from_min_size(pos2(r.min.x + i as f32 * w, r.min.y), vec2(w, r.height()));
-        if button_tip(ui, &mut app.touches, br, Id::NULL.with((id, i)), l, (i == selected).then_some(t::ACCENT), cond(sz(14.0, 16.0)), tip).clicked {
+        if button_tip(ui, &mut app.touches, br, Id::NULL.with((id, i)), l, (i == selected).then_some(t::ACCENT), t::small(), tip).clicked {
             out = Some(i);
         }
     }

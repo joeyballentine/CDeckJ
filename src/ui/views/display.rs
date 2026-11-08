@@ -91,7 +91,7 @@ impl App {
             ("Empty deck".to_string(), format!("Pick a track below and press LOAD {} (or LOAD on the controller)", d + 1), t::INK_MUTED, t::INK_FAINT)
         };
         text_fit(&p, pos2(tx, y - 1.0), Align2::LEFT_TOP, &line1, semi(sz(21.0, 25.0)), c1, title_w);
-        text_fit(&p, pos2(tx, y + sz(24.0, 29.0)), Align2::LEFT_TOP, &line2, cond(sz(15.0, 17.0)), c2, title_w);
+        text_fit(&p, pos2(tx, y + sz(24.0, 29.0)), Align2::LEFT_TOP, &line2, t::body(), c2, title_w);
 
         // Row 2: time | tempo | BPM, sized to the card.
         let y2 = y + sz(52.0, 56.0);
@@ -217,7 +217,7 @@ impl App {
             }
             _ => ("–".to_string(), t::INK_FAINT),
         };
-        p.text(pos2(inner.center().x, inner.min.y + 46.0), Align2::CENTER_TOP, txt, cond(sz(15.0, 17.0)), col);
+        p.text(pos2(inner.center().x, inner.min.y + 46.0), Align2::CENTER_TOP, txt, t::body(), col);
 
         // Meters: channel 1, master, channel 2.
         let my0 = inner.min.y + 74.0;

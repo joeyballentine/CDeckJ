@@ -100,7 +100,7 @@ impl App {
         p.text(free.center(), Align2::CENTER_CENTER, format!("CH {}", c + 1), semi(15.0), tint);
         let mut y = r.min.y + 3.0 * kh + 6.0;
         let pfl = Rect::from_min_size(pos2(r.min.x + 6.0, y), vec2(r.width() - 12.0, 28.0));
-        if button(ui, &mut self.touches, pfl, Id::NULL.with(("pfl", c)), &format!("{}  CUE", icons::AUDIO), cp.pfl.then_some(t::CUE), semi(14.0)).clicked {
+        if button(ui, &mut self.touches, pfl, Id::NULL.with(("pfl", c)), &format!("{}  CUE", icons::AUDIO), cp.pfl.then_some(t::CUE), t::button_font()).clicked {
             self.send(Cmd::Mix(MixParam::PflToggle(c)));
         }
         y += 28.0 + 6.0;
@@ -131,7 +131,7 @@ impl App {
         for (i, k) in FX_KINDS.iter().enumerate() {
             let br = Rect::from_min_size(pos2(x, y), vec2(chip_w, h));
             let lit = (fx.kind == *k).then_some(if fx.on { t::DANGER } else { t::ACCENT });
-            if button(ui, &mut self.touches, br, Id::NULL.with(("fxk", i)), k.name(), lit, cond(14.0)).clicked {
+            if button(ui, &mut self.touches, br, Id::NULL.with(("fxk", i)), k.name(), lit, t::small()).clicked {
                 self.send(Cmd::Mix(MixParam::FxKind(*k)));
             }
             x += chip_w;
@@ -159,7 +159,7 @@ impl App {
                 FxTarget::Ch(c) => format!("Effect on channel {}", c + 1),
                 FxTarget::Master => "Effect on the master".to_string(),
             };
-            if button_tip(ui, &mut self.touches, br, Id::NULL.with(("fxc", i)), lab, (fx.target == tg).then_some(col), semi(15.0), &tip).clicked {
+            if button_tip(ui, &mut self.touches, br, Id::NULL.with(("fxc", i)), lab, (fx.target == tg).then_some(col), t::button_font(), &tip).clicked {
                 self.send(Cmd::Mix(MixParam::FxTarget(tg)));
             }
         }
@@ -174,7 +174,7 @@ impl App {
         let or = Rect::from_min_max(pos2(x, y), r.max);
         let blink = (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0;
         let lit = fx.on.then_some(if blink { t::DANGER } else { t::DANGER.gamma_multiply(0.7) });
-        if button_tip(ui, &mut self.touches, or, Id::NULL.with("fxon"), "ON", lit, semi(15.0), "Beat FX on/off  ( F )").clicked {
+        if button_tip(ui, &mut self.touches, or, Id::NULL.with("fxon"), "ON", lit, t::button_font(), "Beat FX on/off  ( F )").clicked {
             self.send(Cmd::Mix(MixParam::FxToggle));
         }
     }

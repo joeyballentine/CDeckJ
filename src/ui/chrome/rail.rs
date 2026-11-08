@@ -98,7 +98,7 @@ impl App {
         } else {
             let icon_size = (r.height() * 0.34).clamp(20.0, 26.0);
             p.text(pos2(r.center().x, c_y - 9.0), Align2::CENTER_CENTER, icon, cond(icon_size), icon_col);
-            p.text(pos2(r.center().x, c_y + icon_size * 0.5 + 5.0), Align2::CENTER_CENTER, label, semi(12.5), label_col);
+            p.text(pos2(r.center().x, c_y + icon_size * 0.5 + 5.0), Align2::CENTER_CENTER, label, caption(), label_col);
         }
         if !self.touches.touch_mode() {
             resp.on_hover_text(tip);

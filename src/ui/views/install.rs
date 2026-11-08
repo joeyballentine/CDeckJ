@@ -79,8 +79,8 @@ impl App {
                 format!("CDeckJ is installed in {}. Replace it with this version?", prompt.target.display()),
             ),
         };
-        p.text(inner.min, Align2::LEFT_TOP, title, semi(26.0), t::INK);
-        let g = p.layout(body, cond(18.0), t::INK_MUTED, inner.width());
+        p.text(inner.min, Align2::LEFT_TOP, title, t::title(), t::INK);
+        let g = p.layout(body, t::body(), t::INK_MUTED, inner.width());
         let body_h = g.size().y;
         p.galley(pos2(inner.min.x, inner.min.y + 50.0), g, t::INK_MUTED);
         let busy = prompt.job.is_some();
@@ -90,14 +90,14 @@ impl App {
             prompt.error.clone().map(|e| (e, t::DANGER))
         };
         if let Some((n, col)) = note {
-            let g = p.layout(n, cond(16.0), col, inner.width());
+            let g = p.layout(n, t::small(), col, inner.width());
             p.galley(pos2(inner.min.x, inner.min.y + 64.0 + body_h), g, col);
         }
         let bw = 200.0;
         let go = Rect::from_min_size(pos2(inner.max.x - bw, inner.max.y - 48.0), vec2(bw, 48.0));
         let later = Rect::from_min_size(pos2(go.min.x - bw - 12.0, go.min.y), vec2(bw, 48.0));
-        let clicked_go = button(ui, &mut self.touches, go, Id::NULL.with("inst_go"), action, Some(t::ACCENT), semi(18.0)).clicked;
-        let clicked_later = button(ui, &mut self.touches, later, Id::NULL.with("inst_later"), "NOT NOW", None, semi(18.0)).clicked;
+        let clicked_go = button(ui, &mut self.touches, go, Id::NULL.with("inst_go"), action, Some(t::ACCENT), t::button_font()).clicked;
+        let clicked_later = button(ui, &mut self.touches, later, Id::NULL.with("inst_later"), "NOT NOW", None, t::button_font()).clicked;
         if busy {
             return true;
         }

@@ -25,7 +25,7 @@ use crate::library::{self, LibEvent, LibTrack, Library};
 use crate::midi::{MidiStatus, PickupLocks, UiAction};
 use crate::platform::{GamepadStatus, KeepAwake};
 use crate::track::{self, Track};
-use theme::{self as t, cond};
+use theme::{self as t};
 use touch::Touches;
 
 mod actions;
@@ -295,7 +295,7 @@ impl eframe::App for App {
         // Banners wrap (error messages can be long) and grow to fit, up to three lines.
         let banner_h = match &self.banner {
             Some(b) => {
-                let g = ui.painter().layout(b.clone(), cond(15.0), t::INK, full.width() - 140.0);
+                let g = ui.painter().layout(b.clone(), t::body(), t::INK, full.width() - 140.0);
                 (g.size().y + 12.0).clamp(30.0, 66.0)
             }
             None => 0.0,

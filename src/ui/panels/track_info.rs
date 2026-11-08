@@ -12,7 +12,7 @@ impl App {
         card(&p, r);
         let inner = r.shrink(12.0);
         let Some(Row::Track(e)) = self.lib.selected_row().cloned() else {
-            p.text(inner.center(), Align2::CENTER_CENTER, "Highlight a track to see its details", cond(15.0), t::INK_FAINT);
+            p.text(inner.center(), Align2::CENTER_CENTER, "Highlight a track to see its details", t::small(), t::INK_FAINT);
             return;
         };
         let mut y = inner.min.y;
@@ -30,11 +30,11 @@ impl App {
             }
         }
         y += art_s + 10.0;
-        let tg = p.layout(e.title.clone(), semi(sz(18.0, 21.0)), t::INK, inner.width());
-        let th = tg.size().y.min(sz(48.0, 56.0));
+        let tg = p.layout(e.title.clone(), t::title(), t::INK, inner.width());
+        let th = tg.size().y.min(sz(52.0, 60.0));
         p.galley(pos2(inner.min.x, y), tg, t::INK);
         y += th + 2.0;
-        text_fit(&p, pos2(inner.min.x, y), Align2::LEFT_TOP, &e.artist, cond(sz(16.0, 18.0)), t::INK_MUTED, inner.width());
+        text_fit(&p, pos2(inner.min.x, y), Align2::LEFT_TOP, &e.artist, t::body(), t::INK_MUTED, inner.width());
         y += sz(24.0, 27.0);
         // Whole-track preview.
         let pr = Rect::from_min_size(pos2(inner.min.x, y), vec2(inner.width(), 40.0));
@@ -101,7 +101,7 @@ impl App {
                     p.text(pos2(inner.min.x + 72.0 + i as f32 * 17.0, y + 7.0), Align2::LEFT_CENTER, icons::STAR, font, col);
                 }
             }
-            text_fit(&p, pos2(inner.min.x + 72.0, y - 1.0), Align2::LEFT_TOP, &val, cond(sz(15.0, 17.0)), t::INK, inner.width() - 72.0);
+            text_fit(&p, pos2(inner.min.x + 72.0, y - 1.0), Align2::LEFT_TOP, &val, t::body(), t::INK, inner.width() - 72.0);
             y += sz(22.0, 25.0);
         }
     }

@@ -61,10 +61,10 @@ impl App {
         let avail = (r.max.x - right_w - x - 12.0).max(60.0);
         let half = avail / 2.0;
         status_icon(x, if audio_ok { icons::SPEAKER } else { icons::SPEAKER_OFF }, audio_ok);
-        text_fit(&p, pos2(x + 18.0, r.center().y), Align2::LEFT_CENTER, &audio_short, cond(14.0), if audio_ok { t::INK_MUTED } else { t::DANGER }, half - 26.0);
+        text_fit(&p, pos2(x + 18.0, r.center().y), Align2::LEFT_CENTER, &audio_short, t::small(), if audio_ok { t::INK_MUTED } else { t::DANGER }, half - 26.0);
         let ctl_icon = if midi.is_none() && pad.is_some() { icons::GAMEPAD } else { icons::CONTROLLER };
         status_icon(x + half, ctl_icon, midi.is_some() || pad.is_some());
-        text_fit(&p, pos2(x + half + 18.0, r.center().y), Align2::LEFT_CENTER, &ctl_short, cond(14.0), t::INK_MUTED, half - 26.0);
+        text_fit(&p, pos2(x + half + 18.0, r.center().y), Align2::LEFT_CENTER, &ctl_short, t::small(), t::INK_MUTED, half - 26.0);
         let sr = Rect::from_min_size(pos2(x - 4.0, r.min.y + 2.0), vec2(avail + 4.0, r.height() - 4.0));
         if invisible_button(ui, &mut self.touches, sr, Id::NULL.with("status"), "Audio and controller status", "Tap for the full audio and controller details").clicked {
             self.banner = Some(format!("{audio_long}\n{ctl_long}"));
@@ -85,12 +85,12 @@ impl App {
         } else {
             (format!("DSP {load}%"), if load > 70 { t::CUE } else { t::INK_FAINT })
         };
-        p.text(pos2(m.min.x - 64.0, r.center().y), Align2::RIGHT_CENTER, dsp, mono(12.0), dcol);
+        p.text(pos2(m.min.x - 64.0, r.center().y), Align2::RIGHT_CENTER, dsp, t::mono_small(), dcol);
         let bh = r.height();
         self.rec_button(ui, &p, Rect::from_min_size(pos2(r.max.x - right_w, r.min.y), vec2(112.0, bh)));
         let qr = Rect::from_min_size(pos2(r.max.x - right_w + 112.0, r.min.y), vec2(124.0, bh));
         let qtip = if v.quantize { "Quantize on: cues, loops and jumps snap to the beat  ( G )" } else { "Quantize off  ( G )" };
-        if button_tip(ui, &mut self.touches, qr, Id::NULL.with("quantize"), &format!("{}  QUANTIZE", icons::MAGNET), v.quantize.then_some(t::ACCENT), semi(14.0), qtip).clicked {
+        if button_tip(ui, &mut self.touches, qr, Id::NULL.with("quantize"), &format!("{}  QUANTIZE", icons::MAGNET), v.quantize.then_some(t::ACCENT), t::button_font(), qtip).clicked {
             self.send(Cmd::QuantizeToggle);
         }
     }
@@ -112,7 +112,7 @@ impl App {
         } else {
             "Record the mix to Music/CDeckJ Recordings, with a tracklist  ( R )"
         };
-        let font = if rec && !confirm { mono(14.0) } else { semi(14.0) };
+        let font = if rec && !confirm { mono(sz(14.0, 16.0)) } else { t::button_font() };
         if button_tip(ui, &mut self.touches, r, Id::NULL.with("rec"), &label, rec.then_some(t::DANGER), font, tip).clicked {
             self.record_toggle();
         }
@@ -129,11 +129,11 @@ impl App {
         let p = ui.painter().clone();
         p.rect_filled(r, 0, t::ACCENT.gamma_multiply(0.16));
         if let Some(b) = &self.banner {
-            let g = p.layout(b.clone(), cond(15.0), t::INK, r.width() - 140.0);
+            let g = p.layout(b.clone(), t::body(), t::INK, r.width() - 140.0);
             p.galley(pos2(r.min.x + 14.0, r.center().y - g.size().y / 2.0), g, t::INK);
         }
         let br = Rect::from_min_size(pos2(r.max.x - 104.0, r.min.y + 3.0), vec2(96.0, 24.0));
-        if button(ui, &mut self.touches, br, Id::NULL.with("banner"), &format!("{}  DISMISS", icons::X), None, semi(13.0)).clicked {
+        if button(ui, &mut self.touches, br, Id::NULL.with("banner"), &format!("{}  DISMISS", icons::X), None, t::button_font()).clicked {
             self.banner = None;
         }
     }

@@ -84,14 +84,31 @@ impl App {
         let main = Rect::from_min_max(pos2(side.max.x, r.min.y), r.max);
         card(&p, main);
         let inner = main.shrink2(vec2(18.0, 14.0));
-        let mut rows = Rows { y: inner.min.y, x: inner.min.x, w: inner.width(), bottom: inner.max.y, label_w: 340.0 };
-        match self.settings.page {
-            0 => self.page_player(ui, &mut rows, v),
-            1 => self.page_mixer(ui, &mut rows, v),
-            2 => self.page_audio(ui, &mut rows, v),
-            3 => self.page_controller(ui, &mut rows, inner),
-            _ => self.page_system(ui, &mut rows),
+        let page = self.settings.page;
+        if matches!(page, 2 | 3) {
+            // AUDIO scrolls its own device list; CONTROLLER sizes its log to the page.
+            let mut rows = Rows { y: inner.min.y, x: inner.min.x, w: inner.width(), bottom: inner.max.y, label_w: 340.0 };
+            if page == 2 {
+                self.page_audio(ui, &mut rows, v);
+            } else {
+                self.page_controller(ui, &mut rows, inner);
+            }
+            return;
         }
+        // The other pages scroll when they don't fit: glance mode, a banner, a short window.
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner));
+        egui::ScrollArea::vertical().id_salt(("spage", page)).auto_shrink([false, false]).show(&mut child, |ui| {
+            let top = ui.max_rect().min;
+            let w = ui.max_rect().width();
+            // Choices sit 2 pt above their row: start lower so the first row isn't clipped.
+            let mut rows = Rows { y: top.y + 2.0, x: top.x, w, bottom: f32::INFINITY, label_w: 340.0 };
+            match page {
+                0 => self.page_player(ui, &mut rows, v),
+                1 => self.page_mixer(ui, &mut rows, v),
+                _ => self.page_system(ui, &mut rows),
+            }
+            ui.expand_to_include_rect(Rect::from_min_max(top, pos2(top.x + w, rows.y)));
+        });
     }
 
     fn page_player(&mut self, ui: &mut Ui, rows: &mut Rows, v: &EngineView) {
@@ -259,7 +276,7 @@ impl App {
                 }
             }
             None => {
-                p.text(pos2(rows.x, rows.y + 4.0), Align2::LEFT_TOP, "Looking for devices…", cond(15.0), t::INK_FAINT);
+                p.text(pos2(rows.x, rows.y + 4.0), Align2::LEFT_TOP, "Looking for devices…", t::small(), t::INK_FAINT);
                 rows.y += 30.0;
             }
         }
@@ -272,7 +289,7 @@ impl App {
             for (i, (label, dev)) in choices.into_iter().enumerate() {
                 let (br, _) = ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::hover());
                 let on = self.audio_opts.device == dev;
-                if button(ui, &mut self.touches, br, Id::NULL.with(("sdev", i)), &label, on.then_some(t::ACCENT), cond(15.0)).clicked {
+                if button(ui, &mut self.touches, br, Id::NULL.with(("sdev", i)), &label, on.then_some(t::ACCENT), t::small()).clicked {
                     picked = Some(dev);
                 }
             }
@@ -295,20 +312,20 @@ impl App {
         let log = crate::midi::MIDI_LOG.lock().clone();
         let lines = ((inner.max.y - rows.y - 40.0) / 21.0).max(1.0) as usize;
         if log.is_empty() {
-            p.text(pos2(rows.x, rows.y), Align2::LEFT_TOP, "Nothing received yet.", cond(15.0), t::INK_FAINT);
+            p.text(pos2(rows.x, rows.y), Align2::LEFT_TOP, "Nothing received yet.", t::small(), t::INK_FAINT);
         }
         for (i, l) in log.iter().rev().take(lines).enumerate() {
-            text_fit(&p, pos2(rows.x, rows.y + i as f32 * 21.0), Align2::LEFT_TOP, l, mono(13.0), if i == 0 { t::INK } else { t::INK_MUTED }, rows.w);
+            text_fit(&p, pos2(rows.x, rows.y + i as f32 * 21.0), Align2::LEFT_TOP, l, t::mono_small(), if i == 0 { t::INK } else { t::INK_MUTED }, rows.w);
         }
         let cr = Rect::from_min_size(pos2(inner.max.x - 90.0, inner.max.y - 34.0), vec2(90.0, 32.0));
-        if button(ui, &mut self.touches, cr, Id::NULL.with("sclr"), "CLEAR", None, semi(14.0)).clicked {
+        if button(ui, &mut self.touches, cr, Id::NULL.with("sclr"), "CLEAR", None, t::button_font()).clicked {
             crate::midi::MIDI_LOG.lock().clear();
         }
         p.text(
             pos2(rows.x, inner.max.y - 18.0),
             Align2::LEFT_CENTER,
             "Wrong control? Note the bytes and set the number in [midi] in ~/.config/cdeckj/config.toml.",
-            cond(14.0),
+            t::small(),
             t::INK_FAINT,
         );
     }
@@ -340,7 +357,7 @@ impl App {
         let mut button_row = |app: &mut App, label: &str, id: &str, text: &str, lit: bool| {
             rows.label(&p, label);
             let r = Rect::from_min_size(pos2(rows.x + rows.label_w, rows.y - 2.0), vec2(220.0, 38.0));
-            let c = button(ui, &mut app.touches, r, Id::NULL.with(id), text, lit.then_some(t::DANGER), semi(15.0)).clicked;
+            let c = button(ui, &mut app.touches, r, Id::NULL.with(id), text, lit.then_some(t::DANGER), t::button_font()).clicked;
             rows.y += 44.0;
             c
         };
@@ -391,7 +408,7 @@ impl App {
             }
         }
         if let Some(m) = &self.settings.msg {
-            let g = p.layout(m.clone(), cond(14.0), t::INK_MUTED, rows.w - rows.label_w);
+            let g = p.layout(m.clone(), t::small(), t::INK_MUTED, rows.w - rows.label_w);
             let h = g.size().y;
             p.galley(pos2(rows.x + rows.label_w, rows.y), g, t::INK_MUTED);
             rows.y += h + 10.0;
@@ -439,7 +456,7 @@ struct Rows {
 
 impl Rows {
     fn label(&self, p: &egui::Painter, s: &str) {
-        text_fit(p, pos2(self.x, self.y + 17.0), Align2::LEFT_CENTER, s, cond(16.0), t::INK, self.label_w - 12.0);
+        text_fit(p, pos2(self.x, self.y + 17.0), Align2::LEFT_CENTER, s, t::body(), t::INK, self.label_w - 12.0);
     }
 
     fn seg(&mut self, app: &mut App, ui: &Ui, label: &str, id: &str, opts: &[&str], sel: usize) -> Option<usize> {
@@ -454,7 +471,7 @@ impl Rows {
 
     fn text(&mut self, p: &egui::Painter, label: &str, value: &str) {
         self.label(p, label);
-        text_fit(p, pos2(self.x + self.label_w, self.y + 17.0), Align2::LEFT_CENTER, value, cond(15.0), t::INK_MUTED, self.w - self.label_w);
+        text_fit(p, pos2(self.x + self.label_w, self.y + 17.0), Align2::LEFT_CENTER, value, t::small(), t::INK_MUTED, self.w - self.label_w);
         self.y += 36.0;
     }
 }

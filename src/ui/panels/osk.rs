@@ -33,7 +33,7 @@ impl App {
             let w = units * kw;
             let kr = Rect::from_min_size(pos2(x, y), vec2(w, kh));
             let lit = (*label == "DONE").then_some(t::ACCENT);
-            if button(ui, &mut self.touches, kr, Id::NULL.with(("keyx", i)), label, lit, semi(15.0)).clicked {
+            if button(ui, &mut self.touches, kr, Id::NULL.with(("keyx", i)), label, lit, t::button_font()).clicked {
                 match i {
                     0 => {
                         self.search.clear();

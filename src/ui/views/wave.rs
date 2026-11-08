@@ -49,7 +49,7 @@ impl App {
         match &track {
             Some(tr) => {
                 text_fit(&p, pos2(x, inner.min.y - 1.0), Align2::LEFT_TOP, &tr.title, semi(sz(19.0, 24.0)), t::INK, title_w);
-                text_fit(&p, pos2(x, inner.min.y + sz(22.0, 28.0)), Align2::LEFT_TOP, &tr.artist, cond(sz(15.0, 17.0)), t::INK_MUTED, title_w);
+                text_fit(&p, pos2(x, inner.min.y + sz(22.0, 28.0)), Align2::LEFT_TOP, &tr.artist, t::body(), t::INK_MUTED, title_w);
             }
             None => {
                 p.text(pos2(x, inner.center().y), Align2::LEFT_CENTER, "Empty deck", semi(sz(19.0, 24.0)), t::INK_FAINT);
@@ -137,7 +137,7 @@ impl App {
         let bw = 92.0;
         for (i, (label, lit, cmd, tip)) in btns.into_iter().enumerate() {
             let br = Rect::from_min_size(pos2(x, cr.min.y), vec2(bw, h));
-            if button_tip(ui, &mut self.touches, br, Id::NULL.with(("wbtn", d, i)), &label, lit, semi(sz(14.0, 16.0)), tip).clicked {
+            if button_tip(ui, &mut self.touches, br, Id::NULL.with(("wbtn", d, i)), &label, lit, t::button_font(), tip).clicked {
                 self.send(cmd);
             }
             x += bw;
@@ -152,11 +152,12 @@ impl App {
             }
             let set = dv.hot[i].is_some();
             let colr = hot_color(i, dv.hot[i].and_then(|h| h.color));
-            let (c, _) = control(ui, &mut self.touches, pr, Id::NULL.with(("wpad", d, i)), || {
+            let (c, resp) = control(ui, &mut self.touches, pr, Id::NULL.with(("wpad", d, i)), || {
                 egui::WidgetInfo::selected(egui::Role::Button, true, set, format!("Hot cue {}", crate::ui::HOT_LETTERS[i]))
             });
-            tile(&p, pr, if set { colr.gamma_multiply(if c.down { 0.6 } else { 0.35 }) } else if c.down { t::HOVER } else { t::RAISED });
-            p.text(pr.center(), Align2::CENTER_CENTER, crate::ui::HOT_LETTERS[i], semi(sz(15.0, 18.0)), if set { t::INK } else { t::INK_FAINT });
+            let ink = pad_face(&p, pr, set.then_some(colr), c.down);
+            focus_ring(&p, pr, &resp, t::R_CONTROL);
+            p.text(pr.center(), Align2::CENTER_CENTER, crate::ui::HOT_LETTERS[i], semi(sz(15.0, 18.0)), ink);
             if c.down != self.decks[d].hot_held[i] {
                 self.decks[d].hot_held[i] = c.down;
                 self.send(Cmd::HotCue(d, i, c.down));
@@ -209,12 +210,12 @@ impl App {
             let nx = scale.center().x + (diff as f32 * 2.0).clamp(-1.0, 1.0) * scale.width() / 2.0;
             p.rect_filled(Rect::from_center_size(pos2(nx, scale.center().y), vec2(6.0, 18.0)), CornerRadius::ZERO, col);
             let txt = if ok { "IN PHASE".to_string() } else { format!("deck 2 {:+.2} beat", diff) };
-            p.text(pos2(scale.max.x + 12.0, inner.center().y), Align2::LEFT_CENTER, txt, cond(sz(15.0, 18.0)), col);
+            p.text(pos2(scale.max.x + 12.0, inner.center().y), Align2::LEFT_CENTER, txt, t::body(), col);
             if bar_diff != 0 && ok {
-                p.text(pos2(scale.max.x + 100.0, inner.center().y), Align2::LEFT_CENTER, format!("· bars off by {bar_diff} beat(s)"), cond(15.0), t::CUE);
+                p.text(pos2(scale.max.x + 100.0, inner.center().y), Align2::LEFT_CENTER, format!("· bars off by {bar_diff} beat(s)"), t::small(), t::CUE);
             }
         } else {
-            p.text(pos2(ox, inner.center().y), Align2::LEFT_CENTER, "Load both decks to compare their beats", cond(15.0), t::INK_FAINT);
+            p.text(pos2(ox, inner.center().y), Align2::LEFT_CENTER, "Load both decks to compare their beats", t::small(), t::INK_FAINT);
         }
         // Zoom and colour at the right.
         let w = 38.0;
@@ -227,7 +228,7 @@ impl App {
         }
         let mode = self.config.waveform_color;
         let mr = Rect::from_min_size(pos2(r.max.x - 2.0 * w - 70.0, r.min.y), vec2(70.0, r.height()));
-        if button(ui, &mut self.touches, mr, Id::NULL.with("wmode"), crate::track::wave::mode_name(mode), None, semi(13.0)).clicked {
+        if button(ui, &mut self.touches, mr, Id::NULL.with("wmode"), crate::track::wave::mode_name(mode), None, t::button_font()).clicked {
             self.config.waveform_color = crate::track::wave::next_mode(mode);
         }
     }
