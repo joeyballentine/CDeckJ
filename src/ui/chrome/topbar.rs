@@ -4,7 +4,7 @@
 use crate::ui::prelude::*;
 use std::sync::atomic::Ordering;
 use crate::audio;
-use crate::ui::App;
+use crate::ui::{App, Banner, BannerKind};
 
 impl App {
     /// The top bar: name, audio and controller status, REC, QUANTIZE, DSP load, master level.
@@ -67,7 +67,7 @@ impl App {
         text_fit(&p, pos2(x + half + 18.0, r.center().y), Align2::LEFT_CENTER, &ctl_short, t::small(), t::INK_MUTED, half - 26.0);
         let sr = Rect::from_min_size(pos2(x - 4.0, r.min.y + 2.0), vec2(avail + 4.0, r.height() - 4.0));
         if invisible_button(ui, &mut self.touches, sr, Id::NULL.with("status"), "Audio and controller status", "Tap for the full audio and controller details").clicked {
-            self.banner = Some(format!("{audio_long}\n{ctl_long}"));
+            self.banner = Some(Banner::notice(format!("{audio_long}\n{ctl_long}")));
         }
 
         // Right: REC, QUANTIZE, DSP load, master meter. (EXIT is at the foot of the rail.)
@@ -128,13 +128,17 @@ impl App {
     pub(crate) fn banner_row(&mut self, ui: &Ui, r: Rect) {
         let p = ui.painter().clone();
         p.rect_filled(r, 0, t::ACCENT.gamma_multiply(0.16));
-        if let Some(b) = &self.banner {
-            let g = p.layout(b.clone(), t::body(), t::INK, r.width() - 140.0);
-            p.galley(pos2(r.min.x + 14.0, r.center().y - g.size().y / 2.0), g, t::INK);
-        }
+        let Some(b) = &self.banner else { return };
+        let g = p.layout(b.text.clone(), t::body(), t::INK, b.text_w(r.width()));
+        p.galley(pos2(r.min.x + 14.0, r.center().y - g.size().y / 2.0), g, t::INK);
+        let offers_update = b.kind == BannerKind::UpdateAvailable;
         let br = Rect::from_min_size(pos2(r.max.x - 104.0, r.min.y + 3.0), vec2(96.0, 24.0));
         if button(ui, &mut self.touches, br, Id::NULL.with("banner"), &format!("{}  DISMISS", icons::X), None, t::button_font()).clicked {
             self.banner = None;
+        }
+        let ur = br.translate(vec2(-104.0, 0.0));
+        if offers_update && button(ui, &mut self.touches, ur, Id::NULL.with("banner_update"), "UPDATE", Some(t::ACCENT), t::button_font()).clicked {
+            self.start_update();
         }
     }
 }

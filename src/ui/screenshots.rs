@@ -302,6 +302,7 @@ fn demo_app(music: PathBuf, store: Store) -> App {
             config,
             banner: None,
             install: None,
+            check_for_update: false,
             store: Arc::new(Mutex::new(store)),
             fullscreen: false,
             preload: Vec::new(),

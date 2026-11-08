@@ -91,6 +91,32 @@ struct DeckUi {
     lib: Option<LibTrack>,
 }
 
+/// The message strip under the top bar.
+pub struct Banner {
+    pub text: String,
+    pub kind: BannerKind,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BannerKind {
+    Notice,
+    /// Says CDeckJ was just installed or updated. Uninstalling takes it down.
+    Restarted,
+    /// A newer release is out: the banner offers UPDATE.
+    UpdateAvailable,
+}
+
+impl Banner {
+    pub fn notice(text: impl Into<String>) -> Banner {
+        Banner { text: text.into(), kind: BannerKind::Notice }
+    }
+
+    /// The width its text wraps at in a banner `w` wide, leaving room for the buttons.
+    fn text_w(&self, w: f32) -> f32 {
+        w - if self.kind == BannerKind::UpdateAvailable { 244.0 } else { 140.0 }
+    }
+}
+
 pub struct AppInit {
     pub cmd: Sender<Cmd>,
     pub view: SharedView,
@@ -106,9 +132,11 @@ pub struct AppInit {
     pub locks: PickupLocks,
     pub config: Config,
     /// A message for the banner at the top (a settings problem, or "installed").
-    pub banner: Option<String>,
+    pub banner: Option<Banner>,
     /// Offer to install: what, and where to.
     pub install: Option<(crate::platform::install::Offer, PathBuf)>,
+    /// Ask GitHub whether a newer release is out.
+    pub check_for_update: bool,
     pub store: Arc<Mutex<Store>>,
     pub fullscreen: bool,
     pub preload: Vec<PathBuf>,
@@ -147,7 +175,7 @@ pub struct App {
     config: Config,
     config_saved: Config,
     config_dirty_since: Option<Instant>,
-    banner: Option<String>,
+    banner: Option<Banner>,
     store: Arc<Mutex<Store>>,
     fullscreen: bool,
     key_held: Vec<Key>,
@@ -174,6 +202,7 @@ pub struct App {
     settings: settings::SettingsState,
     /// The install screen, shown over everything when CDeckJ is opened from the download.
     install: Option<install::Prompt>,
+    updates: install::Updates,
     /// First press of the two-press EXIT.
     exit_confirm: Option<Instant>,
     rec_low_warned: bool,
@@ -254,6 +283,7 @@ impl App {
             browse_popup: None,
             clear_tags_confirm: None,
             settings: Default::default(),
+            updates: Default::default(),
             exit_confirm: None,
             rec_low_warned: false,
             #[cfg(test)]
@@ -263,6 +293,9 @@ impl App {
             let (title, artist) = track::names_from_path(&p);
             let lt = LibTrack { path: p, title, artist, key: String::new(), bpm: None, duration: None, ext: String::new(), rb: None };
             app.load(d, &lt);
+        }
+        if init.check_for_update {
+            app.check_for_update();
         }
         app
     }
@@ -290,6 +323,7 @@ impl eframe::App for App {
         self.lib.set_seed(seed);
         self.recording_tick(&v);
         self.history_tick(&v);
+        self.update_tick();
 
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0, t::CHROME);
@@ -302,7 +336,7 @@ impl eframe::App for App {
         // Banners wrap (error messages can be long) and grow to fit, up to three lines.
         let banner_h = match &self.banner {
             Some(b) => {
-                let g = ui.painter().layout(b.clone(), t::body(), t::INK, full.width() - 140.0);
+                let g = ui.painter().layout(b.text.clone(), t::body(), t::INK, b.text_w(full.width()));
                 (g.size().y + 12.0).clamp(30.0, 66.0)
             }
             None => 0.0,

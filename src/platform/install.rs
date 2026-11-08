@@ -10,6 +10,13 @@ use std::process::Command;
 use super::{autolaunch, desktop};
 
 pub const LATEST_URL: &str = "https://github.com/joeyballentine/CDeckJ/releases/latest/download/cdeckj-steamdeck-x86_64.tar.gz";
+/// The `latest` tag, which CI moves to the commit each release is built from.
+const LATEST_TAG_URL: &str = "https://api.github.com/repos/joeyballentine/CDeckJ/git/ref/tags/latest";
+
+/// The commit a release build was made from (set by CI). Other builds don't install or update.
+pub fn build_commit() -> Option<&'static str> {
+    option_env!("CDECKJ_BUILD")
+}
 
 /// What the start screen offers, and what a restart after it reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,7 +38,7 @@ impl Offer {
 
 /// The version and, in release builds, the commit it was built from.
 pub fn version() -> String {
-    match option_env!("CDECKJ_BUILD") {
+    match build_commit() {
         Some(b) if b.len() >= 7 => format!("{} (build {})", env!("CARGO_PKG_VERSION"), &b[..7]),
         _ => env!("CARGO_PKG_VERSION").to_string(),
     }
@@ -63,10 +70,31 @@ fn same_file(a: &Path, b: &Path) -> bool {
 /// What to offer when CDeckJ runs from `exe`: nothing when it is the installed copy. Only
 /// release builds ask, so `cargo run` doesn't.
 pub fn offer(exe: &Path, target: &Path) -> Option<Offer> {
-    if option_env!("CDECKJ_BUILD").is_none() || same_file(exe, target) {
+    if build_commit().is_none() || same_file(exe, target) {
         return None;
     }
     Some(if target.exists() { Offer::Update } else { Offer::Install })
+}
+
+/// Whether the latest release was built from a different commit than this build. Releases
+/// only move forward, so a different commit is a newer one.
+pub fn update_available() -> Result<bool, String> {
+    let build = build_commit().ok_or("not a release build")?;
+    let out = Command::new("curl")
+        .args(["-fsSL", "--max-time", "10", "-H", "Accept: application/vnd.github+json", LATEST_TAG_URL])
+        .output()
+        .map_err(|e| format!("couldn't run curl: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("checking GitHub failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    let latest = tagged_commit(&out.stdout).ok_or("GitHub's reply has no commit for the latest tag")?;
+    Ok(latest != build)
+}
+
+/// The commit in a GitHub `git/ref` reply.
+fn tagged_commit(reply: &[u8]) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_slice(reply).ok()?;
+    v["object"]["sha"].as_str().map(str::to_string)
 }
 
 /// Copy `exe` to `target` and set up auto-launch, the menu entry and Steam artwork. The copy
@@ -149,6 +177,14 @@ pub fn restart(exe: &Path, extra: &[&str]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_commit_from_a_tag_reply() {
+        let reply = br#"{"ref":"refs/tags/latest","node_id":"REF_x","url":"https://api.github.com/repos/joeyballentine/CDeckJ/git/refs/tags/latest","object":{"sha":"5309fe504915453d717bf541622448a945141aa3","type":"commit","url":"https://api.github.com/repos/joeyballentine/CDeckJ/git/commits/5309fe504915453d717bf541622448a945141aa3"}}"#;
+        assert_eq!(tagged_commit(reply).as_deref(), Some("5309fe504915453d717bf541622448a945141aa3"));
+        assert_eq!(tagged_commit(br#"{"message":"Not Found","status":"404"}"#), None);
+        assert_eq!(tagged_commit(b"<html>rate limited</html>"), None);
+    }
 
     #[test]
     fn finds_the_steam_shortcut_target() {

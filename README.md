@@ -59,7 +59,7 @@ The big buttons down the left switch between screens, like the buttons beside a 
 
 ![The install screen](docs/screenshots/install.png)
 
-To update, press **UPDATE** in SETTINGS → SYSTEM. It downloads the latest release, installs it and restarts. Opening a newer download also offers to replace the installed copy. **UNINSTALL** (press it twice) on the same page removes CDeckJ. Your settings, cues, history and recordings are kept.
+When CDeckJ starts, it checks GitHub for a newer release. If there is one, a banner offers **UPDATE**, which downloads the latest release, installs it and restarts. The same button is in SETTINGS → SYSTEM. Opening a newer download also offers to replace the installed copy. **UNINSTALL** (press it twice) on the same page removes CDeckJ. Your settings, cues, history and recordings are kept.
 
 If CDeckJ is already a Steam shortcut, installing replaces the file the shortcut runs, so the shortcut keeps working.
 

@@ -8,7 +8,7 @@ use egui::ViewportCommand;
 use crate::library::{self, LibTrack, Row};
 use crate::track::{self, Track};
 use crate::ui::{LoadMsg, WAVE_ZOOMS};
-use crate::ui::App;
+use crate::ui::{App, Banner};
 
 impl App {
     pub(crate) fn send(&self, c: Cmd) {
@@ -133,7 +133,7 @@ impl App {
             self.rec_confirm = None;
             match self.recorder.start(&self.recordings_dir()) {
                 Ok(base) => eprintln!("recording: {}", base.display()),
-                Err(e) => self.banner = Some(format!("Couldn't start recording: {e}")),
+                Err(e) => self.banner = Some(Banner::notice(format!("Couldn't start recording: {e}"))),
             }
         } else if self.rec_confirm.is_some_and(|t| t.elapsed() < Duration::from_secs(3)) {
             self.rec_confirm = None;
@@ -160,10 +160,10 @@ impl App {
         };
         let parts = if f.parts.len() > 1 { format!(" (in {} files)", f.parts.len()) } else { String::new() };
         let lost = if f.dropped_secs > 0.05 { format!(" — {:.1} s lost because the disk was too slow", f.dropped_secs) } else { String::new() };
-        self.banner = Some(match f.error {
+        self.banner = Some(Banner::notice(match f.error {
             Some(e) => format!("Recording stopped: {e}. Saved {len}{tracks} to {file}"),
             None => format!("Recording saved: {len}{tracks}{parts} — {file}{lost}"),
-        });
+        }));
     }
 
     pub(crate) fn set_zoom(&mut self, dir: i32) {

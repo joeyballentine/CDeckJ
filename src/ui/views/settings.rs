@@ -2,13 +2,13 @@
 //! audio output, a live controller test, and system options.
 
 use crate::ui::prelude::*;
-use crate::ui::App;
+use crate::ui::{App, BannerKind};
 
 use crossbeam_channel::Receiver;
 
 use crate::engine::{Cmd, EngineView, MixParam, DECKS};
 use crate::midi::{Bound, Control, Msgs};
-use crate::platform::install::{self, Offer};
+use crate::platform::install;
 use crate::rekordbox::settings::{CrossfaderCurve, FaderCurve, WaveColor};
 
 const PAGES: [(&str, &str); 5] = [
@@ -29,10 +29,9 @@ pub struct SettingsState {
     msg: Option<String>,
     /// Where the installed copy lives (or would).
     install_target: Option<std::path::PathBuf>,
-    update_rx: Option<Receiver<Result<(), String>>>,
     uninstall_rx: Option<Receiver<Result<String, String>>>,
-    /// Progress or result of UPDATE or UNINSTALL, shown under those buttons.
-    install_msg: Option<String>,
+    /// Progress or result of UNINSTALL, shown under the button.
+    uninstall_msg: Option<String>,
     /// First press of the two-press UNINSTALL.
     uninstall_confirm: Option<std::time::Instant>,
     /// MIDI learn is waiting for this control.
@@ -50,6 +49,10 @@ impl App {
         self.settings.devices_rx = Some(rx);
         self.settings.autolaunch = crate::platform::autolaunch::is_installed();
         self.settings.install_target = install::target();
+        // The check at startup can run before the network is up.
+        if self.updates.available.is_none() {
+            self.check_for_update();
+        }
     }
 
     /// Drop the audio stream and reconnect with the current options.
@@ -454,25 +457,10 @@ impl App {
     /// Installed copy: where it is, UPDATE from the latest release, UNINSTALL (press twice).
     fn install_rows(&mut self, ui: &mut Ui, rows: &mut Rows) {
         let p = ui.painter().clone();
-        if let Some(rx) = &self.settings.update_rx {
-            match rx.try_recv() {
-                Ok(Ok(())) => {
-                    self.settings.update_rx = None;
-                    if let Some(t) = self.settings.install_target.clone() {
-                        self.settings.install_msg = Some(self.restart_into(&t, Offer::Update));
-                    }
-                }
-                Ok(Err(e)) => {
-                    self.settings.update_rx = None;
-                    self.settings.install_msg = Some(e);
-                }
-                Err(_) => ui.ctx().request_repaint_after(std::time::Duration::from_millis(200)),
-            }
-        }
         if let Some(rx) = &self.settings.uninstall_rx {
             if let Ok(res) = rx.try_recv() {
                 self.settings.uninstall_rx = None;
-                self.settings.install_msg = Some(match res {
+                self.settings.uninstall_msg = Some(match res {
                     Ok(m) | Err(m) => m,
                 });
                 self.settings.autolaunch = crate::platform::autolaunch::is_installed();
@@ -480,13 +468,18 @@ impl App {
         }
         let Some(target) = self.settings.install_target.clone().filter(|t| t.exists()) else {
             rows.text(&p, "Installed", "No");
-            if let Some(m) = &self.settings.install_msg {
+            if let Some(m) = &self.settings.uninstall_msg {
                 rows.note(&p, m);
             }
             return;
         };
         rows.text(&p, "Installed", &target.display().to_string());
-        let busy = self.settings.update_rx.is_some() || self.settings.uninstall_rx.is_some() || self.settings.job_rx.is_some();
+        let updating = self.updates.running();
+        let up_to_date = self.updates.available == Some(false) && !updating;
+        if up_to_date {
+            rows.text(&p, "Latest release from GitHub", "Up to date");
+        }
+        let busy = updating || self.settings.uninstall_rx.is_some() || self.settings.job_rx.is_some();
         let mut button_row = |app: &mut App, label: &str, id: &str, text: &str, lit: bool| {
             rows.label(&p, label);
             let r = Rect::from_min_size(pos2(rows.x + rows.label_w, rows.y - 2.0), vec2(220.0, 38.0));
@@ -494,29 +487,24 @@ impl App {
             rows.y += 44.0;
             c
         };
-        let updating = self.settings.update_rx.is_some();
-        if button_row(self, "Latest release from GitHub", "supd", if updating { "UPDATING…" } else { "UPDATE" }, false) && !busy {
-            let (tx, rx) = crossbeam_channel::bounded(1);
-            let t = target.clone();
-            std::thread::spawn(move || {
-                let _ = tx.send(install::update(&t));
-            });
-            self.settings.update_rx = Some(rx);
-            self.settings.install_msg = Some("Downloading the latest release…".into());
+        if !up_to_date && button_row(self, "Latest release from GitHub", "supd", if updating { "UPDATING…" } else { "UPDATE" }, false) && !busy {
+            self.start_update();
         }
         let armed = self.settings.uninstall_confirm.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3));
         if button_row(self, "Uninstall (settings, cues and recordings stay)", "suni", if armed { "PRESS AGAIN" } else { "UNINSTALL" }, armed) && !busy {
             if armed {
                 self.settings.uninstall_confirm = None;
-                if [Offer::Install, Offer::Update].iter().any(|&o| self.banner.as_deref() == Some(&install::note(o, &target))) {
+                if self.banner.as_ref().is_some_and(|b| matches!(b.kind, BannerKind::Restarted | BannerKind::UpdateAvailable)) {
                     self.banner = None;
                 }
                 let (tx, rx) = crossbeam_channel::bounded(1);
+                let ctx = ui.ctx().clone();
                 std::thread::spawn(move || {
                     let _ = tx.send(install::uninstall(&target));
+                    ctx.request_repaint();
                 });
                 self.settings.uninstall_rx = Some(rx);
-                self.settings.install_msg = Some("Working…".into());
+                self.settings.uninstall_msg = Some("Working…".into());
             } else {
                 self.settings.uninstall_confirm = Some(std::time::Instant::now());
             }
@@ -524,7 +512,7 @@ impl App {
         if armed {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
         }
-        if let Some(m) = &self.settings.install_msg {
+        if let Some(m) = &self.settings.uninstall_msg {
             rows.note(&p, m);
         }
     }

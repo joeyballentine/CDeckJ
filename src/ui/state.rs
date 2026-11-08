@@ -11,7 +11,7 @@ use crate::midi::UiAction;
 use crate::track::{GridSource, SavedCue};
 use crate::ui::actions::preset_comment;
 use crate::ui::{CueSnapshot, LoadMsg};
-use crate::ui::App;
+use crate::ui::{App, Banner};
 
 impl App {
     pub(crate) fn poll(&mut self) {
@@ -248,7 +248,7 @@ impl App {
                 self.send(Cmd::TempoRange(d, v));
             }
         }
-        self.banner = Some(format!("Using My Settings from {name}: {}", s.summary()));
+        self.banner = Some(Banner::notice(format!("Using My Settings from {name}: {}", s.summary())));
     }
 
     /// Add tracks to the session history once they've been on air for a few seconds.
@@ -293,7 +293,7 @@ impl App {
         }
         if self.recorder.low_space() && !self.rec_low_warned {
             self.rec_low_warned = true;
-            self.banner = Some("Less than 1 GB free for the recording (about an hour left). It will stop safely before the disk fills.".into());
+            self.banner = Some(Banner::notice("Less than 1 GB free for the recording (about an hour left). It will stop safely before the disk fills."));
         }
         if self.rec_confirm.is_some_and(|t| t.elapsed() >= Duration::from_secs(3)) {
             self.rec_confirm = None;

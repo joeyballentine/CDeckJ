@@ -7,7 +7,7 @@ use crossbeam_channel::Receiver;
 
 use crate::platform::install::{self, Offer};
 use crate::ui::prelude::*;
-use crate::ui::App;
+use crate::ui::{App, Banner, BannerKind};
 
 pub struct Prompt {
     offer: Offer,
@@ -22,7 +22,79 @@ impl Prompt {
     }
 }
 
+/// The check for a newer release, and an update in progress.
+#[derive(Default)]
+pub struct Updates {
+    check: Option<Receiver<Result<bool, String>>>,
+    /// Whether a newer release is out; None until a check succeeds.
+    pub available: Option<bool>,
+    /// Where the update installs to, and its result.
+    running: Option<(PathBuf, Receiver<Result<(), String>>)>,
+}
+
+impl Updates {
+    pub fn running(&self) -> bool {
+        self.running.is_some()
+    }
+}
+
 impl App {
+    /// Ask GitHub, off the UI thread, whether a newer release is out. Release builds only.
+    pub(crate) fn check_for_update(&mut self) {
+        if install::build_commit().is_none() || self.updates.check.is_some() {
+            return;
+        }
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let ctx = self.ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(install::update_available());
+            ctx.request_repaint();
+        });
+        self.updates.check = Some(rx);
+    }
+
+    /// Download the latest release over the installed copy, then restart into it.
+    pub(crate) fn start_update(&mut self) {
+        let Some(target) = install::target() else {
+            self.banner = Some(Banner::notice("Can't update: no home folder to install into."));
+            return;
+        };
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let ctx = self.ctx.clone();
+        let t = target.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(install::update(&t));
+            ctx.request_repaint();
+        });
+        self.updates.running = Some((target, rx));
+        self.banner = Some(Banner::notice("Downloading the latest release…"));
+    }
+
+    /// Pick up the results of the update check and of an update.
+    pub(crate) fn update_tick(&mut self) {
+        if let Some(Ok(res)) = self.updates.check.as_ref().map(|rx| rx.try_recv()) {
+            self.updates.check = None;
+            match res {
+                Ok(available) => {
+                    self.updates.available = Some(available);
+                    if available && self.banner.is_none() {
+                        self.banner = Some(Banner { text: "A new version of CDeckJ is available.".into(), kind: BannerKind::UpdateAvailable });
+                    }
+                }
+                // Usually offline. SETTINGS checks again when opened, and UPDATE still works.
+                Err(e) => eprintln!("update check: {e}"),
+            }
+        }
+        if let Some(Ok(res)) = self.updates.running.as_ref().map(|(_, rx)| rx.try_recv()) {
+            let Some((target, _)) = self.updates.running.take() else { return };
+            let msg = match res {
+                Ok(()) => self.restart_into(&target, Offer::Update),
+                Err(e) => format!("Update failed: {e}"),
+            };
+            self.banner = Some(Banner::notice(msg));
+        }
+    }
+
     /// Close the audio stream, hand the sound card back, stop recording and save, as on exit.
     pub(crate) fn shutdown(&mut self) {
         // Close the stream before handing the card back its old profile.
