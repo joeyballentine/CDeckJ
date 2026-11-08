@@ -23,7 +23,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: System libraries
         # mesa-vulkan-drivers: a software GPU (lavapipe) for the screenshot tests
@@ -55,7 +55,7 @@ jobs:
       - name: Package
         run: tools/package.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: cdeckj-steamdeck-x86_64
           path: dist/cdeckj-steamdeck-x86_64.tar.gz
