@@ -7,6 +7,37 @@ use crate::engine::deck::SCRATCH_SECS_PER_TICK;
 use crate::ui::HOT_LETTERS;
 use crate::ui::App;
 
+/// Slowest tempo the scrolling waveform scales to. WIDE reaches a tempo of zero, which
+/// would squeeze the whole track into the view.
+const MIN_SCROLL_RATE: f64 = 0.25;
+
+/// Track time ↔ x in the scrolling waveform. The view shows a fixed span of playing time, so
+/// a deck at a higher tempo shows more of its track, and beats are equally wide on both
+/// decks when their BPMs match.
+struct Scroll {
+    /// x of the playhead.
+    cx: f32,
+    /// Playhead in track seconds.
+    pos_s: f64,
+    /// Pixels per track second.
+    pps: f64,
+}
+
+impl Scroll {
+    /// `px_per_sec` is pixels per second of playing time; `rate` the deck's tempo multiplier.
+    fn new(cx: f32, pos_s: f64, px_per_sec: f64, rate: f64) -> Self {
+        Self { cx, pos_s, pps: px_per_sec / rate.max(MIN_SCROLL_RATE) }
+    }
+
+    fn t_at(&self, x: f32) -> f64 {
+        self.pos_s + (x - self.cx) as f64 / self.pps
+    }
+
+    fn x_at(&self, s: f64) -> f32 {
+        self.cx + ((s - self.pos_s) * self.pps) as f32
+    }
+}
+
 impl App {
     /// Waveform colour and zoom over the top-right of the waveforms; `big` for touch.
     pub(crate) fn zoom_buttons(&mut self, ui: &Ui, waves: Rect, big: bool) {
@@ -35,14 +66,14 @@ impl App {
             return;
         };
         let sr = track.sample_rate as f64;
-        let pos_s = dv.pos / sr;
-        let pps = r.width() as f64 / self.config.waveform_seconds; // pixels per second
         // Playhead centred, or toward the left (WAVEFORM CURRENT POSITION) to see more ahead.
         let cx = if self.config.playhead_left { r.min.x + r.width() * 0.3 } else { r.center().x };
+        let scroll = Scroll::new(cx, dv.pos / sr, r.width() as f64 / self.config.waveform_seconds, dv.rate);
+        let pps = scroll.pps;
         let mid_y = r.center().y;
         let half = r.height() * 0.46;
-        let t_at = |x: f32| pos_s + (x - cx) as f64 / pps;
-        let x_at = |s: f64| cx + ((s - pos_s) * pps) as f32;
+        let t_at = |x: f32| scroll.t_at(x);
+        let x_at = |s: f64| scroll.x_at(s);
 
         if let (Some(a), Some(b)) = (dv.loop_in, dv.loop_out) {
             let lr = Rect::from_x_y_ranges(x_at(a / sr)..=x_at(b / sr), r.y_range());
@@ -201,5 +232,39 @@ impl App {
                 self.send(Cmd::Seek(d, f as f64));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// x of beat `k` of a constant-tempo track playing at `rate`, `beats_in` beats into it.
+    fn beat_x(bpm: f64, rate: f64, beats_in: f64, k: f64) -> f32 {
+        let beat_s = 60.0 / bpm;
+        Scroll::new(400.0, beats_in * beat_s, 100.0, rate).x_at(k * beat_s)
+    }
+
+    #[test]
+    fn beats_line_up_when_the_decks_play_at_the_same_bpm() {
+        // A 128 BPM track slowed to 124 beside a 124 BPM track, both 10.25 beats in.
+        for k in [8.0, 10.0, 11.0, 14.0] {
+            let (a, b) = (beat_x(124.0, 1.0, 10.25, k), beat_x(128.0, 124.0 / 128.0, 10.25, k));
+            assert!((a - b).abs() < 0.01, "beat {k}: {a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn the_view_spans_a_fixed_playing_time() {
+        // 100 px per second of playing time: at +10 % the next 1.1 s of track fit in 100 px.
+        let s = Scroll::new(400.0, 30.0, 100.0, 1.1);
+        assert!((s.x_at(31.1) - 500.0).abs() < 0.01);
+        assert!((s.t_at(500.0) - 31.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_stopped_tempo_fader_keeps_a_usable_scale() {
+        let s = Scroll::new(400.0, 30.0, 100.0, 0.0);
+        assert!(s.pps.is_finite() && (s.x_at(30.25) - 500.0).abs() < 0.01);
     }
 }
