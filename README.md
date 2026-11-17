@@ -102,6 +102,7 @@ Recordings go to `~/Music/CDeckJ Recordings/` as 24-bit WAV, with a `tracklist.t
 | PLAY / CUE | CDJ transport |
 | SHIFT + CUE | Back to the start |
 | SYNC / SHIFT + SYNC | Sync on/off / change tempo range |
+| MASTER TEMPO | Master Tempo on/off |
 | Jog top / side / SHIFT + jog | Scratch / bend / search |
 | LOOP IN / OUT / RELOOP | Loop in, loop out, reloop or exit |
 | SHIFT + IN / OUT / RELOOP | 4-beat loop / halve / double |

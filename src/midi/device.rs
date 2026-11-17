@@ -204,6 +204,7 @@ fn led_value(c: Control, v: &EngineView, r: &Resolved, blink: bool) -> Option<u8
             lit(if dv.playing || dv.at_cue { dv.loaded } else { dv.loaded && blink })
         }
         Sync(d) => lit(v.decks[d].synced),
+        MasterTempo(d) => lit(v.decks[d].keylock),
         LoopIn(d) | LoopOut(d) | Reloop(d) => lit(v.decks[d].loop_active),
         HotCue(d, i) | HotCueDelete(d, i) => lit(v.decks[d].hot[i].is_some()),
         Pfl(c) => lit(v.mixer.ch[c].pfl),

@@ -181,6 +181,19 @@ mod tests {
     }
 
     #[test]
+    fn grv6_master_tempo_toggles_and_lights() {
+        let mut m = grv6();
+        assert_eq!(dec(&mut m, [0x90, 0x1A, 0x7F]), "Some(MasterTempoToggle(0))");
+        assert_eq!(dec(&mut m, [0x91, 0x1A, 0x7F]), "Some(MasterTempoToggle(1))");
+        assert_eq!(dec(&mut m, [0x90, 0x1A, 0x00]), "None", "release does nothing");
+        let mut v = EngineView::new(48000, 2, CueRouting::MasterOnly);
+        v.decks[1].keylock = true;
+        let leds = led_targets(&v, &m.profile, false);
+        assert!(leds.contains(&(0x90, 0x1A, 0x00)), "deck 1 off: {leds:?}");
+        assert!(leds.contains(&(0x91, 0x1A, 0x7F)), "deck 2 lit: {leds:?}");
+    }
+
+    #[test]
     fn pioneer_family_profiles() {
         let profiles = builtin();
         let pick = |port: &str| profile_for_port(&profiles, port).map(|p| p.name.as_str());
