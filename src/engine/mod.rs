@@ -178,6 +178,11 @@ impl Engine {
         use Cmd::*;
         match cmd {
             Load { deck, track, generation } => {
+                // A deck following this one keeps its tempo instead of following the new track.
+                let follower = Self::other(deck);
+                if self.decks[follower].synced && self.master_deck() == deck {
+                    self.release_sync(follower);
+                }
                 if let Some(old) = self.decks[deck].load(track, generation) {
                     // Free the old buffers off the audio thread when possible.
                     if let Err(e) = self.garbage_tx.try_send(old) {
@@ -186,7 +191,15 @@ impl Engine {
                 }
                 self.decks[deck].quantize = self.quantize;
             }
-            Play(d) => self.decks[d].play_pressed(),
+            Play(d) => {
+                let was_playing = self.decks[d].playing;
+                self.decks[d].play_pressed();
+                if !was_playing {
+                    // Either deck starting can complete a synced pair.
+                    self.align_beats(d);
+                    self.align_beats(Self::other(d));
+                }
+            }
             Cue(d, p) => self.decks[d].cue_button(p),
             ToStart(d) => self.decks[d].to_start(),
             HotCue(d, i, p) => self.decks[d].hot_cue(i, p),
@@ -206,12 +219,7 @@ impl Engine {
             TempoRange(d, i) => self.decks[d].range_idx = i.min(TEMPO_RANGES.len() - 1),
             SyncToggle(d) => {
                 if self.decks[d].synced {
-                    // Keep the synced tempo until the fader is moved through it.
-                    let r = self.base_rate(d);
-                    self.decks[d].synced = false;
-                    if (r - self.decks[d].fader_rate()).abs() > 1e-6 {
-                        self.decks[d].tempo_hold = Some(r);
-                    }
+                    self.release_sync(d);
                 } else {
                     self.enable_sync(d);
                 }
@@ -255,16 +263,36 @@ impl Engine {
         }
     }
 
+    /// Switch SYNC off, keeping the synced tempo until the fader is moved through it.
+    fn release_sync(&mut self, d: usize) {
+        let r = self.base_rate(d);
+        self.decks[d].synced = false;
+        if (r -self.decks[d].fader_rate()).abs() > 1e-6 {
+            self.decks[d].tempo_hold = Some(r);
+        }
+    }
+
     fn enable_sync(&mut self, d: usize) {
         let m = Self::other(d);
         if self.decks[d].bpm().is_none() || self.decks[m].bpm().is_none() {
             return;
         }
-        // If the other deck is also synced, it becomes the master.
-        self.decks[m].synced = false;
+        // If the other deck is also synced, it becomes the master at the tempo it has now.
+        if self.decks[m].synced {
+            self.release_sync(m);
+        }
         self.decks[d].synced = true;
         self.decks[d].tempo_hold = None;
-        // Beat-align now; the phase lock keeps it there.
+        self.align_beats(d);
+    }
+
+    /// Put a playing synced deck on the master's beat; the phase lock keeps it there. A
+    /// paused deck stays where it is and is aligned when it starts.
+    fn align_beats(&mut self, d: usize) {
+        let m = self.master_deck();
+        if !self.decks[d].synced || m == d || !self.decks[d].playing || !self.decks[m].playing {
+            return;
+        }
         if let (Some(bm), Some(bd)) = (self.decks[m].beat_at(self.decks[m].pos), self.decks[d].beat_at(self.decks[d].pos)) {
             let mut diff = bm.rem_euclid(1.0) - bd.rem_euclid(1.0);
             if diff > 0.5 {
@@ -547,6 +575,63 @@ mod tests {
         run(&mut e, 0.1);
         let v = *view.lock();
         assert!(!v.decks[1].tempo_held);
+    }
+
+    /// Deck 2 (128) synced to deck 1 (124), both playing.
+    fn synced_pair() -> (Engine, Sender<Cmd>, SharedView) {
+        let (mut e, tx, view) = engine();
+        tx.send(Cmd::Load { deck: 0, track: track(124.0, 0.1), generation: 1 }).unwrap();
+        tx.send(Cmd::Load { deck: 1, track: track(128.0, 0.3), generation: 2 }).unwrap();
+        tx.send(Cmd::Play(0)).unwrap();
+        tx.send(Cmd::Play(1)).unwrap();
+        tx.send(Cmd::SyncToggle(1)).unwrap();
+        run(&mut e, 1.0);
+        (e, tx, view)
+    }
+
+    #[test]
+    fn loading_the_master_deck_keeps_the_other_decks_tempo() {
+        let (mut e, tx, view) = synced_pair();
+        tx.send(Cmd::Load { deck: 0, track: track(140.0, 0.2), generation: 3 }).unwrap();
+        run(&mut e, 0.5);
+        let v = *view.lock();
+        assert!((v.decks[1].bpm.unwrap() - 124.0).abs() < 0.01, "deck 2 at {}", v.decks[1].bpm.unwrap());
+        assert!(v.decks[1].playing);
+        // SYNC on the new track then matches it to the deck that kept playing.
+        tx.send(Cmd::SyncToggle(0)).unwrap();
+        tx.send(Cmd::Play(0)).unwrap();
+        run(&mut e, 3.0);
+        let v = *view.lock();
+        assert!((v.decks[0].bpm.unwrap() - 124.0).abs() < 0.01, "deck 1 at {}", v.decks[0].bpm.unwrap());
+        assert!((v.decks[1].bpm.unwrap() - 124.0).abs() < 0.01, "deck 2 at {}", v.decks[1].bpm.unwrap());
+        assert!(phase_diff(&e) < 0.02);
+    }
+
+    #[test]
+    fn a_synced_deck_starts_on_the_beat() {
+        let (mut e, tx, view) = engine();
+        tx.send(Cmd::Load { deck: 0, track: track(124.0, 0.1), generation: 1 }).unwrap();
+        tx.send(Cmd::Load { deck: 1, track: track(128.0, 0.3), generation: 2 }).unwrap();
+        tx.send(Cmd::Play(0)).unwrap();
+        run(&mut e, 1.0);
+        tx.send(Cmd::SyncToggle(1)).unwrap();
+        run(&mut e, 0.37);
+        let v = *view.lock();
+        assert!(v.decks[1].synced && v.decks[1].at_cue, "SYNC leaves a paused deck on its cue");
+        tx.send(Cmd::Play(1)).unwrap();
+        run(&mut e, 0.3);
+        assert!(phase_diff(&e) < 0.02, "{}", phase_diff(&e));
+    }
+
+    #[test]
+    fn syncing_the_master_deck_keeps_the_other_decks_tempo() {
+        let (mut e, tx, view) = synced_pair();
+        tx.send(Cmd::SyncToggle(0)).unwrap();
+        run(&mut e, 0.5);
+        let v = *view.lock();
+        assert!(v.decks[0].synced && !v.decks[1].synced);
+        assert!((v.decks[1].bpm.unwrap() - 124.0).abs() < 0.01, "deck 2 at {}", v.decks[1].bpm.unwrap());
+        assert!((v.decks[0].bpm.unwrap() - 124.0).abs() < 0.01, "deck 1 at {}", v.decks[0].bpm.unwrap());
     }
 
     #[test]
